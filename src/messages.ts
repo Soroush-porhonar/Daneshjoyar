@@ -175,6 +175,13 @@ export const NOT_A_PDF_TEXT =
 export const FILE_TOO_LARGE_TEXT =
   "حجم فایل بیشتر از ۲۰ مگابایته. لطفاً فایل کوچک‌تری بفرست.";
 
+/** The same file (name and size) was already uploaded by this user. */
+export const duplicateDocumentText = (filename: string, stillProcessing: boolean): string =>
+  stillProcessing
+    ? `📎 فایل «${filename}» رو قبلاً فرستادی و الان در حال پردازشه. یه کم صبر کن تا آماده بشه.`
+    : `📎 فایل «${filename}» رو قبلاً فرستادی و توی جزوه‌هات هست، پس دوباره ذخیره‌ش نکردم.\n\n` +
+      `اگه می‌خوای ازش سؤال بپرسی، از دکمه زیر انتخابش کن.`;
+
 export const FILE_RECEIVED_TEXT =
   "📥 فایلت رسید. دارم پردازشش می‌کنم، یه کم صبر کن...";
 

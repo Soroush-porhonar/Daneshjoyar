@@ -27,7 +27,7 @@ const { findOrCreateUser } = await import("../../src/db/users.js");
 const { findOrCreateConversation, getSelectedDocumentId, selectDocument } = await import(
   "../../src/db/conversations.js"
 );
-const { deleteDocument, findDocumentFilename, listCompletedFilenames } = await import(
+const { deleteDocument, findDocumentFilename, findDuplicateDocument, listCompletedFilenames } = await import(
   "../../src/db/documents.js"
 );
 const { isUpdateProcessed, markUpdateProcessed } = await import("../../src/db/updates.js");
@@ -36,6 +36,7 @@ const { getDocumentChunks, retrieveContext, retrieveRelevantChunks, searchCandid
   "../../src/rag/retrieve.js"
 );
 const { ingestPdf } = await import("../../src/rag/ingest.js");
+const { DuplicateDocumentError } = await import("../../src/errors.js");
 const { openPdf } = await import("../../src/rag/pdf.js");
 const { generateEmbeddings } = await import("../../src/rag/embeddings.js");
 
@@ -287,6 +288,55 @@ describe("ingestPdf", () => {
     expect(documents.rows).toEqual([{ status: "failed" }]);
     const chunks = await pool.query("SELECT 1 FROM document_chunks");
     expect(chunks.rowCount).toBe(0);
+  });
+});
+
+describe("duplicate uploads (same user, same name and size)", () => {
+  const pages = [
+    {
+      pageNumber: 1,
+      method: "text" as const,
+      text: "این متن صفحه اول از جزوه آزمایشی است و به اندازه کافی طولانی است #1",
+    },
+  ];
+
+  beforeEach(() => {
+    vi.mocked(openPdf).mockResolvedValue({ pages, renderPage: vi.fn(), close: vi.fn(async () => {}) });
+  });
+
+  it("finds the user's existing copy, but not another user's or a different size", async () => {
+    const alice = await addUser("alice");
+    const bob = await addUser("bob");
+    const { documentId } = await ingestPdf(alice, "notes.pdf", "x.pdf", undefined, 1234);
+
+    expect(await findDuplicateDocument(alice, "notes.pdf", 1234)).toEqual({ id: documentId, status: "completed" });
+    expect(await findDuplicateDocument(bob, "notes.pdf", 1234)).toBeNull();
+    expect(await findDuplicateDocument(alice, "notes.pdf", 999)).toBeNull();
+  });
+
+  it("the database refuses a second copy, even if the check was skipped", async () => {
+    const alice = await addUser("alice");
+    await ingestPdf(alice, "notes.pdf", "x.pdf", undefined, 1234);
+
+    await expect(ingestPdf(alice, "notes.pdf", "x.pdf", undefined, 1234)).rejects.toBeInstanceOf(
+      DuplicateDocumentError,
+    );
+  });
+
+  it("a failed upload does not block sending the file again", async () => {
+    const alice = await addUser("alice");
+    vi.mocked(generateEmbeddings).mockRejectedValueOnce(new Error("ollama down"));
+    await expect(ingestPdf(alice, "notes.pdf", "x.pdf", undefined, 1234)).rejects.toThrow();
+
+    expect(await findDuplicateDocument(alice, "notes.pdf", 1234)).toBeNull();
+    await expect(ingestPdf(alice, "notes.pdf", "x.pdf", undefined, 1234)).resolves.toBeTruthy();
+  });
+
+  it("scripts that re-ingest on purpose (no size) are not blocked", async () => {
+    const alice = await addUser("alice");
+    await ingestPdf(alice, "notes.pdf", "x.pdf");
+
+    await expect(ingestPdf(alice, "notes.pdf", "x.pdf")).resolves.toBeTruthy();
   });
 });
 

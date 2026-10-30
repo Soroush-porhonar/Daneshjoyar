@@ -20,6 +20,11 @@ export class PdfExtractError extends Error {
   override name = "PdfExtractError";
 }
 
+/** The user already has this file (same name and size). */
+export class DuplicateDocumentError extends Error {
+  override name = "DuplicateDocumentError";
+}
+
 export function getErrorMessage(error: unknown): string {
   if (error instanceof Error) {
     return error.message;
