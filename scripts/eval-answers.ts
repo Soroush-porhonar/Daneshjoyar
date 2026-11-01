@@ -118,7 +118,9 @@ async function judge(question: string, sources: string, answer: string): Promise
         content:
           "You are a strict grader of a study assistant. " +
           "faithful = every fact in the ANSWER is supported by the SOURCES (saying the sources do not cover something is faithful). " +
-          "answersQuestion = the ANSWER actually answers the QUESTION. " +
+          "answersQuestion = the ANSWER actually answers the QUESTION; when the SOURCES do not contain the answer, " +
+          "clearly saying so is the correct answer and counts as true. " +
+          "Numbers like [2] in the ANSWER cite the numbered SOURCES. " +
           "reason = one short English sentence.",
       },
       {
@@ -212,6 +214,7 @@ console.log(
     `keywords ${count("keywords", "yes")}/${positives}  ` +
     `refused negatives ${count("refused", "yes")}/${negatives}  ` +
     `judge faithful ${count("faithful", "yes")}/${judged}  ` +
+    `judge answers ${count("answers", "yes")}/${judged}  ` +
     `avg ${Math.round(rows.reduce((s, r) => s + (r.s as number), 0) / Math.max(rows.length, 1))}s`,
 );
 
