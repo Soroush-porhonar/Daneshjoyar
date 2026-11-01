@@ -96,13 +96,17 @@ export function buildSourceList(chunks: SourceChunk[]): string[] {
 const toAsciiDigits = (text: string) =>
   text.replace(/[۰-۹]/g, (digit) => String("۰۱۲۳۴۵۶۷۸۹".indexOf(digit)));
 
-/** The source numbers the model cited inline: [2], [1، 3], [۲]. Code (a[1]) is not a citation. */
+/**
+ * The source numbers the model cited inline: [2], [1][3], [1، 3], [۲].
+ * Code (a[1], a[1][2]) is not a citation.
+ */
 export function citedNumbers(answer: string): Set<number> {
   const cited = new Set<number>();
   const prose = toAsciiDigits(answer).replace(/```[\s\S]*?```|`[^`\n]*`/g, "");
 
-  for (const [, list] of prose.matchAll(/(?<![\w\])])\[([\d\s,،]+)\]/g)) {
-    for (const part of list!.split(/[\s,،]+/)) {
+  // A run of brackets ("[1][3]") counts only when it doesn't follow a name or a bracket.
+  for (const [run] of prose.matchAll(/(?<![\w)\]])(?:\[[\d\s,،]+\])+/g)) {
+    for (const part of run.split(/[^\d]+/)) {
       if (part) cited.add(Number(part));
     }
   }
@@ -114,11 +118,17 @@ export function citedNumbers(answer: string): Set<number> {
 export const REFUSAL_PATTERN =
   /(پیدا نکردم|اطلاعاتی (در|درباره)|وجود ندارد|نیامده|اشاره‌ای نشده|ذکر نشده|کافی نیست|در منابع .*نیست)/;
 
-/** The answer says the sources don't cover the question (and cites nothing). */
+/**
+ * The answer says the sources don't cover the question. Judged by its first
+ * sentence: a refusal opens with it ("the sources say nothing about X"), and
+ * may then cite what the sources do cover; a partial answer opens with content.
+ */
 export function isRefusal(answer: string): boolean {
+  const first = answer.trim().split(/[.؟?!\n]/)[0] ?? "";
+
   return (
     answer === NO_RELEVANT_CONTENT_TEXT ||
-    (REFUSAL_PATTERN.test(answer) && citedNumbers(answer).size === 0)
+    (REFUSAL_PATTERN.test(first) && /منابع|منبع|جزوه|متن/.test(first) && citedNumbers(first).size === 0)
   );
 }
 

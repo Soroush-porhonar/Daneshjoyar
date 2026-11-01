@@ -615,7 +615,7 @@
     "type": "paraphrase",
     "mode": "focused",
     "question": "یک تستر نرم‌افزار خوب چه مهارت‌های غیرفنی‌ای باید داشته باشد؟",
-    "expectedPages": [5],
+    "expectedPages": [5, 170],
     "mustInclude": ["تحلیلی"],
     "filename": "جزوه درس آزمون نرم افزاراستاد زاغری 405.pdf"
   },
@@ -705,7 +705,7 @@
     "type": "paraphrase",
     "mode": "focused",
     "question": "تست کیس‌ها را بر چه اساسی اولویت‌بندی می‌کنیم؟",
-    "expectedPages": [49, 161],
+    "expectedPages": [49, 161, 167],
     "mustInclude": ["ریسک"],
     "filename": "جزوه درس آزمون نرم افزاراستاد زاغری 405.pdf"
   },

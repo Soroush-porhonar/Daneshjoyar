@@ -83,6 +83,24 @@ describe("numbered sources", () => {
     expect(appendSources(refusal, context, numbers)).toBe(refusal);
   });
 
+  it("reads a run of brackets as several citations", () => {
+    expect(citedNumbers("سه محرک اصلی [1][3]. پایان [2، ۴]")).toEqual(new Set([1, 3, 2, 4]));
+    expect(citedNumbers("کد a[1][2] نقل قول نیست")).toEqual(new Set());
+  });
+
+  it("treats an answer that opens with a refusal as a refusal, even if it then cites what is covered", () => {
+    const refusal =
+      "بر اساس منابع ارائه‌شده، هیچ اطلاعاتی در مورد الگوریتم بلمن-فورد وجود ندارد. منابع فقط به پریم و کروسکال پرداخته‌اند [1][2].";
+
+    expect(isRefusal(refusal)).toBe(true);
+    expect(appendSources(refusal, context, numbers)).toBe(refusal);
+  });
+
+  it("does not take a content sentence with 'وجود ندارد' for a refusal", () => {
+    expect(isRefusal("در پشته دسترسی تصادفی وجود ندارد [2].")).toBe(false);
+    expect(isRefusal("در آرایه محدودیتی برای اندازه وجود ندارد؛ پشته LIFO است [2].")).toBe(false);
+  });
+
   it("keeps sources on a partial answer that cites them", () => {
     const partial = "پشته LIFO است [2]، اما درباره صف اطلاعاتی در منابع نیامده.";
 
