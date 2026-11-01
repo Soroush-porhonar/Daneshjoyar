@@ -57,6 +57,8 @@ interface Row {
   hybridRank: number;
   /** Rank after the reranker re-ordered the hybrid candidates (the production order). */
   rerankRank: number;
+  /** Reranker score of the first correct chunk (positives) or of the best chunk (negatives). */
+  rerankScore?: number | null;
   rewritten?: string;
   pages: string;
   ms: number;
@@ -150,7 +152,9 @@ for (const q of questions) {
   // Hybrid search (vector + keyword, RRF), then the reranker on top, like production.
   const hybrid = await searchCandidates(document.user_id, q.question, limit, document.id, NO_THRESHOLD);
   const hybridRank = rankOf(hybrid, q.expectedPages);
-  const rerankRank = rankOf(await rerankChunks(q.question, hybrid), q.expectedPages);
+  const reranked = await rerankChunks(q.question, hybrid);
+  const rerankRank = rankOf(reranked, q.expectedPages);
+  const scored = q.type === "negative" ? reranked[0] : reranked[rerankRank - 1];
   const wrongIndex = chunks.findIndex((chunk) => !covers(chunk, q.expectedPages));
 
   // Like production: follow-ups are rewritten before the context is built.
@@ -174,6 +178,7 @@ for (const q of questions) {
     rank,
     hybridRank,
     rerankRank,
+    rerankScore: scored?.rerankScore ?? null,
     distance:
       q.type === "negative" ? (distances[0] ?? null) : rank > 0 ? distances[rank - 1]! : null,
     wrongDistance: wrongIndex >= 0 ? distances[wrongIndex]! : null,
@@ -350,6 +355,41 @@ console.table(
   })),
 );
 
+// --- Reranker score calibration (config.reranker.minScore) -----------------------
+// Hits scored below the minimum are dropped; with none left the bot refuses
+// without calling the LLM. Pick the highest value that still keeps ~98% of correct chunks.
+
+const minScore = config.reranker.minScore;
+const correctScores = finite(positives.map((r) => r.rerankScore ?? Number.NaN));
+const negativeScores = finite(negatives.map((r) => r.rerankScore ?? Number.NaN));
+
+if (correctScores.length > 0) {
+  console.log(
+    `\nReranker scores: correct chunks ${range(correctScores)}, negatives' best chunk ${range(negativeScores)}`,
+  );
+
+  const lowest = Math.min(...correctScores, ...negativeScores);
+  const highest = Math.max(...correctScores, ...negativeScores);
+  const steps = 10;
+  const candidates = [
+    ...Array.from({ length: steps + 1 }, (_, i) => lowest + ((highest - lowest) * i) / steps),
+    ...(minScore === null ? [] : [minScore]),
+  ].sort((a, b) => a - b);
+
+  console.table(
+    candidates.map((t) => ({
+      "min score": Number(t.toFixed(3)),
+      "keeps correct": pct(correctScores.filter((s) => s >= t).length / correctScores.length),
+      "rejects negatives": pct(
+        negativeScores.filter((s) => s < t).length / Math.max(negativeScores.length, 1),
+      ),
+      current: t === minScore ? "<-" : "",
+    })),
+  );
+} else {
+  console.log("\nReranker scores: none (reranker off or down).");
+}
+
 // --- Save and compare with the previous run -------------------------------------
 
 async function previousResult(): Promise<{ file: string; rows: Row[] } | null> {
@@ -395,6 +435,7 @@ if (save) {
         settings: {
           limit,
           threshold,
+          minRerankScore: config.reranker.minScore,
           retrievalLimits: config.rag.retrievalLimits,
           maxContextChunks: config.rag.maxContextChunks,
           chunkSize: config.rag.chunkSize,

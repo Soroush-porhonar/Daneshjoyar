@@ -17,14 +17,15 @@ function rerankText(chunk: { content: string; sectionTitle?: string | null }): s
 }
 
 /**
- * Returns the chunks ordered by relevance to the question (best first).
+ * Returns the chunks ordered by relevance to the question (best first), each
+ * with its `rerankScore`.
  * On any failure the original order is kept, so search still works when the
  * reranker service is down.
  */
 export async function rerankChunks<T extends { content: string; sectionTitle?: string | null }>(
   question: string,
   chunks: T[],
-): Promise<T[]> {
+): Promise<(T & { rerankScore?: number })[]> {
   if (!config.reranker.enabled || chunks.length < 2) return chunks;
 
   try {
@@ -51,7 +52,7 @@ export async function rerankChunks<T extends { content: string; sectionTitle?: s
 
     return [...results]
       .sort((a, b) => b.relevance_score - a.relevance_score)
-      .map((result) => chunks[result.index]!);
+      .map((result) => ({ ...chunks[result.index]!, rerankScore: result.relevance_score }));
   } catch (error: unknown) {
     logger.warn("[RAG] Reranking failed, keeping search order:", error);
     return chunks;

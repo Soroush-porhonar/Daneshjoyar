@@ -19,6 +19,8 @@ export interface RetrievedChunk {
   sectionTitle?: string | null;
   content: string;
   distance: number;
+  /** Cross-encoder relevance (higher is better); missing when the reranker is off or failed. */
+  rerankScore?: number;
 }
 
 /** A chunk that will be placed in the model's context (a hit or its neighbour). */
@@ -370,6 +372,18 @@ export async function rankedCandidates(
   return rerankChunks(question, candidates);
 }
 
+/**
+ * Drops hits the reranker judged irrelevant. Chunks without a score (reranker
+ * off or down) are kept, so a reranker failure never hides results.
+ */
+export function relevantHits(
+  ranked: RetrievedChunk[],
+  minScore: number | null = config.reranker.minScore,
+): RetrievedChunk[] {
+  if (minScore === null) return ranked;
+  return ranked.filter((chunk) => chunk.rerankScore === undefined || chunk.rerankScore >= minScore);
+}
+
 export async function retrieveContext(
   userId: number,
   question: string,
@@ -378,7 +392,7 @@ export async function retrieveContext(
   /** Candidates already ranked for this question and document (fetched early). */
   ranked?: RetrievedChunk[],
 ): Promise<ContextChunk[]> {
-  const hits = (ranked ?? (await rankedCandidates(userId, question, documentId)))
+  const hits = relevantHits(ranked ?? (await rankedCandidates(userId, question, documentId)))
     .slice(0, config.rag.retrievalLimits[mode])
     .map((hit) => ({ ...hit, isHit: true }));
 
