@@ -50,6 +50,18 @@ describe("rerankChunks", () => {
     expect(body).toEqual({ query: "سؤال", documents: ["الف", "ب", "ج"] });
   });
 
+  it("sends the slide title with the chunk, like the embedded text", async () => {
+    reply({ results: [0, 1].map((index) => ({ index, relevance_score: 0 })) });
+
+    await rerankChunks("سؤال", [
+      { content: "متن اسلاید", sectionTitle: "صف" },
+      { content: "صف\nمتن", sectionTitle: "صف" },
+    ]);
+
+    const body = JSON.parse(fetchMock.mock.calls[0]![1].body as string);
+    expect(body.documents).toEqual(["صف\nمتن اسلاید", "صف\nمتن"]);
+  });
+
   it("keeps the search order when the service is down", async () => {
     fetchMock.mockRejectedValueOnce(new TypeError("fetch failed"));
 
