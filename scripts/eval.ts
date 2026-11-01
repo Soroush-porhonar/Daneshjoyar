@@ -20,6 +20,7 @@
  */
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { performance } from "node:perf_hooks";
+import { bootstrapInterval, pairedInterval } from "./bootstrap.js";
 import { config } from "../src/config.js";
 import { pool } from "../src/db/pool.js";
 import {
@@ -334,6 +335,26 @@ console.table(
   ),
 );
 
+/** The production-order measures, per question (1 = yes, 0 = no). */
+const measures: Record<string, (row: Row) => number> = {
+  "+rerank hit@1": (row) => Number(row.rerankRank === 1),
+  "+rerank hit@3": (row) => Number(row.rerankRank >= 1 && row.rerankRank <= 3),
+  "in context": (row) => Number(row.inContext),
+};
+
+const interval = ([low, high]: [number, number]) => `${pct(low)}–${pct(high)}`;
+
+console.log(
+  `95% intervals (all, n=${positives.length}): ` +
+    Object.entries(measures)
+      .map(([name, measure]) => {
+        const values = positives.map(measure);
+        const share = values.reduce((sum, value) => sum + value, 0) / Math.max(values.length, 1);
+        return `${name} ${pct(share)} (${interval(bootstrapInterval(values))})`;
+      })
+      .join(", "),
+);
+
 // Negatives: with the production threshold, would the bot still find "something"?
 const falsePositives = negatives.filter(
   (row) => row.distance !== null && row.distance <= threshold,
@@ -458,6 +479,22 @@ if (previous) {
 
   console.log(`\nCompared with ${previous.file}:`);
   console.log(changes.length > 0 ? changes.join("\n") : "no rank changes");
+
+  // Is the overall change bigger than the noise? (Same questions in both runs.)
+  const shared = positives.filter((row) => before.has(row.id));
+  const points = (value: number) => `${value >= 0 ? "+" : ""}${Math.round(value * 100)}`;
+
+  for (const [name, measure] of Object.entries(measures)) {
+    const after = shared.map(measure);
+    const old = shared.map((row) => measure(before.get(row.id)!));
+    const change = (after.reduce((s, v) => s + v, 0) - old.reduce((s, v) => s + v, 0)) / Math.max(shared.length, 1);
+    const [low, high] = pairedInterval(old, after);
+    const verdict = low > 0 ? "better" : high < 0 ? "WORSE" : "within noise";
+
+    console.log(
+      `${name}: ${points(change)} points (95% ${points(low)} … ${points(high)}) on ${shared.length} shared questions — ${verdict}`,
+    );
+  }
 }
 
 if (save) {
