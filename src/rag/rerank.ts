@@ -5,9 +5,15 @@
  */
 import { config } from "../config.js";
 import { logger } from "../logger.js";
+import { withTitle } from "./chunk.js";
 
 interface RerankResponse {
   results?: { index: number; relevance_score: number }[];
+}
+
+/** What the reranker reads: the same text the chunk was embedded with (slide title included). */
+function rerankText(chunk: { content: string; sectionTitle?: string | null }): string {
+  return config.rag.chunking.titleInEmbedding ? withTitle(chunk.sectionTitle, chunk.content) : chunk.content;
 }
 
 /**
@@ -15,7 +21,7 @@ interface RerankResponse {
  * On any failure the original order is kept, so search still works when the
  * reranker service is down.
  */
-export async function rerankChunks<T extends { content: string }>(
+export async function rerankChunks<T extends { content: string; sectionTitle?: string | null }>(
   question: string,
   chunks: T[],
 ): Promise<T[]> {
@@ -26,7 +32,7 @@ export async function rerankChunks<T extends { content: string }>(
       method: "POST",
       headers: { "Content-Type": "application/json" },
       signal: AbortSignal.timeout(config.reranker.timeoutMs),
-      body: JSON.stringify({ query: question, documents: chunks.map((chunk) => chunk.content) }),
+      body: JSON.stringify({ query: question, documents: chunks.map(rerankText) }),
     });
 
     if (!response.ok) {

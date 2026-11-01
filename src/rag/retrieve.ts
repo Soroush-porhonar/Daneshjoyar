@@ -15,6 +15,8 @@ export interface RetrievedChunk {
   chunkIndex: number;
   /** Slide decks: chunks with the same title share a section; null otherwise. */
   sectionIndex?: number | null;
+  /** Slide decks: the slide title (part of the embedded text); null otherwise. */
+  sectionTitle?: string | null;
   content: string;
   distance: number;
 }
@@ -120,6 +122,7 @@ async function vectorSearch(
          dc.page_end AS "pageEnd",
          dc.chunk_index AS "chunkIndex",
          dc.section_index AS "sectionIndex",
+         dc.section_title AS "sectionTitle",
          dc.content,
          dc.embedding <=> $2::vector AS distance,
          ROW_NUMBER() OVER (
@@ -145,6 +148,7 @@ async function vectorSearch(
        "pageEnd",
        "chunkIndex",
        "sectionIndex",
+       "sectionTitle",
        content,
        distance
      FROM ranked_chunks
@@ -203,6 +207,7 @@ async function keywordSearch(
        dc.page_end AS "pageEnd",
        dc.chunk_index AS "chunkIndex",
        dc.section_index AS "sectionIndex",
+       dc.section_title AS "sectionTitle",
        dc.content,
        dc.embedding <=> $5::vector AS distance
      FROM document_chunks dc
