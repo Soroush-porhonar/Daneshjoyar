@@ -51,16 +51,34 @@ function generate(
   });
 }
 
-export function formatChunks(chunks: SourceChunk[]): string {
+/** The source line a chunk is cited as; chunks on the same page share it. */
+const sourceLine = (chunk: SourceChunk): string | null =>
+  chunk.pageNumber == null ? null : sourceLineText(chunk.filename, chunk.pageNumber, chunk.pageEnd);
+
+/** Numbers the distinct sources (pages) in reading order: source line -> 1, 2, ... */
+export function numberSources(chunks: SourceChunk[]): Map<string, number> {
+  const numbers = new Map<string, number>();
+
+  for (const chunk of chunks) {
+    const line = sourceLine(chunk);
+    if (line !== null && !numbers.has(line)) numbers.set(line, numbers.size + 1);
+  }
+
+  return numbers;
+}
+
+/** With `numbers`, each chunk is labelled with its source number so the model can cite it as [n]. */
+export function formatChunks(chunks: SourceChunk[], numbers?: Map<string, number>): string {
   return chunks
-    .map(
-      (chunk) =>
-        `[فایل: ${chunk.filename}، صفحه PDF ${chunk.pageNumber ?? "نامشخص"}${
-          chunk.pageEnd && chunk.pageNumber && chunk.pageEnd > chunk.pageNumber
-            ? ` تا ${chunk.pageEnd}`
-            : ""
-        }]\n${chunk.content}`,
-    )
+    .map((chunk) => {
+      const number = numbers?.get(sourceLine(chunk) ?? "");
+
+      return `[${number ? `منبع ${number} — ` : ""}فایل: ${chunk.filename}، صفحه PDF ${chunk.pageNumber ?? "نامشخص"}${
+        chunk.pageEnd && chunk.pageNumber && chunk.pageEnd > chunk.pageNumber
+          ? ` تا ${chunk.pageEnd}`
+          : ""
+      }]\n${chunk.content}`;
+    })
     .join("\n\n---\n\n");
 }
 
@@ -68,14 +86,63 @@ export function buildSourceList(chunks: SourceChunk[]): string[] {
   return [
     ...new Set(
       chunks
-        .filter((chunk) => chunk.pageNumber != null && chunk.isHit !== false)
-        .map((chunk) => sourceLineText(chunk.filename, chunk.pageNumber!, chunk.pageEnd)),
+        .filter((chunk) => chunk.isHit !== false)
+        .map(sourceLine)
+        .filter((line): line is string => line !== null),
     ),
   ];
 }
 
-export function appendSources(answer: string, chunks: SourceChunk[]): string {
-  const sources = buildSourceList(chunks);
+const toAsciiDigits = (text: string) =>
+  text.replace(/[۰-۹]/g, (digit) => String("۰۱۲۳۴۵۶۷۸۹".indexOf(digit)));
+
+/** The source numbers the model cited inline: [2], [1، 3], [۲]. Code (a[1]) is not a citation. */
+export function citedNumbers(answer: string): Set<number> {
+  const cited = new Set<number>();
+  const prose = toAsciiDigits(answer).replace(/```[\s\S]*?```|`[^`\n]*`/g, "");
+
+  for (const [, list] of prose.matchAll(/(?<![\w\])])\[([\d\s,،]+)\]/g)) {
+    for (const part of list!.split(/[\s,،]+/)) {
+      if (part) cited.add(Number(part));
+    }
+  }
+
+  return cited;
+}
+
+/** Phrases of an answer saying the sources don't cover the question (also used by eval:answers). */
+export const REFUSAL_PATTERN =
+  /(پیدا نکردم|اطلاعاتی (در|درباره)|وجود ندارد|نیامده|اشاره‌ای نشده|ذکر نشده|کافی نیست|در منابع .*نیست)/;
+
+/** The answer says the sources don't cover the question (and cites nothing). */
+export function isRefusal(answer: string): boolean {
+  return (
+    answer === NO_RELEVANT_CONTENT_TEXT ||
+    (REFUSAL_PATTERN.test(answer) && citedNumbers(answer).size === 0)
+  );
+}
+
+/**
+ * Adds the sources section. With `numbers`, only the sources the model cited
+ * inline are listed, numbered like in the answer; if it cited none, the real
+ * hits are listed. A refusal gets no sources: nothing was taken from them.
+ */
+export function appendSources(
+  answer: string,
+  chunks: SourceChunk[],
+  numbers?: Map<string, number>,
+): string {
+  if (isRefusal(answer)) return answer;
+
+  const cited = numbers ? citedNumbers(answer) : new Set<number>();
+  const used = [...(numbers ?? [])].filter(([, number]) => cited.has(number));
+  const sources =
+    used.length > 0
+      ? used.map(([line, number]) => `[${number}] ${line}`)
+      : buildSourceList(chunks).map((line) => {
+          const number = numbers?.get(line);
+          return number ? `[${number}] ${line}` : line;
+        });
 
   if (sources.length === 0) {
     return answer;
@@ -84,6 +151,21 @@ export function appendSources(answer: string, chunks: SourceChunk[]): string {
   return `${answer}\n\n${SOURCES_HEADING}\n${sources
     .map((source) => `- ${source}`)
     .join("\n")}`;
+}
+
+/** Pages the broad-mode batch summaries refer to ("صفحه PDF 12", "صفحه ۱۲ تا ۱۴"). */
+export function pagesMentioned(summaries: string[]): Set<number> {
+  const pages = new Set<number>();
+
+  for (const match of toAsciiDigits(summaries.join("\n")).matchAll(
+    /صفحه(?:‌های| های|ات)?(?: PDF)?\s*(\d+)(?:\s*(?:تا|-)\s*(\d+))?/g,
+  )) {
+    const first = Number(match[1]);
+    const last = Math.min(Number(match[2] ?? match[1]), first + 50);
+    for (let page = first; page <= last; page++) pages.add(page);
+  }
+
+  return pages;
 }
 
 async function answerBroadQuestion(
@@ -122,7 +204,11 @@ async function answerBroadQuestion(
     signal,
   );
 
-  return appendSources(answer, chunks);
+  // Cite the pages the summaries drew on, not every page of the document.
+  const mentioned = pagesMentioned(summaries);
+  const cited = chunks.filter((chunk) => chunk.pageNumber != null && mentioned.has(chunk.pageNumber));
+
+  return appendSources(answer, cited.length > 0 ? cited : chunks);
 }
 
 async function answerFocusedQuestion(
@@ -142,13 +228,14 @@ async function answerFocusedQuestion(
     return NO_RELEVANT_CONTENT_TEXT;
   }
 
+  const numbers = numberSources(chunks);
   const answer = await generate(
     RAG_SYSTEM_PROMPT,
-    buildFocusedUserPrompt(question, formatChunks(chunks)),
+    buildFocusedUserPrompt(question, formatChunks(chunks, numbers)),
     signal,
   );
 
-  return appendSources(answer, chunks);
+  return appendSources(answer, chunks, numbers);
 }
 
 /** Filled in while answering, for the answer log. */

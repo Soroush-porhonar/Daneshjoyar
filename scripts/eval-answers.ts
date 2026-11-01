@@ -21,7 +21,12 @@ import { performance } from "node:perf_hooks";
 import { pool } from "../src/db/pool.js";
 import { chat } from "../src/llm/ollamaClient.js";
 import { NO_RELEVANT_CONTENT_TEXT, SOURCES_HEADING } from "../src/messages.js";
-import { answerFromDocument, formatChunks } from "../src/rag/answer.js";
+import {
+  REFUSAL_PATTERN,
+  answerFromDocument,
+  formatChunks,
+  numberSources,
+} from "../src/rag/answer.js";
 import { retrieveContext } from "../src/rag/retrieve.js";
 import { rewriteQuestion } from "../src/rag/rewrite.js";
 import type { HistoryMessage } from "../src/rag/rewrite.js";
@@ -92,8 +97,6 @@ function persianShare(text: string): number {
   return persian / Math.max(persian + latin, 1);
 }
 
-const REFUSAL = /(پیدا نکردم|اطلاعاتی (در|درباره)|وجود ندارد|نیامده|اشاره‌ای نشده|ذکر نشده|کافی نیست|در منابع .*نیست)/;
-
 const JUDGE_SCHEMA = {
   type: "object",
   properties: {
@@ -159,7 +162,7 @@ for (const q of questions) {
   const negative = q.type === "negative";
   const cites = negative ? null : citedPages(answer).some((p) => q.expectedPages.includes(p));
   const missing = (q.mustInclude ?? []).filter((k) => !comparable(body).includes(comparable(k)));
-  const refused = answer === NO_RELEVANT_CONTENT_TEXT || REFUSAL.test(body);
+  const refused = answer === NO_RELEVANT_CONTENT_TEXT || REFUSAL_PATTERN.test(body);
 
   let judgement: Judgement | null = null;
   if (useJudge && answer !== NO_RELEVANT_CONTENT_TEXT && mode !== "broad") {
@@ -169,7 +172,7 @@ for (const q of questions) {
       mode === "multi_part" ? "multi_part" : "focused",
       document.id,
     );
-    judgement = await judge(question, formatChunks(context), body).catch(() => null);
+    judgement = await judge(question, formatChunks(context, numberSources(context)), body).catch(() => null);
   }
 
   const passed = negative
