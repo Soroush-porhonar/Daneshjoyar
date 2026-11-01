@@ -31,7 +31,7 @@ const { deleteDocument, findDocumentFilename, listCompletedFilenames } = await i
   "../../src/db/documents.js"
 );
 const { isUpdateProcessed, markUpdateProcessed } = await import("../../src/db/updates.js");
-const { createAnswerLog, setFeedback } = await import("../../src/db/answerLogs.js");
+const { createAnswerLog, getLastAnswerHits, setFeedback } = await import("../../src/db/answerLogs.js");
 const { getDocumentChunks, retrieveContext, retrieveRelevantChunks, searchCandidates } = await import(
   "../../src/rag/retrieve.js"
 );
@@ -322,6 +322,48 @@ describe("answer logs and feedback", () => {
 
     const row = await pool.query("SELECT feedback FROM answer_logs WHERE id = $1", [id]);
     expect(row.rows[0].feedback).toBeNull();
+  });
+
+  it("returns the hits of the user's latest answer when it came from a document", async () => {
+    const alice = await addUser("alice");
+    const documentId = await addDocument(alice, "a.pdf", [1, 2]);
+    await createAnswerLog({
+      ...log(alice),
+      documentId,
+      context: [
+        { page: 1, chunkIndex: 0, isHit: false },
+        { page: 2, chunkIndex: 1, isHit: true },
+      ],
+    });
+
+    expect(await getLastAnswerHits(alice)).toEqual({ documentId, chunkIndexes: [1] });
+
+    // A later chat answer means the next message is not a follow-up on those pages.
+    await createAnswerLog({ ...log(alice), route: "chat", retrievalMode: null, context: [] });
+
+    expect(await getLastAnswerHits(alice)).toBeNull();
+  });
+});
+
+describe("follow-ups: the previous answer's chunks as candidates", () => {
+  it("adds the included chunks after the search hits", async () => {
+    const alice = await addUser("alice");
+    const documentId = await addDocument(alice, "a.pdf", [1, 5, 6]);
+
+    const candidates = await searchCandidates(alice, "#1", 10, documentId, undefined, [2, 0]);
+
+    // Chunk 2 is far from the question but still a candidate; chunk 0 is not repeated.
+    expect(candidates.map((chunk) => chunk.chunkIndex)).toEqual([0, 2]);
+  });
+
+  it("never includes chunks of another user's document", async () => {
+    const alice = await addUser("alice");
+    const bob = await addUser("bob");
+    const bobsDocument = await addDocument(bob, "bob.pdf", [5, 6]);
+
+    await expect(searchCandidates(alice, "#1", 10, bobsDocument, undefined, [0, 1])).resolves.toEqual(
+      [],
+    );
   });
 });
 

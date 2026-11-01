@@ -45,6 +45,33 @@ export async function createAnswerLog(log: NewAnswerLog): Promise<number> {
   return result.rows[0]!.id;
 }
 
+/** The search hits behind the user's latest answer, when it came from a document. */
+export async function getLastAnswerHits(
+  userId: number,
+): Promise<{ documentId: number; chunkIndexes: number[] } | null> {
+  const result = await pool.query<{
+    route: string;
+    document_id: number | null;
+    context: LoggedChunk[];
+  }>(
+    `SELECT route, document_id, context
+     FROM answer_logs
+     WHERE user_id = $1
+     ORDER BY id DESC
+     LIMIT 1`,
+    [userId],
+  );
+
+  const row = result.rows[0];
+
+  if (!row || row.route !== "document" || row.document_id === null) return null;
+
+  return {
+    documentId: row.document_id,
+    chunkIndexes: row.context.filter((chunk) => chunk.isHit).map((chunk) => chunk.chunkIndex),
+  };
+}
+
 /**
  * Stores a 👍/👎 for an answer. Only the user who received the answer can rate
  * it; returns false for anyone else or an unknown answer.
