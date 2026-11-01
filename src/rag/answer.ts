@@ -252,15 +252,29 @@ export interface Prefetch {
   ranked: RetrievedChunk[];
 }
 
+/** Chunks of a document that should compete with the search results. */
+export interface PreviousHits {
+  documentId: number;
+  chunkIndexes: number[];
+}
+
 /**
  * Starts searching the selected document right away, in parallel with the
  * router (search and reranking run on the CPU, the router on the GPU).
  * The result is simply ignored if the message turns out to be chat.
+ * For a follow-up, `previous` (the last answer's hits) is reranked together
+ * with the search results when it is from the same document.
  */
-export function prefetchCandidates(userId: number, question: string): Promise<Prefetch> {
+export function prefetchCandidates(
+  userId: number,
+  question: string,
+  previous?: PreviousHits | null,
+): Promise<Prefetch> {
   const prefetch = (async () => {
     const documentId = await getSelectedDocumentId(userId);
-    const ranked = documentId === null ? [] : await rankedCandidates(userId, question, documentId);
+    const include = previous?.documentId === documentId ? previous.chunkIndexes : [];
+    const ranked =
+      documentId === null ? [] : await rankedCandidates(userId, question, documentId, include);
     return { question, documentId, ranked };
   })();
 

@@ -17,7 +17,7 @@ import { askAI } from "../llm/generalChat.js";
 import { logger } from "../logger.js";
 import { answerFromDocuments, prefetchCandidates } from "../rag/answer.js";
 import type { AnswerTrace } from "../rag/answer.js";
-import { createAnswerLog } from "../db/answerLogs.js";
+import { createAnswerLog, getLastAnswerHits } from "../db/answerLogs.js";
 import type { NewAnswerLog } from "../db/answerLogs.js";
 import { feedbackButtons } from "../bot/feedback.js";
 import { needsRewrite, rewriteQuestion } from "../rag/rewrite.js";
@@ -103,20 +103,24 @@ async function composeAnswer(
 
   // A standalone question can be searched while the router decides (saves the
   // search time). Follow-ups are searched only after they are rewritten.
-  const prefetch = needsRewrite(text, previous)
-    ? undefined
-    : prefetchCandidates(userId, text);
+  const followUp = needsRewrite(text, previous);
+  const prefetch = followUp ? undefined : prefetchCandidates(userId, text);
   const classification = await routeMessage(text, documentNames, previous);
 
   if (classification.route === "document") {
     const question = await rewriteQuestion(text, previous, signal);
+    // A follow-up is usually about the pages of the previous answer, so its
+    // chunks compete with the search results (the reranker decides).
+    const search = followUp
+      ? prefetchCandidates(userId, question, await getLastAnswerHits(userId).catch(() => null))
+      : prefetch;
     const trace: AnswerTrace = {};
     const answer = await answerFromDocuments(
       userId,
       question,
       classification.retrievalMode,
       signal,
-      prefetch,
+      search,
       trace,
     );
 

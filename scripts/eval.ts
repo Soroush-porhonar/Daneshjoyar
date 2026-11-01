@@ -22,7 +22,13 @@ import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { performance } from "node:perf_hooks";
 import { config } from "../src/config.js";
 import { pool } from "../src/db/pool.js";
-import { retrieveContext, retrieveRelevantChunks, searchCandidates } from "../src/rag/retrieve.js";
+import {
+  rankedCandidates,
+  relevantHits,
+  retrieveContext,
+  retrieveRelevantChunks,
+  searchCandidates,
+} from "../src/rag/retrieve.js";
 import { rerankChunks } from "../src/rag/rerank.js";
 import { rewriteQuestion } from "../src/rag/rewrite.js";
 import type { HistoryMessage } from "../src/rag/rewrite.js";
@@ -51,8 +57,11 @@ interface Row {
   wrongDistance: number | null;
   /** Expected page present in the context the model would really get. */
   inContext: boolean;
-  /** Rank after the follow-up was rewritten (follow_up only). */
-  rewriteRank?: number;
+  /**
+   * Follow-ups: vector rank of the message as typed, before rewriting. The other
+   * ranks use the rewritten question (and the previous answer's hits), like production.
+   */
+  originalRank?: number;
   /** Rank in hybrid search (vector + keyword, RRF); equals `rank` when hybrid is off. */
   hybridRank: number;
   /** Rank after the reranker re-ordered the hybrid candidates (the production order). */
@@ -127,6 +136,21 @@ const span = (chunk: PageSpan) =>
     ? `${chunk.pageNumber}-${chunk.pageEnd}`
     : String(chunk.pageNumber);
 
+/**
+ * What a follow-up's previous answer was based on (production reads it from
+ * answer_logs): the relevant hits for the last user message in the history.
+ */
+async function previousHits(
+  document: { id: number; user_id: number },
+  history: HistoryMessage[] = [],
+): Promise<number[]> {
+  const last = [...history].reverse().find((message) => message.role === "user");
+  if (!last) return [];
+
+  const ranked = relevantHits(await rankedCandidates(document.user_id, last.content, document.id));
+  return ranked.slice(0, config.rag.retrievalLimits.focused).map((chunk) => chunk.chunkIndex);
+}
+
 const rows: Row[] = [];
 
 for (const q of questions) {
@@ -137,10 +161,19 @@ for (const q of questions) {
     continue;
   }
 
+  // Like production: follow-ups are rewritten before searching, and the
+  // previous answer's hits compete with the search results.
+  const rewritten =
+    q.type === "follow_up" && useRewrite && q.history
+      ? await rewriteQuestion(q.question, q.history)
+      : undefined;
+  const text = rewritten ?? q.question;
+  const include = q.type === "follow_up" ? await previousHits(document, q.history) : [];
+
   const start = performance.now();
   const chunks = await retrieveRelevantChunks(
     document.user_id,
-    q.question,
+    text,
     limit,
     document.id,
     NO_THRESHOLD,
@@ -150,25 +183,27 @@ for (const q of questions) {
   const distances = chunks.map((chunk) => Number(chunk.distance));
   const rank = rankOf(chunks, q.expectedPages);
   // Hybrid search (vector + keyword, RRF), then the reranker on top, like production.
-  const hybrid = await searchCandidates(document.user_id, q.question, limit, document.id, NO_THRESHOLD);
+  const hybrid = await searchCandidates(
+    document.user_id,
+    text,
+    limit,
+    document.id,
+    NO_THRESHOLD,
+    include,
+  );
   const hybridRank = rankOf(hybrid, q.expectedPages);
-  const reranked = await rerankChunks(q.question, hybrid);
+  const reranked = await rerankChunks(text, hybrid);
   const rerankRank = rankOf(reranked, q.expectedPages);
   const scored = q.type === "negative" ? reranked[0] : reranked[rerankRank - 1];
   const wrongIndex = chunks.findIndex((chunk) => !covers(chunk, q.expectedPages));
 
-  // Like production: follow-ups are rewritten before the context is built.
-  const rewritten =
-    q.type === "follow_up" && useRewrite && q.history
-      ? await rewriteQuestion(q.question, q.history)
-      : undefined;
-
   const mode = q.mode === "broad" ? "multi_part" : q.mode;
   const context = await retrieveContext(
     document.user_id,
-    rewritten ?? q.question,
+    text,
     mode,
     document.id,
+    include.length > 0 ? await rankedCandidates(document.user_id, text, document.id, include) : undefined,
   );
 
   const row: Row = {
@@ -188,15 +223,15 @@ for (const q of questions) {
   };
 
   if (rewritten !== undefined) {
-    const rewrittenChunks = await retrieveRelevantChunks(
+    const originalChunks = await retrieveRelevantChunks(
       document.user_id,
-      rewritten,
+      q.question,
       limit,
       document.id,
       NO_THRESHOLD,
     );
     row.rewritten = rewritten;
-    row.rewriteRank = rankOf(rewrittenChunks, q.expectedPages);
+    row.originalRank = rankOf(originalChunks, q.expectedPages);
   }
 
   rows.push(row);
@@ -216,7 +251,7 @@ console.table(
     dist: fmt(row.distance),
     wrong: fmt(row.wrongDistance),
     context: row.type === "negative" ? "" : row.inContext ? "yes" : "NO",
-    rewrite: row.rewriteRank === undefined ? "" : row.rewriteRank || "MISS",
+    "as typed": row.originalRank === undefined ? "" : row.originalRank || "MISS",
     pages: row.pages,
     ms: row.ms,
   })),
@@ -308,12 +343,13 @@ console.log(
     `threshold ${threshold} (the model must then refuse on its own).`,
 );
 
-const followUps = rows.filter((row) => row.rewriteRank !== undefined);
+const followUps = rows.filter((row) => row.originalRank !== undefined);
 if (followUps.length > 0) {
   const found = (ranks: number[]) => ranks.filter((rank) => rank >= 1 && rank <= 3).length;
   console.log(
-    `Follow-ups hit@3: original ${found(followUps.map((r) => r.rank))}/${followUps.length}, ` +
-      `rewritten ${found(followUps.map((r) => r.rewriteRank!))}/${followUps.length}`,
+    `Follow-ups hit@3: as typed ${found(followUps.map((r) => r.originalRank!))}/${followUps.length}, ` +
+      `rewritten ${found(followUps.map((r) => r.rank))}/${followUps.length}, ` +
+      `+ previous answer's hits, reranked ${found(followUps.map((r) => r.rerankRank))}/${followUps.length}`,
   );
 }
 
