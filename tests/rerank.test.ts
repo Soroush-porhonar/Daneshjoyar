@@ -39,6 +39,7 @@ describe("rerankChunks", () => {
     const ranked = await rerankChunks("سؤال", chunks);
 
     expect(ranked.map((c) => c.content)).toEqual(["ب", "ج", "الف"]);
+    expect(ranked.map((c) => c.rerankScore)).toEqual([0.9, 0.5, 0.1]);
   });
 
   it("sends the question and the chunk texts", async () => {

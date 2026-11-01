@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { mergeContext } from "../src/rag/retrieve.js";
-import type { ContextChunk } from "../src/rag/retrieve.js";
+import { mergeContext, relevantHits } from "../src/rag/retrieve.js";
+import type { ContextChunk, RetrievedChunk } from "../src/rag/retrieve.js";
 
 const chunk = (chunkIndex: number): ContextChunk => ({
   documentId: 1,
@@ -61,5 +61,27 @@ describe("mergeContext", () => {
 
   it("handles no neighbours", () => {
     expect(indexes(mergeContext([chunk(3), chunk(1)], [], 5))).toEqual([1, 3]);
+  });
+});
+
+describe("relevantHits", () => {
+  const hit = (chunkIndex: number, rerankScore?: number): RetrievedChunk => ({
+    ...chunk(chunkIndex),
+    distance: 0.3,
+    ...(rerankScore === undefined ? {} : { rerankScore }),
+  });
+
+  it("drops hits the reranker scored below the minimum", () => {
+    const kept = relevantHits([hit(1, 2.5), hit(2, -1), hit(3, 0)], 0);
+
+    expect(kept.map((c) => c.chunkIndex)).toEqual([1, 3]);
+  });
+
+  it("keeps everything when no minimum is set", () => {
+    expect(relevantHits([hit(1, -5), hit(2, -9)], null)).toHaveLength(2);
+  });
+
+  it("keeps unscored hits (reranker off or down)", () => {
+    expect(relevantHits([hit(1), hit(2)], 0)).toHaveLength(2);
   });
 });

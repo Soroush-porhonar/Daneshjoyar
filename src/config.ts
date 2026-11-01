@@ -43,6 +43,12 @@ export const config = {
     /** Search returns this many candidates; the reranker keeps the best few. */
     candidates: 10,
     timeoutMs: 20_000,
+    /**
+     * Hits the reranker scores below this are not shown to the model or cited;
+     * with none left the bot says it found nothing, without an LLM call.
+     * Off until calibrated: npm run eval prints a score table (RERANKER_MIN_SCORE).
+     */
+    minScore: process.env.RERANKER_MIN_SCORE ? Number(process.env.RERANKER_MIN_SCORE) : null,
   },
 
   embedding: {
