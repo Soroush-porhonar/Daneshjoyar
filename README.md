@@ -123,6 +123,18 @@ npm run eval                  # retrieval evaluation (also: eval:router, eval:an
 
 Configure `.env` with `BALE_TOKEN`, `DATABASE_URL`, `LLM_URL`, `LLM_MODEL`, `EMBEDDING_MODEL`, `PORT`, and the Postgres credentials. Optional: `LLM_KEEP_ALIVE` (how long Ollama keeps models in GPU memory, default `30m`; `-1` = always).
 
+## Run with Docker
+
+Ollama stays on the host, because Docker Desktop can't give containers an AMD GPU. Everything else runs in Docker: the bot, PostgreSQL, the reranker and the nightly backup. The bot reaches Ollama at `host.docker.internal:11434`, and gets the database and reranker addresses from `compose.yaml` (`.env` keeps the `localhost` ones for `npm run dev`).
+
+```bash
+docker compose --profile bot up -d --build   # bot + PostgreSQL + reranker + backup; restarts on crash
+docker compose logs -f bot
+docker compose --profile bot stop bot        # stop it before `npm run dev` (two bots would compete for updates)
+```
+
+The bot only runs with the `bot` profile, so a plain `docker compose up -d` still starts just the services that `npm run dev` needs. If the container can't reach Ollama, set the Windows environment variable `OLLAMA_HOST=0.0.0.0` and restart Ollama. Ollama is then reachable from the local network on port 11434 unless the firewall blocks it. If an upload is interrupted by a crash or restart, its user is asked to send the file again when the bot starts.
+
 ## Backup and restore
 
 The `backup` service in `compose.yaml` dumps the database every night at 03:00 (Tehran time) to `backups/daneshjo-YYYY-MM-DD.dump` and deletes dumps older than 14 days. The database holds everything the bot needs: users, conversations, extracted text, chunks and embeddings, answer logs. The original PDFs in `uploads/` are only needed to re-ingest documents (for example after changing the embedding model), so copy that folder with your normal file backups.

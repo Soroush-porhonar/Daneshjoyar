@@ -18,6 +18,41 @@ services:
       timeout: 5s
       retries: 10
 
+  # The bot (profile "bot": `docker compose --profile bot up -d --build`), so a
+  # plain `docker compose up -d` still starts only the services `npm run dev`
+  # needs; two bots polling Bale at once would compete for the same updates.
+  # Ollama stays on Windows (Docker Desktop can't give containers the AMD GPU)
+  # and is reached through host.docker.internal. .env stays valid for
+  # `npm run dev`; only the service addresses are overridden here.
+  bot:
+    build: .
+    container_name: daneshjohandbot-bot
+    profiles: ["bot"]
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      LLM_URL: http://host.docker.internal:11434/api/chat
+      OLLAMA_EMBED_URL: http://host.docker.internal:11434/api/embed
+      RERANKER_URL: http://reranker:8080/v1/rerank
+    volumes:
+      - ./uploads:/app/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+      reranker:
+        condition: service_started
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://localhost:' + process.env.PORT + '/health').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
   # Nightly database dump at 03:00 (Tehran time) into ./backups, kept 14 days.
   # Same image as postgres, so pg_dump matches the server version.
   # Restore: README, "Backup and restore".
