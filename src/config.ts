@@ -121,7 +121,16 @@ export const config = {
     maxPages: process.env.OCR_MAX_PAGES ? Number(process.env.OCR_MAX_PAGES) : Infinity,
     /** Measured on the GPU (RX 6800S): ~44 s per page; used for the time estimate. */
     secondsPerPage: 45,
-    imageWidth: 1000,
+    /** Page image width sent to the vision model (OCR_IMAGE_WIDTH); see npm run eval:ocr -- --ref. */
+    imageWidth: Number(process.env.OCR_IMAGE_WIDTH ?? 1000),
+    /** Prompt language (OCR_PROMPT=fa|en). */
+    prompt: process.env.OCR_PROMPT === "fa" ? ("fa" as const) : ("en" as const),
+    /**
+     * Repair of words the model wrote reversed (OCR_REPAIR): "page" flips every
+     * word when reversed common words dominate the page; "word" flips each word
+     * whose reversed spelling is much more common (wordFrequencies.json).
+     */
+    repair: process.env.OCR_REPAIR === "word" ? ("word" as const) : ("page" as const),
     timeoutMs: 300_000,
     /** Progress every 5 pages, or every ~10% for big documents. */
     progressEvery: 5,
