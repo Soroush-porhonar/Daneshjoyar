@@ -6,6 +6,10 @@
  *   npm run eval:answers -- --only lisbon
  *   npm run eval:answers -- --no-judge      # skip the LLM-as-judge step
  *   npm run eval:answers -- --doc "x.pdf=12" # pin a document version (before/after)
+ *   npm run eval:answers -- --per-doc       # search only each question's own document
+ *
+ * Like the bot, questions search all documents of their document's owner;
+ * "cites" needs the right page of the right file.
  *
  * Runs every question in eval/questions.json that has `mustInclude` keywords,
  * plus all `negative` questions. Checks per answer:
@@ -21,7 +25,7 @@ import { performance } from "node:perf_hooks";
 import { pool } from "../src/db/pool.js";
 import { chat } from "../src/llm/ollamaClient.js";
 import { NO_RELEVANT_CONTENT_TEXT, SOURCES_HEADING } from "../src/messages.js";
-import { previousHits } from "./evalHelpers.js";
+import { citedPages, previousHits } from "./evalHelpers.js";
 import {
   REFUSAL_PATTERN,
   answerFromDocuments,
@@ -55,6 +59,8 @@ const args = process.argv.slice(2);
 const onlyIndex = args.indexOf("--only");
 const only = onlyIndex >= 0 ? args[onlyIndex + 1] : undefined;
 const useJudge = !args.includes("--no-judge");
+/** Search only each question's own document instead of all of its owner's documents. */
+const perDocument = args.includes("--per-doc");
 
 /** --doc "name.pdf=12": use that document version instead of the newest one. */
 const pinned = new Map(
@@ -81,16 +87,6 @@ function comparable(text: string): string {
     .replace(/³/g, "3")
     .replace(/ⁿ/g, "n")
     .replace(/[\s‌^]/g, "");
-}
-
-function citedPages(answer: string): number[] {
-  const sources = answer.split(SOURCES_HEADING)[1] ?? "";
-  // "صفحه 3" or a range "صفحه 3 تا 5" (a chunk crossing pages) -> every page in it.
-  return [...sources.matchAll(/صفحه (\d+)(?: تا (\d+))?/g)].flatMap((match) => {
-    const first = Number(match[1]);
-    const last = Number(match[2] ?? match[1]);
-    return Array.from({ length: last - first + 1 }, (_, i) => first + i);
-  });
 }
 
 function persianShare(text: string): number {
@@ -159,21 +155,26 @@ for (const q of questions) {
   const start = performance.now();
   const question = q.history ? await rewriteQuestion(q.question, q.history) : q.question;
   const mode = q.mode;
+  // Like the bot: all of the user's documents, unless --per-doc.
+  const scope = perDocument ? { documentId: document.id } : {};
   // Like production: a follow-up's search also reranks the previous answer's hits.
-  const include = q.history ? await previousHits(document, q.history) : [];
+  const include = q.history ? await previousHits(document, q.history, scope.documentId) : [];
   const ranked =
     include.length > 0
-      ? await rankedCandidates(document.user_id, question, { documentId: document.id, include })
+      ? await rankedCandidates(document.user_id, question, { ...scope, include })
       : undefined;
   const answer = await answerFromDocuments(document.user_id, question, mode, {
-    documentId: document.id,
+    ...scope,
     ...(ranked ? { prefetch: Promise.resolve({ question, ranked }) } : {}),
   });
   const seconds = (performance.now() - start) / 1000;
 
   const body = answer.split(SOURCES_HEADING)[0]!;
   const negative = q.type === "negative";
-  const cites = negative ? null : citedPages(answer).some((p) => q.expectedPages.includes(p));
+  // The right page of the right file (other files may be cited too).
+  const cites = negative
+    ? null
+    : citedPages(answer, q.filename).some((p) => q.expectedPages.includes(p));
   const missing = (q.mustInclude ?? []).filter((k) => !comparable(body).includes(comparable(k)));
   const refused = answer === NO_RELEVANT_CONTENT_TEXT || REFUSAL_PATTERN.test(body);
 
@@ -183,7 +184,7 @@ for (const q of questions) {
       document.user_id,
       question,
       mode === "multi_part" ? "multi_part" : "focused",
-      { documentId: document.id, ...(ranked ? { ranked } : {}) },
+      { ...scope, ...(ranked ? { ranked } : {}) },
     );
     judgement = await judge(question, formatChunks(context, numberSources(context)), body).catch(() => null);
   }
