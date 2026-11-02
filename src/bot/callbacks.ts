@@ -7,7 +7,6 @@ import {
 import type { BaleUpdate } from "../bale.js";
 import { findOrCreateUser } from "../db/users.js";
 import { logger } from "../logger.js";
-import { getSelectedDocumentId } from "../db/conversations.js";
 import { listDocuments } from "../db/documents.js";
 import {
   DELETE_NOT_FOUND_TEXT,
@@ -22,7 +21,6 @@ import {
   confirmDeleteCommand,
   deleteCommand,
   documentsCommand,
-  selectCommand,
 } from "./commands/documents.js";
 import type { CommandReply } from "./commands/types.js";
 import { handleFeedback } from "./feedback.js";
@@ -80,12 +78,9 @@ export async function handleCallback(query: CallbackQuery): Promise<void> {
     case "info": {
       // Only the user's own documents: the list is fetched for this user.
       const document = (await listDocuments(user.id)).find((d) => d.id === callback.documentId);
-      const selected = await getSelectedDocumentId(user.id);
       await answerCallbackQuery(
         query.id,
-        document
-          ? documentInfoText(document.filename, document.status, document.id === selected)
-          : DELETE_NOT_FOUND_TEXT,
+        document ? documentInfoText(document.filename, document.status) : DELETE_NOT_FOUND_TEXT,
       );
       return;
     }
@@ -93,19 +88,6 @@ export async function handleCallback(query: CallbackQuery): Promise<void> {
     case "documents": {
       await answerCallbackQuery(query.id);
       await send(chatId, await documentsCommand(context));
-      return;
-    }
-
-    case "select": {
-      const reply = await selectCommand({ ...context, args: [String(callback.documentId)] });
-      await answerCallbackQuery(query.id, textOf(reply));
-
-      // Show the new active document (✅) in the same list message.
-      const list = await documentsCommand(context);
-      if (messageId !== undefined && typeof list !== "string" && "inline" in list.markup) {
-        const buttons = list.markup.inline;
-        await tryTo(() => editMessageText(chatId, messageId, list.text, buttons));
-      }
       return;
     }
 

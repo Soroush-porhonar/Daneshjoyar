@@ -24,14 +24,13 @@ vi.mock("../../src/rag/pdf.js", () => ({ openPdf: vi.fn() }));
 
 const { pool } = await import("../../src/db/pool.js");
 const { findOrCreateUser } = await import("../../src/db/users.js");
-const { findOrCreateConversation, getSelectedDocumentId, selectDocument } = await import(
-  "../../src/db/conversations.js"
-);
+const { findOrCreateConversation } = await import("../../src/db/conversations.js");
 const {
   deleteDocument,
   failInterruptedDocuments,
   findDocumentFilename,
   findDuplicateDocument,
+  listCompletedDocuments,
   listCompletedFilenames,
 } = await import(
   "../../src/db/documents.js"
@@ -113,13 +112,11 @@ describe("user isolation (one student must never see another's documents)", () =
     await expect(getDocumentChunks(alice, bobsDocument)).rejects.toThrow();
   });
 
-  it("cannot select, see or delete another user's document", async () => {
+  it("cannot see or delete another user's document", async () => {
     const alice = await addUser("alice");
     const bob = await addUser("bob");
     const bobsDocument = await addDocument(bob, "bob.pdf", [1]);
 
-    expect(await selectDocument(alice, bobsDocument)).toBe(false);
-    expect(await getSelectedDocumentId(alice)).toBeNull();
     expect(await findDocumentFilename(alice, bobsDocument)).toBeNull();
     expect(await deleteDocument(alice, bobsDocument)).toBe(false);
     expect(await findDocumentFilename(bob, bobsDocument)).toBe("bob.pdf");
@@ -136,14 +133,18 @@ describe("documents", () => {
     expect(await listCompletedFilenames(alice)).toEqual(["ready.pdf"]);
   });
 
-  it("only completed documents can be selected", async () => {
+  it("lists the user's ready documents newest first, for picking what to summarise", async () => {
     const alice = await addUser("alice");
-    const failed = await addDocument(alice, "broken.pdf", [], "failed");
-    const ready = await addDocument(alice, "ready.pdf", [1]);
+    const bob = await addUser("bob");
+    const older = await addDocument(alice, "older.pdf", [1]);
+    await addDocument(alice, "broken.pdf", [], "failed");
+    const newer = await addDocument(alice, "newer.pdf", [2]);
+    await addDocument(bob, "bob.pdf", [3]);
 
-    expect(await selectDocument(alice, failed)).toBe(false);
-    expect(await selectDocument(alice, ready)).toBe(true);
-    expect(await getSelectedDocumentId(alice)).toBe(ready);
+    expect(await listCompletedDocuments(alice)).toEqual([
+      { id: newer, filename: "newer.pdf" },
+      { id: older, filename: "older.pdf" },
+    ]);
   });
 
   it("deleting a document also deletes its chunks", async () => {
@@ -252,7 +253,7 @@ describe("ingestPdf", () => {
     text: `این متن صفحه ${pageNumber} از جزوه آزمایشی است و به اندازه کافی طولانی است ${marker}`,
   });
 
-  it("stores page-tagged chunks, completes the document and selects it", async () => {
+  it("stores page-tagged chunks and completes the document", async () => {
     const alice = await addUser("alice");
     vi.mocked(openPdf).mockResolvedValue({
       pages: [page(1, "#1"), page(2, "#2")],
@@ -264,7 +265,6 @@ describe("ingestPdf", () => {
 
     expect(result).toMatchObject({ pageCount: 2, ocrPages: 0 });
     expect(await listCompletedFilenames(alice)).toEqual(["notes.pdf"]);
-    expect(await getSelectedDocumentId(alice)).toBe(result.documentId);
 
     const hits = await retrieveRelevantChunks(alice, "#2", 10);
     expect(hits.map((hit) => hit.pageNumber)).toEqual([2]);

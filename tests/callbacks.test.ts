@@ -7,10 +7,6 @@ vi.mock("../src/bale.js", () => ({
   sendMessage: vi.fn(),
 }));
 vi.mock("../src/db/users.js", () => ({ findOrCreateUser: vi.fn() }));
-vi.mock("../src/db/conversations.js", () => ({
-  getSelectedDocumentId: vi.fn(),
-  selectDocument: vi.fn(),
-}));
 vi.mock("../src/db/documents.js", () => ({
   deleteDocument: vi.fn(),
   findDocumentFilename: vi.fn(),
@@ -22,7 +18,6 @@ const { handleCallback } = await import("../src/bot/callbacks.js");
 const { parseCallback } = await import("../src/bot/buttons.js");
 const { answerCallbackQuery, editMessageText, removeButtons, sendMessage } = await import("../src/bale.js");
 const { findOrCreateUser } = await import("../src/db/users.js");
-const { getSelectedDocumentId, selectDocument } = await import("../src/db/conversations.js");
 const { deleteDocument, findDocumentFilename, listDocuments } = await import("../src/db/documents.js");
 const { handleFeedback } = await import("../src/bot/feedback.js");
 const { startRequest } = await import("../src/bot/cancellation.js");
@@ -37,15 +32,13 @@ beforeEach(() => {
   clearPendingDeletion(CHAT);
   vi.mocked(findOrCreateUser).mockResolvedValue({ id: 3 } as never);
   vi.mocked(listDocuments).mockResolvedValue([{ id: 5, filename: "notes.pdf", status: "completed" }]);
-  vi.mocked(getSelectedDocumentId).mockResolvedValue(5);
-  vi.mocked(selectDocument).mockResolvedValue(true);
   vi.mocked(findDocumentFilename).mockResolvedValue("notes.pdf");
   vi.mocked(deleteDocument).mockResolvedValue(true);
 });
 
 describe("parseCallback", () => {
   it.each([
-    ["sel:5", { action: "select", documentId: 5 }],
+    ["sel:5", null], // old lists still have select buttons; selection is gone
     ["del:12", { action: "delete", documentId: 12 }],
     ["delok", { action: "confirmDelete" }],
     ["delno", { action: "cancelDelete" }],
@@ -73,26 +66,12 @@ describe("handleCallback", () => {
     expect(answerCallbackQuery).toHaveBeenCalledWith("cb");
   });
 
-  it("select: makes the document active for this user and refreshes the list in place", async () => {
+  it("an old select button is acknowledged and does nothing", async () => {
     await handleCallback(press("sel:5"));
 
-    expect(selectDocument).toHaveBeenCalledWith(3, 5);
-    expect(answerCallbackQuery).toHaveBeenCalledWith("cb", messages.selectedText(5));
-    expect(editMessageText).toHaveBeenCalledWith(CHAT, 7, expect.any(String), [
-      [expect.objectContaining({ text: "✅ notes", callback_data: "info:5" })],
-      [
-        expect.objectContaining({ text: messages.ACTIVE_BUTTON, callback_data: "sel:5" }),
-        expect.objectContaining({ callback_data: "del:5" }),
-      ],
-    ]);
-  });
-
-  it("select: someone else's document is refused (the SQL finds nothing)", async () => {
-    vi.mocked(selectDocument).mockResolvedValue(false);
-
-    await handleCallback(press("sel:99"));
-
-    expect(answerCallbackQuery).toHaveBeenCalledWith("cb", messages.SELECT_FAILED_TEXT);
+    expect(answerCallbackQuery).toHaveBeenCalledWith("cb");
+    expect(editMessageText).not.toHaveBeenCalled();
+    expect(sendMessage).not.toHaveBeenCalled();
   });
 
   it("delete: asks for confirmation with yes/no buttons, deletes nothing yet", async () => {
@@ -152,10 +131,7 @@ describe("handleCallback", () => {
     expect(sendMessage).toHaveBeenCalledWith(CHAT, messages.DOCUMENTS_LIST_TEXT, {
       inline: [
         [expect.objectContaining({ callback_data: "info:5" })],
-        [
-          expect.objectContaining({ callback_data: "sel:5" }),
-          expect.objectContaining({ callback_data: "del:5" }),
-        ],
+        [expect.objectContaining({ callback_data: "del:5" })],
       ],
     });
   });
@@ -166,7 +142,7 @@ describe("handleCallback", () => {
     expect(listDocuments).toHaveBeenCalledWith(3);
     expect(answerCallbackQuery).toHaveBeenCalledWith(
       "cb",
-      messages.documentInfoText("notes.pdf", "completed", true),
+      messages.documentInfoText("notes.pdf", "completed"),
     );
   });
 

@@ -1,4 +1,3 @@
-import { getSelectedDocumentId, selectDocument } from "../../db/conversations.js";
 import {
   deleteDocument,
   findDocumentFilename,
@@ -12,12 +11,9 @@ import {
   NO_DOCUMENTS_TEXT,
   NO_PENDING_DELETE_TEXT,
   NO_PENDING_DELETE_TO_CANCEL_TEXT,
-  SELECT_FAILED_TEXT,
-  SELECT_USAGE_TEXT,
   deleteConfirmationText,
   deleteSucceededText,
   DOCUMENTS_LIST_TEXT,
-  selectedText,
 } from "../../messages.js";
 import {
   clearPendingDeletion,
@@ -45,24 +41,10 @@ export const documentsCommand: CommandHandler = async ({ userId }) => {
     return NO_DOCUMENTS_TEXT;
   }
 
-  const selectedDocumentId = await getSelectedDocumentId(userId);
-
   return {
     text: DOCUMENTS_LIST_TEXT,
-    markup: { inline: documentButtons(documents, selectedDocumentId) },
+    markup: { inline: documentButtons(documents) },
   };
-};
-
-export const selectCommand: CommandHandler = async ({ userId, args }) => {
-  const documentId = parseDocumentId(args);
-
-  if (documentId === null) {
-    return SELECT_USAGE_TEXT;
-  }
-
-  return (await selectDocument(userId, documentId))
-    ? selectedText(documentId)
-    : SELECT_FAILED_TEXT;
 };
 
 export const deleteCommand: CommandHandler = async ({

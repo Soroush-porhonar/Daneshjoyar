@@ -16,15 +16,15 @@ Built with TypeScript, Node.js, PostgreSQL, pgvector, Ollama, and Qwen 3.5 9B.
 
 ## Features
 
-- **PDF Management:** Upload, process, list, select, and delete study documents.
-- **Document-Grounded Q&A:** Answer questions using passages retrieved from uploaded PDFs, with inline numbered citations ([1], [2]) and a sources list of only the pages the answer cites; refusals list no sources.
+- **PDF Management:** Upload, process, list, and delete study documents; no document has to be selected.
+- **Document-Grounded Q&A:** Answer questions using passages retrieved from all of the student's PDFs at once, with inline numbered citations ([1], [2]) and a sources list of only the pages the answer cites; refusals list no sources.
 - **Scanned & Broken PDFs:** Pages with no text layer, junk text, or severely broken Persian letters are read by a local vision model (hybrid OCR, no page limit), with a time estimate and progress updates in the chat.
-- **Intelligent Query Routing:** Classify messages and choose between document-based answers and general chat.
+- **Intelligent Query Routing:** Classify messages and choose between document-based answers and general chat; when the notes clearly match a message (reranker score), they win even if the router said chat. Summary requests pick the document by name, by where the best hits come from, or the newest upload, and name it in the answer.
 - **Adaptive Retrieval:** Focused, multi-part, or broad strategies; hits are expanded with neighbouring chunks for context.
 - **Follow-Up Understanding:** Short follow-ups ("explain more") are rewritten into standalone questions using the conversation, and the pages of the previous answer compete with the new search results.
 - **Long-Document Summarization:** Summarize document batches sized to the model's context window, then combine them.
 - **Non-Blocking & Cancellable:** Slow work runs in the background; `/cancel` stops a running request.
-- **Buttons:** A main-menu keyboard, select/delete buttons under the document list, yes/no delete confirmation and a cancel button while answering; typed commands still work and are shown so they render correctly in right-to-left text.
+- **Buttons:** A main-menu keyboard, delete buttons under the document list, yes/no delete confirmation and a cancel button while answering; typed commands still work and are shown so they render correctly in right-to-left text.
 - **Feedback Loop:** Every answer has 👍/👎 buttons; answers and votes are logged, and disliked answers become draft evaluation questions.
 
 ## Technical Highlights
@@ -39,7 +39,7 @@ Built with TypeScript, Node.js, PostgreSQL, pgvector, Ollama, and Qwen 3.5 9B.
 | LLM inference      | Ollama, Qwen 3.5 9B (text + vision), explicit context window and per-task sampling |
 | Document pipeline  | PDF text extraction, Persian text normalization, page-aware chunking, hybrid OCR |
 | Retrieval          | Vector search + cross-encoder reranking (bge-reranker-v2-m3 on llama.cpp, CPU), neighbour expansion, adaptive modes, LLM query rewriting |
-| Conversation state | Persistent message history and active-document selection                         |
+| Conversation state | Persistent message history; follow-ups re-rank the previous answer's chunks        |
 | Testing            | Vitest unit tests with mocks, DB integration tests, coverage, GitHub Actions CI  |
 | Evaluation         | Retrieval, router, end-to-end answer, OCR and latency harnesses                  |
 | Deployment         | Docker Compose (PostgreSQL + pgvector)                                           |
@@ -51,7 +51,7 @@ Built with TypeScript, Node.js, PostgreSQL, pgvector, Ollama, and Qwen 3.5 9B.
 3. **Structure-aware chunking:** Detects slide decks vs running text, strips repeated headers and printed page numbers, repairs PDFs that store words in reverse order, sends junk text layers to OCR, and stores slide titles and sections as chunk metadata. Cross-page, semantic (embedding-based topic boundaries) and section-expansion variants are implemented behind switches and were measured against per-page chunking.
 4. **Vector storage:** Page-tagged chunks and embeddings are stored in PostgreSQL with pgvector.
 5. **Message classification:** An LLM router with a JSON schema picks document retrieval or general conversation, plus the retrieval mode.
-6. **Retrieval:** Rewrite follow-ups, search by similarity, add neighbouring chunks, and cite only the pages that were actual hits.
+6. **Retrieval:** Rewrite follow-ups, search every chunk of the student's documents by similarity, rerank, add neighbouring chunks from the same document, and cite only the pages the answer uses.
 7. **Answer generation:** Grounded prompts with low temperature and an explicit context window; long documents use a map-reduce summary.
 8. **Reliability:** Typed errors mapped to friendly messages, background processing, request cancellation, and deduplicated updates.
 
@@ -73,7 +73,7 @@ Built with TypeScript, Node.js, PostgreSQL, pgvector, Ollama, and Qwen 3.5 9B.
 ### Tests (does the code stay correct?)
 
 - **Unit tests** (`npm test`, 254 tests, < 1 s): pure logic (chunking, normalization, page-quality detection, context merging, citations) plus mocked flows — update deduplication and retry, `/cancel`, the chat pipeline, Ollama timeouts and bad responses, the OCR loop, delete confirmation.
-- **Integration tests** (`npm run test:integration`): real PostgreSQL + pgvector with fake embeddings — one user can never search, select or delete another user's documents (verified by deliberately breaking the SQL filter and watching the tests fail), cascade deletes, failed ingestion stores nothing.
+- **Integration tests** (`npm run test:integration`): real PostgreSQL + pgvector with fake embeddings — one user can never search or delete another user's documents (verified by deliberately breaking the SQL filter and watching the tests fail), cascade deletes, failed ingestion stores nothing.
 - **CI:** GitHub Actions runs type checks (including tests and scripts), unit tests with coverage, and integration tests on every push.
 - **Clean layering:** configuration, prompts, user-facing messages, SQL, and platform code each live in one place.
 
