@@ -1,5 +1,6 @@
 import express from "express";
 import { startPolling } from "./bot/poller.js";
+import { runEnrichmentWorker } from "./bot/enrichmentWorker.js";
 import { recoverInterruptedUploads } from "./bot/recovery.js";
 import { config } from "./config.js";
 import { logger } from "./logger.js";
@@ -20,3 +21,4 @@ app.listen(config.port, () => {
 // Before polling, so the next upload of an interrupted file isn't taken for a duplicate.
 await recoverInterruptedUploads();
 void startPolling();
+void runEnrichmentWorker();

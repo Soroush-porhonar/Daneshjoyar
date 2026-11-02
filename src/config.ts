@@ -136,6 +136,14 @@ export const config = {
     progressEvery: 5,
   },
 
+  /** Upload-time enrichment (src/rag/enrich.ts), in the background after a document is usable. */
+  enrichment: {
+    /** ENRICHMENT=false: new uploads are not queued (npm run enrich still works). */
+    enabled: process.env.ENRICHMENT !== "false",
+    /** How often the worker looks for queued documents when idle. */
+    pollMs: 30_000,
+  },
+
   bale: {
     maxFileSize: 20 * 1024 * 1024,
     maxMessageLength: 4000,

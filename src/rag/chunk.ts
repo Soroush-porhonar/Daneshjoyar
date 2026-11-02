@@ -112,8 +112,21 @@ export function cleanPages(pages: PageText[], options: ChunkOptions): CleanPage[
 
 /** The chunk text plus its slide title when the text does not start with it. */
 export function withTitle(title: string | null | undefined, content: string): string {
-  return title && !content.startsWith(title) ? `${title}
-${content}` : content;
+  return title && !content.startsWith(title) ? `${title}\n${content}` : content;
+}
+
+/**
+ * What an enriched chunk is embedded and reranked as: the document's title,
+ * the slide title, and a sentence placing the chunk in the document, before
+ * its text (contextual retrieval). The stored content and citations stay as they are.
+ */
+export function contextualText(
+  documentTitle: string | null | undefined,
+  sectionTitle: string | null | undefined,
+  context: string | null | undefined,
+  content: string,
+): string {
+  return [documentTitle, context, withTitle(sectionTitle, content)].filter(Boolean).join("\n");
 }
 
 /** Slide decks: chunks stay inside their slide and carry its title and section. */

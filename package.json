@@ -20,7 +20,8 @@
     "eval:ocr": "tsx scripts/eval-ocr.ts",
     "benchmark": "tsx scripts/benchmark.ts",
     "feedback": "tsx scripts/feedback-report.ts",
-    "build:words": "tsx scripts/build-word-frequencies.ts"
+    "build:words": "tsx scripts/build-word-frequencies.ts",
+    "enrich": "tsx scripts/enrich.ts"
   },
   "keywords": [],
   "author": "",
