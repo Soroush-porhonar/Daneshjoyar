@@ -12,6 +12,47 @@ services:
       - "127.0.0.1:5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Nightly database dump at 03:00 (Tehran time) into ./backups, kept 14 days.
+  # Same image as postgres, so pg_dump matches the server version.
+  # Restore: README, "Backup and restore".
+  backup:
+    image: pgvector/pgvector:pg18
+    container_name: daneshjohandbot-backup
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      TZ: Asia/Tehran
+      PGHOST: postgres
+      PGUSER: ${POSTGRES_USER}
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      PGDATABASE: ${POSTGRES_DB}
+    volumes:
+      - ./backups:/backups
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        while true; do
+          now=$$(date +%s)
+          next=$$(date -d '03:00' +%s)
+          [ "$$next" -le "$$now" ] && next=$$(date -d 'tomorrow 03:00' +%s)
+          sleep $$((next - now))
+          # Write to a temporary name first, so a failed dump never looks like a backup.
+          if pg_dump -Fc -f /backups/.partial.dump; then
+            mv /backups/.partial.dump "/backups/daneshjo-$$(date +%F).dump"
+            echo "backup written: daneshjo-$$(date +%F).dump"
+          else
+            echo "backup FAILED" >&2
+          fi
+          find /backups -name 'daneshjo-*.dump' -mtime +14 -delete
+        done
 
   # Cross-encoder reranker (bge-reranker-v2-m3) on llama.cpp server, CPU only so
   # the GPU stays free for Ollama. Model file: models/bge-reranker-v2-m3-Q8_0.gguf

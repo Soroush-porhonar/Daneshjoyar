@@ -57,3 +57,5 @@ Desktop.ini
 models/
 
 CLAUDE.md
+# Nightly database dumps (compose "backup" service)
+backups/

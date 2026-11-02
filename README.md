@@ -122,3 +122,15 @@ npm run eval                  # retrieval evaluation (also: eval:router, eval:an
 ```
 
 Configure `.env` with `BALE_TOKEN`, `DATABASE_URL`, `LLM_URL`, `LLM_MODEL`, `EMBEDDING_MODEL`, `PORT`, and the Postgres credentials. Optional: `LLM_KEEP_ALIVE` (how long Ollama keeps models in GPU memory, default `30m`; `-1` = always).
+
+## Backup and restore
+
+The `backup` service in `compose.yaml` dumps the database every night at 03:00 (Tehran time) to `backups/daneshjo-YYYY-MM-DD.dump` and deletes dumps older than 14 days. The database holds everything the bot needs: users, conversations, extracted text, chunks and embeddings, answer logs. The original PDFs in `uploads/` are only needed to re-ingest documents (for example after changing the embedding model), so copy that folder with your normal file backups.
+
+```bash
+docker compose logs backup                       # "backup written: ..." each night
+docker compose exec backup sh -c 'pg_dump -Fc -f /backups/manual.dump'   # a backup right now
+
+# Restore (stop the bot first; replaces the current data)
+docker compose exec -T postgres pg_restore --clean --if-exists -U "$POSTGRES_USER" -d "$POSTGRES_DB" < backups/daneshjo-2026-11-02.dump
+```
