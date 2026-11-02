@@ -3,7 +3,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // The test environment disables the reranker; switch it on for these tests.
 vi.mock("../src/config.js", async (importOriginal) => {
   const { config } = await importOriginal<typeof import("../src/config.js")>();
-  return { config: { ...config, reranker: { ...config.reranker, enabled: true } } };
+  return {
+    config: {
+      ...config,
+      reranker: { ...config.reranker, enabled: true },
+      rag: { ...config.rag, chunkContext: true },
+    },
+  };
 });
 
 const { rerankChunks } = await import("../src/rag/rerank.js");
@@ -61,6 +67,18 @@ describe("rerankChunks", () => {
 
     const body = JSON.parse(fetchMock.mock.calls[0]![1].body as string);
     expect(body.documents).toEqual(["صف\nمتن اسلاید", "صف\nمتن"]);
+  });
+
+  it("reads an enriched chunk with its document title and context, like its embedding", async () => {
+    reply({ results: [0, 1].map((index) => ({ index, relevance_score: 0 })) });
+
+    await rerankChunks("سؤال", [
+      { content: "سه نوع دارد", context: "درباره انواع تجرید", documentTitle: "شی‌گرایی" },
+      { content: "متن ساده" },
+    ]);
+
+    const body = JSON.parse(fetchMock.mock.calls[0]![1].body as string);
+    expect(body.documents).toEqual(["شی‌گرایی\nدرباره انواع تجرید\nسه نوع دارد", "متن ساده"]);
   });
 
   it("keeps the search order when the service is down", async () => {

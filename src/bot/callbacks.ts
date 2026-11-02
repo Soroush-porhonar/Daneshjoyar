@@ -80,7 +80,9 @@ export async function handleCallback(query: CallbackQuery): Promise<void> {
       const document = (await listDocuments(user.id)).find((d) => d.id === callback.documentId);
       await answerCallbackQuery(
         query.id,
-        document ? documentInfoText(document.filename, document.status) : DELETE_NOT_FOUND_TEXT,
+        document
+          ? documentInfoText(document.filename, document.status, document.title, document.topics)
+          : DELETE_NOT_FOUND_TEXT,
       );
       return;
     }

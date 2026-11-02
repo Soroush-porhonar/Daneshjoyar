@@ -9,7 +9,8 @@ import {
 } from "../messages.js";
 import { config } from "../config.js";
 import { findOrCreateConversation } from "../db/conversations.js";
-import { listCompletedFilenames } from "../db/documents.js";
+import { listCompletedDocuments } from "../db/documents.js";
+import { describeDocument } from "../llm/prompts/router.js";
 import { getRecentMessages, saveMessage } from "../db/messages.js";
 import { findOrCreateUser } from "../db/users.js";
 import { logDatabaseError } from "../errors.js";
@@ -92,7 +93,8 @@ async function composeAnswer(
   text: string,
   signal?: AbortSignal,
 ): Promise<Reply> {
-  const documentNames = await listCompletedFilenames(userId);
+  // Titles and topics of enriched documents tell the router what the notes cover.
+  const documentNames = (await listCompletedDocuments(userId)).map(describeDocument);
   const history = await getRecentMessages(
     conversationId,
     config.rag.historyLimit,

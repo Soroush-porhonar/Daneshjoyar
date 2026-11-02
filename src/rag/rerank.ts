@@ -5,14 +5,24 @@
  */
 import { config } from "../config.js";
 import { logger } from "../logger.js";
-import { withTitle } from "./chunk.js";
+import { contextualText, withTitle } from "./chunk.js";
 
 interface RerankResponse {
   results?: { index: number; relevance_score: number }[];
 }
 
-/** What the reranker reads: the same text the chunk was embedded with (slide title included). */
-function rerankText(chunk: { content: string; sectionTitle?: string | null }): string {
+interface RerankableChunk {
+  content: string;
+  sectionTitle?: string | null;
+  context?: string | null;
+  documentTitle?: string | null;
+}
+
+/** What the reranker reads: the same text the chunk was searched by (slide title, and context when enriched). */
+function rerankText(chunk: RerankableChunk): string {
+  if (config.rag.chunkContext && chunk.context) {
+    return contextualText(chunk.documentTitle, chunk.sectionTitle, chunk.context, chunk.content);
+  }
   return config.rag.chunking.titleInEmbedding ? withTitle(chunk.sectionTitle, chunk.content) : chunk.content;
 }
 
@@ -22,7 +32,7 @@ function rerankText(chunk: { content: string; sectionTitle?: string | null }): s
  * On any failure the original order is kept, so search still works when the
  * reranker service is down.
  */
-export async function rerankChunks<T extends { content: string; sectionTitle?: string | null }>(
+export async function rerankChunks<T extends RerankableChunk>(
   question: string,
   chunks: T[],
 ): Promise<(T & { rerankScore?: number })[]> {

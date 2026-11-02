@@ -7,9 +7,8 @@ vi.mock("../src/db/enrichment.js", () => ({
 vi.mock("../src/llm/ollamaClient.js", () => ({ chat: vi.fn() }));
 vi.mock("../src/rag/embeddings.js", () => ({ generateEmbeddings: vi.fn() }));
 
-const { enrichDocument, fitSummaries, parseChunkContext, parseProfile } = await import(
-  "../src/rag/enrich.js"
-);
+const { enrichDocument, parseChunkContext, parseProfile } = await import("../src/rag/enrich.js");
+const { fitSummaries } = await import("../src/rag/batch.js");
 const { foregroundIdle, startForegroundWork } = await import("../src/llm/priority.js");
 const { loadDocumentForEnrichment, saveEnrichment } = await import("../src/db/enrichment.js");
 const { chat } = await import("../src/llm/ollamaClient.js");

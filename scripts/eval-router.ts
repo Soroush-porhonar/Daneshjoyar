@@ -20,7 +20,8 @@ import { readFile } from "node:fs/promises";
 import { performance } from "node:perf_hooks";
 import { config } from "../src/config.js";
 import { pool } from "../src/db/pool.js";
-import { listCompletedFilenames } from "../src/db/documents.js";
+import { listCompletedDocuments } from "../src/db/documents.js";
+import { describeDocument } from "../src/llm/prompts/router.js";
 import { rankedCandidates } from "../src/rag/retrieve.js";
 import { needsRewrite } from "../src/rag/rewrite.js";
 import { resolveRoute, routeMessage } from "../src/rag/router.js";
@@ -61,7 +62,7 @@ async function searchUser(): Promise<number> {
 }
 
 const userId = withSearch ? await searchUser() : null;
-const documents = userId === null ? DOCUMENTS : await listCompletedFilenames(userId);
+const documents = userId === null ? DOCUMENTS : (await listCompletedDocuments(userId)).map(describeDocument);
 /** Per message: best reranker score of the early search (production only searches early for non-follow-ups). */
 const scores: { id: string; route: string; routerSaid: string; score: number }[] = [];
 

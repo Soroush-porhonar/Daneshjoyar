@@ -6,6 +6,11 @@ import { rerankChunks } from "./rerank.js";
 import { PERSIAN_STOPWORDS } from "./stopwords.js";
 import { normalizeText } from "./textQuality.js";
 
+/** Which embedding a chunk is searched by: with its context (enriched documents) or alone. */
+const CHUNK_EMBEDDING = config.rag.chunkContext
+  ? "COALESCE(dc.context_embedding, dc.embedding)"
+  : "dc.embedding";
+
 export interface RetrievedChunk {
   documentId: number;
   filename: string;
@@ -17,6 +22,9 @@ export interface RetrievedChunk {
   sectionIndex?: number | null;
   /** Slide decks: the slide title (part of the embedded text); null otherwise. */
   sectionTitle?: string | null;
+  /** Enriched documents: a sentence placing the chunk in its document, and the document's title. */
+  context?: string | null;
+  documentTitle?: string | null;
   content: string;
   distance: number;
   /** Cross-encoder relevance (higher is better); missing when the reranker is off or failed. */
@@ -125,8 +133,10 @@ async function vectorSearch(
          dc.chunk_index AS "chunkIndex",
          dc.section_index AS "sectionIndex",
          dc.section_title AS "sectionTitle",
+         dc.context,
+         d.title AS "documentTitle",
          dc.content,
-         dc.embedding <=> $2::vector AS distance,
+         ${CHUNK_EMBEDDING} <=> $2::vector AS distance,
          ROW_NUMBER() OVER (
            PARTITION BY
             dc.document_id,
@@ -151,6 +161,8 @@ async function vectorSearch(
        "chunkIndex",
        "sectionIndex",
        "sectionTitle",
+       context,
+       "documentTitle",
        content,
        distance
      FROM ranked_chunks
@@ -210,8 +222,10 @@ async function keywordSearch(
        dc.chunk_index AS "chunkIndex",
        dc.section_index AS "sectionIndex",
        dc.section_title AS "sectionTitle",
+       dc.context,
+       d.title AS "documentTitle",
        dc.content,
-       dc.embedding <=> $5::vector AS distance
+       ${CHUNK_EMBEDDING} <=> $5::vector AS distance
      FROM document_chunks dc
      JOIN documents d ON d.id = dc.document_id
      CROSS JOIN q
@@ -222,6 +236,50 @@ async function keywordSearch(
      ORDER BY ts_rank_cd(dc.content_tsv, q.query) DESC, dc.chunk_index
      LIMIT $3`,
     [userId, terms.join(" "), limit, documentId ?? null, `[${embedding.join(",")}]`],
+  );
+
+  return result.rows;
+}
+
+/**
+ * Enriched documents: chunks whose stored questions (what the chunk answers,
+ * written at upload) are closest to the student's question. A question
+ * matches a question more closely than it matches lecture notes, which helps
+ * paraphrased questions. Each chunk counts once, by its closest question.
+ */
+async function questionSearch(
+  userId: number,
+  embedding: number[],
+  limit: number,
+  documentId: number | undefined,
+  maxDistance: number,
+): Promise<RetrievedChunk[]> {
+  const result = await pool.query<RetrievedChunk>(
+    `SELECT * FROM (
+       SELECT DISTINCT ON (dc.id)
+         dc.document_id AS "documentId",
+         d.filename,
+         dc.page_number AS "pageNumber",
+         dc.page_end AS "pageEnd",
+         dc.chunk_index AS "chunkIndex",
+         dc.section_index AS "sectionIndex",
+         dc.section_title AS "sectionTitle",
+         dc.context,
+         d.title AS "documentTitle",
+         dc.content,
+         q.embedding <=> $2::vector AS distance
+       FROM chunk_questions q
+       JOIN document_chunks dc ON dc.id = q.chunk_id
+       JOIN documents d ON d.id = dc.document_id
+       WHERE d.user_id = $1
+         AND d.status = 'completed'
+         AND ($4::integer IS NULL OR dc.document_id = $4)
+       ORDER BY dc.id, distance
+     ) closest
+     WHERE distance <= $5
+     ORDER BY distance
+     LIMIT $3`,
+    [userId, `[${embedding.join(",")}]`, limit, documentId ?? null, maxDistance],
   );
 
   return result.rows;
@@ -277,8 +335,10 @@ async function chunksByRef(
        dc.chunk_index AS "chunkIndex",
        dc.section_index AS "sectionIndex",
        dc.section_title AS "sectionTitle",
+       dc.context,
+       d.title AS "documentTitle",
        dc.content,
-       dc.embedding <=> $4::vector AS distance
+       ${CHUNK_EMBEDDING} <=> $4::vector AS distance
      FROM document_chunks dc
      JOIN documents d ON d.id = dc.document_id
      WHERE d.user_id = $1
@@ -314,12 +374,16 @@ export async function searchCandidates(
   checkLimit(limit);
   const embedding = await generateEmbedding(question);
   const vectorHits = await vectorSearch(userId, embedding, limit, documentId, maxDistance);
-  const hits = config.rag.hybridSearch
-    ? fuseRankings([
-        vectorHits,
-        await keywordSearch(userId, question, embedding, limit, documentId),
-      ]).slice(0, limit)
-    : vectorHits;
+  const lists = [
+    vectorHits,
+    ...(config.rag.hybridSearch
+      ? [await keywordSearch(userId, question, embedding, limit, documentId)]
+      : []),
+    ...(config.rag.questionIndex
+      ? [await questionSearch(userId, embedding, limit, documentId, maxDistance)]
+      : []),
+  ];
+  const hits = lists.length > 1 ? fuseRankings(lists).slice(0, limit) : vectorHits;
 
   const wanted = include.filter((ref) => documentId === undefined || ref.documentId === documentId);
   if (wanted.length === 0) return hits;

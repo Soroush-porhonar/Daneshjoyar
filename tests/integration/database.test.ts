@@ -48,6 +48,7 @@ const {
   setEnrichmentStatus,
 } = await import("../../src/db/enrichment.js");
 const { ingestPdf } = await import("../../src/rag/ingest.js");
+const { config } = await import("../../src/config.js");
 const { DuplicateDocumentError } = await import("../../src/errors.js");
 const { openPdf } = await import("../../src/rag/pdf.js");
 const { generateEmbeddings } = await import("../../src/rag/embeddings.js");
@@ -149,8 +150,8 @@ describe("documents", () => {
     await addDocument(bob, "bob.pdf", [3]);
 
     expect(await listCompletedDocuments(alice)).toEqual([
-      { id: newer, filename: "newer.pdf" },
-      { id: older, filename: "older.pdf" },
+      { id: newer, filename: "newer.pdf", title: null, topics: null },
+      { id: older, filename: "older.pdf", title: null, topics: null },
     ]);
   });
 
@@ -618,5 +619,56 @@ describe("enrichment (background, after upload)", () => {
 
     const row = await pool.query("SELECT enrichment FROM documents WHERE id = $1", [documentId]);
     expect(row.rows[0].enrichment).toBe("pending");
+  });
+});
+
+describe("question index (enriched documents)", () => {
+  const rag = config.rag as { questionIndex: boolean };
+  const questionAbout = (axisIndex: number) => ({ question: `سؤال #${axisIndex}`, embedding: axis(axisIndex) });
+
+  /** Gives every chunk of a document one stored question on the given axes. */
+  async function addQuestions(userId: number, documentId: number, axes: number[]) {
+    const ids = (
+      await pool.query<{ id: number }>(
+        "SELECT id FROM document_chunks WHERE document_id = $1 ORDER BY chunk_index",
+        [documentId],
+      )
+    ).rows.map((row) => row.id);
+    await saveEnrichment(
+      documentId,
+      { title: "t", summary: "", topics: [] },
+      [],
+      ids.map((chunkId, i) => ({ chunkId, context: "c", contextEmbedding: axis(0), questions: [questionAbout(axes[i]!)] })),
+    );
+  }
+
+  it("finds a chunk through a stored question its own text is far from", async () => {
+    rag.questionIndex = true;
+    try {
+      const alice = await addUser("alice");
+      const documentId = await addDocument(alice, "a.pdf", [5, 6]);
+      // Chunk 1's text is far from the question (#7), but it answers a stored question on #7.
+      await addQuestions(alice, documentId, [8, 7]);
+
+      const candidates = await searchCandidates(alice, "#7", 10, documentId);
+
+      expect(candidates.map((chunk) => chunk.chunkIndex)).toEqual([1]);
+    } finally {
+      rag.questionIndex = false;
+    }
+  });
+
+  it("never matches another user's stored questions", async () => {
+    rag.questionIndex = true;
+    try {
+      const alice = await addUser("alice");
+      const bob = await addUser("bob");
+      const bobsDocument = await addDocument(bob, "b.pdf", [5]);
+      await addQuestions(bob, bobsDocument, [7]);
+
+      await expect(searchCandidates(alice, "#7", 10)).resolves.toEqual([]);
+    } finally {
+      rag.questionIndex = false;
+    }
   });
 });

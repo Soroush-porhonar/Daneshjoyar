@@ -26,7 +26,7 @@ import {
 import { BROAD_EXTRACTION_SYSTEM_PROMPT } from "../llm/prompts/rag.js";
 import { logger } from "../logger.js";
 import { formatChunks } from "./answer.js";
-import { batchByChars } from "./batch.js";
+import { batchByChars, fitSummaries } from "./batch.js";
 import { contextualText } from "./chunk.js";
 import { generateEmbeddings } from "./embeddings.js";
 
@@ -73,12 +73,6 @@ async function backgroundChat(
       { role: "user", content: user },
     ],
   });
-}
-
-/** Cuts each summary to its share of `maxChars`, so all sections are represented. */
-export function fitSummaries(summaries: string[], maxChars: number): string[] {
-  const share = Math.floor(maxChars / Math.max(summaries.length, 1));
-  return summaries.map((summary) => (summary.length > share ? `${summary.slice(0, share)}…` : summary));
 }
 
 const text = (value: unknown): string => (typeof value === "string" ? value.trim() : "");

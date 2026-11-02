@@ -26,3 +26,9 @@ export function batchByChars<T extends { content: string }>(
 
   return batches;
 }
+
+/** Cuts each summary to its share of `maxChars`, so all sections are represented. */
+export function fitSummaries(summaries: string[], maxChars: number): string[] {
+  const share = Math.floor(maxChars / Math.max(summaries.length, 1));
+  return summaries.map((summary) => (summary.length > share ? `${summary.slice(0, share)}…` : summary));
+}
