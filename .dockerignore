@@ -1,0 +1,14 @@
+node_modules
+.git
+.env
+.env.*
+uploads
+models
+backups
+coverage
+eval
+screenshots
+tests
+scripts
+.claude
+CLAUDE.md

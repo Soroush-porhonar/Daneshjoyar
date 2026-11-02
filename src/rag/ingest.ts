@@ -5,7 +5,7 @@ import { chunkDocument } from "./semanticChunk.js";
 import { extractPages } from "./ocr.js";
 import type { ExtractionProgress } from "./ocr.js";
 import { generateEmbeddings } from "./embeddings.js";
-import { PdfExtractError } from "../errors.js";
+import { DuplicateDocumentError, PdfExtractError } from "../errors.js";
 import { logger } from "../logger.js";
 
 const EMBED_BATCH_SIZE = 16;
@@ -17,20 +17,38 @@ export interface IngestResult {
   ocrPages: number;
 }
 
+/** PostgreSQL error code for a unique-index violation. */
+const UNIQUE_VIOLATION = "23505";
+
 export async function ingestPdf(
   userId: number,
   filename: string,
   filePath: string,
   onProgress?: (progress: ExtractionProgress) => Promise<void> | void,
+  /**
+   * Size of the uploaded file: with a size, the same user can't add the same
+   * file (name and size) twice. Null for scripts that re-ingest on purpose.
+   */
+  fileSize: number | null = null,
 ): Promise<IngestResult> {
-  const documentResult = await pool.query<{ id: number }>(
-    `
-      INSERT INTO documents (user_id, filename, status)
-      VALUES ($1, $2, 'processing')
-      RETURNING id
-    `,
-    [userId, filename],
-  );
+  let documentResult;
+
+  try {
+    documentResult = await pool.query<{ id: number }>(
+      `
+        INSERT INTO documents (user_id, filename, status, file_size)
+        VALUES ($1, $2, 'processing', $3)
+        RETURNING id
+      `,
+      [userId, filename, fileSize],
+    );
+  } catch (error: unknown) {
+    // Two uploads of the same file at nearly the same time: the index catches it.
+    if ((error as { code?: string }).code === UNIQUE_VIOLATION) {
+      throw new DuplicateDocumentError(`Document already exists: ${filename}`);
+    }
+    throw error;
+  }
 
   const document = documentResult.rows[0];
 
