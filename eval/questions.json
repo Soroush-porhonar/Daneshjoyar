@@ -798,5 +798,104 @@
     "expectedPages": [7],
     "mustInclude": ["650"],
     "filename": "4_6023995269647959615.pdf"
+  },
+  {
+    "id": "cs-def",
+    "type": "exact_term",
+    "mode": "focused",
+    "question": "سیستم خبره چیست؟",
+    "expectedPages": [
+      1
+    ],
+    "mustInclude": [
+      "برنامه"
+    ],
+    "filename": "CamScanner 05-18-2025 16.58.pdf"
+  },
+  {
+    "id": "cs-features",
+    "type": "paraphrase",
+    "mode": "focused",
+    "question": "یک سیستم خبره باید چه ویژگی‌هایی داشته باشد؟",
+    "expectedPages": [
+      1
+    ],
+    "mustInclude": [
+      "استنباط"
+    ],
+    "filename": "CamScanner 05-18-2025 16.58.pdf"
+  },
+  {
+    "id": "cs-payroll",
+    "type": "paraphrase",
+    "mode": "focused",
+    "question": "چرا نرم‌افزار حقوق و دستمزد به هوشمندسازی نیاز ندارد؟",
+    "expectedPages": [
+      2
+    ],
+    "mustInclude": [
+      "ورودی"
+    ],
+    "filename": "CamScanner 05-18-2025 16.58.pdf"
+  },
+  {
+    "id": "cs-expert-person",
+    "type": "exact_term",
+    "mode": "focused",
+    "question": "شخص خبره چه ویژگی‌هایی باید داشته باشد؟",
+    "expectedPages": [
+      2
+    ],
+    "mustInclude": [
+      "تجربه"
+    ],
+    "filename": "CamScanner 05-18-2025 16.58.pdf"
+  },
+  {
+    "id": "cs-explain-why",
+    "type": "paraphrase",
+    "mode": "focused",
+    "question": "سیستم خبره چطور برای کاربر توضیح می‌دهد که چطور به جواب رسیده؟",
+    "expectedPages": [
+      2
+    ],
+    "mustInclude": [
+      "توصیف"
+    ],
+    "filename": "CamScanner 05-18-2025 16.58.pdf"
+  },
+  {
+    "id": "cs-trigger-fire",
+    "type": "exact_term",
+    "mode": "focused",
+    "question": "دو مرحله trigger و fire در مکانیزم کنترل چه کار می‌کنند؟",
+    "expectedPages": [
+      5
+    ],
+    "mustInclude": [
+      "انتخاب"
+    ],
+    "filename": "CamScanner 05-18-2025 16.58.pdf"
+  },
+  {
+    "id": "cs-retrieval",
+    "type": "paraphrase",
+    "mode": "focused",
+    "question": "چرا پیدا کردن و ارائه دانش از ساختن خود پایگاه دانش مهم‌تر است؟",
+    "expectedPages": [
+      5
+    ],
+    "mustInclude": [
+      "بازیابی"
+    ],
+    "filename": "CamScanner 05-18-2025 16.58.pdf"
+  },
+  {
+    "id": "cs-neg-backprop",
+    "type": "negative",
+    "mode": "focused",
+    "question": "شبکه عصبی با الگوریتم پس‌انتشار خطا چطور آموزش داده می‌شود؟",
+    "expectedPages": [],
+    "filename": "CamScanner 05-18-2025 16.58.pdf"
   }
 ]
