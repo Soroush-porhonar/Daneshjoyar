@@ -29,7 +29,11 @@ vi.mock("../src/rag/rewrite.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/rag/rewrite.js")>()),
   rewriteQuestion: vi.fn(),
 }));
-vi.mock("../src/rag/router.js", () => ({ routeMessage: vi.fn() }));
+// Keep the real resolveRoute (when the notes overrule the router); fake the LLM call.
+vi.mock("../src/rag/router.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/rag/router.js")>()),
+  routeMessage: vi.fn(),
+}));
 
 const { handleMessage } = await import("../src/chat/chatService.js");
 const { removeButtons, sendMessage } = await import("../src/bale.js");
@@ -166,6 +170,42 @@ describe("handleMessage", () => {
         ],
       ],
     });
+  });
+
+  it("answers from the notes when the router says chat but the early search clearly matched", async () => {
+    const question = "سیستم خبره چیست و چه خصوصیاتی دارد؟ لطفاً کامل و دقیق توضیح بده";
+    const early = Promise.resolve({
+      question,
+      ranked: [{ documentId: 58, filename: "CamScanner.pdf", pageNumber: 1, chunkIndex: 0, content: "x", distance: 0.3, rerankScore: 6 }],
+    });
+    vi.mocked(prefetchCandidates).mockReturnValue(early);
+    vi.mocked(routeMessage).mockResolvedValue({ route: "chat", retrievalMode: "focused" });
+
+    await handleMessage(CHAT_ID, question);
+
+    expect(askAI).not.toHaveBeenCalled();
+    expect(answerFromDocuments).toHaveBeenCalledWith(
+      USER_ID,
+      question,
+      "focused",
+      expect.objectContaining({ prefetch: early }),
+    );
+  });
+
+  it("keeps general chat when the early search found nothing that clearly matches", async () => {
+    const question = "به نظرت کدوم تیم قهرمان جام جهانی میشه؟ دوست دارم نظرت رو بدونم";
+    vi.mocked(prefetchCandidates).mockReturnValue(
+      Promise.resolve({
+        question,
+        ranked: [{ documentId: 58, filename: "CamScanner.pdf", pageNumber: 1, chunkIndex: 0, content: "x", distance: 0.5, rerankScore: -8 }],
+      }),
+    );
+    vi.mocked(routeMessage).mockResolvedValue({ route: "chat", retrievalMode: "focused" });
+
+    await handleMessage(CHAT_ID, question);
+
+    expect(askAI).toHaveBeenCalled();
+    expect(answerFromDocuments).not.toHaveBeenCalled();
   });
 
   it("logs chat answers too", async () => {

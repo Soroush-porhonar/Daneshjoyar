@@ -67,5 +67,9 @@
     ],
     "message": "آهان فهمیدم، دمت گرم",
     "route": "chat"
-  }
+  },
+
+  { "id": "camscanner-def", "message": "سیستم خبره چیه", "route": "document", "mode": "focused" },
+  { "id": "camscanner-features", "message": "خصوصیات یک سیستم خبره چیه؟", "route": "document", "mode": "focused" },
+  { "id": "camscanner-knowledge-base", "message": "پایگاه دانش توی سیستم خبره چه نقشی داره؟", "route": "document", "mode": "focused" }
 ]

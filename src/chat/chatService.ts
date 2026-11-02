@@ -21,7 +21,7 @@ import { createAnswerLog, getLastAnswerHits } from "../db/answerLogs.js";
 import type { NewAnswerLog } from "../db/answerLogs.js";
 import { feedbackButtons } from "../bot/feedback.js";
 import { needsRewrite, rewriteQuestion } from "../rag/rewrite.js";
-import { routeMessage } from "../rag/router.js";
+import { resolveRoute, routeMessage } from "../rag/router.js";
 
 interface Session {
   userId: number;
@@ -105,7 +105,12 @@ async function composeAnswer(
   // search time). Follow-ups are searched only after they are rewritten.
   const followUp = needsRewrite(text, previous);
   const prefetch = followUp ? undefined : prefetchCandidates(userId, text);
-  const classification = await routeMessage(text, documentNames, previous);
+  const routed = await routeMessage(text, documentNames, previous);
+  // The search ran in parallel; if it clearly found the answer, keep the notes.
+  const classification =
+    routed.route === "chat" && prefetch
+      ? resolveRoute(routed, (await prefetch.catch(() => null))?.ranked[0]?.rerankScore)
+      : routed;
 
   if (classification.route === "document") {
     const question = await rewriteQuestion(text, previous, signal);
