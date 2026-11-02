@@ -96,6 +96,16 @@ export const config = {
     hybridSearch: process.env.HYBRID_SEARCH === "true",
     /** RRF constant: each list adds 1 / (k + rank); 60 is the usual value. */
     rrfK: 60,
+    /**
+     * Enriched documents (src/rag/enrich.ts): search chunks by their embedding
+     * with the document title and a context sentence in front (CHUNK_CONTEXT),
+     * and also by the questions each chunk answers, fused with RRF
+     * (QUESTION_INDEX). Off until measured with npm run eval.
+     */
+    chunkContext: process.env.CHUNK_CONTEXT === "true",
+    questionIndex: process.env.QUESTION_INDEX === "true",
+    /** Summary requests: max characters of stored section summaries in the one synthesis call. */
+    storedSummaryChars: 16_000,
     /** Slide decks: give the model the hit's whole section (no measured effect at the current context cap). */
     sectionExpansion: process.env.SECTION_EXPANSION === "true",
     /**
@@ -121,16 +131,32 @@ export const config = {
     maxPages: process.env.OCR_MAX_PAGES ? Number(process.env.OCR_MAX_PAGES) : Infinity,
     /** Measured on the GPU (RX 6800S): ~44 s per page; used for the time estimate. */
     secondsPerPage: 45,
-    /** Page image width sent to the vision model (OCR_IMAGE_WIDTH); see npm run eval:ocr -- --ref. */
+    /**
+     * Page image width sent to the vision model (OCR_IMAGE_WIDTH). Measured on
+     * the AMD GPU: 1400 px took 1 min 50 s per page (1000 px: ~50 s), and the
+     * next 1400 px request crashed the GPU driver (Vulkan "device lost").
+     */
     imageWidth: Number(process.env.OCR_IMAGE_WIDTH ?? 1000),
-    /** Prompt language (OCR_PROMPT=fa|en). */
+    /**
+     * Prompt language (OCR_PROMPT=fa|en). Measured on 3 scanned pages against
+     * hand-written reference text (npm run eval:ocr -- --ref): English 18.6%
+     * character errors, Persian 22.8%.
+     */
     prompt: process.env.OCR_PROMPT === "fa" ? ("fa" as const) : ("en" as const),
     /**
-     * Repair of words the model wrote reversed (OCR_REPAIR): "page" flips every
-     * word when reversed common words dominate the page; "word" flips each word
-     * whose reversed spelling is much more common (wordFrequencies.json).
+     * Repair of words the model wrote reversed (OCR_REPAIR):
+     * - "page": flip every word when reversed common words dominate the page,
+     * - "word": flip each word whose reversed spelling is much more common,
+     * - "both": flip the page only if, over all known words, it reads far
+     *   better flipped; then the word repair for what is left.
+     * Same 3 pages: none 41.5%, word 20.4%, page 18.6%, both 15.5% (page 2
+     * came out fully reversed, pages 1 and 5 partly; "both" is best on each).
+     * What remains is misread letters, which no repair fixes.
      */
-    repair: process.env.OCR_REPAIR === "word" ? ("word" as const) : ("page" as const),
+    repair:
+      process.env.OCR_REPAIR === "page" || process.env.OCR_REPAIR === "word"
+        ? process.env.OCR_REPAIR
+        : ("both" as const),
     timeoutMs: 300_000,
     /** Progress every 5 pages, or every ~10% for big documents. */
     progressEvery: 5,

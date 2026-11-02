@@ -9,8 +9,8 @@
  *
  * Scanned PDFs have no text layer to compare with; give hand-written reference
  * text instead (<prefix>-p<page>.txt) and compare settings in one run. Each
- * page is read once per width and prompt; the three repairs of reversed words
- * (none, page, word) are scored on the same output. Raw outputs are saved.
+ * page is read once per width and prompt; the repairs of reversed words
+ * (none, page, word, both) are scored on the same output. Raw outputs are saved.
  *
  *   npm run eval:ocr -- uploads/x.pdf --pages 1,2,5 --ref eval/ocr-reference/camscanner \
  *     --widths 1000,1400,1800 --prompts en,fa
@@ -89,6 +89,7 @@ if (refIndex >= 0) {
     none: (text: string) => normalizeText(text),
     page: (text: string, page: number) => cleanOcrText(text, page, "page"),
     word: (text: string, page: number) => cleanOcrText(text, page, "word"),
+    both: (text: string, page: number) => cleanOcrText(text, page, "both"),
   };
   const raw: { page: number; width: number; prompt: string; seconds: number; text: string }[] = [];
   const totals = new Map<string, { errors: number; chars: number; recall: number; seconds: number; n: number }>();

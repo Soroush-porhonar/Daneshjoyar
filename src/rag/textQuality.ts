@@ -195,6 +195,28 @@ export function repairReversedWords(
   });
 }
 
+/**
+ * True when far more of a text's words are known words once flipped than as
+ * written: the model reversed (nearly) the whole page. Judged on all known
+ * words, not a few common ones, so a page with only some reversed words is
+ * left to the word-by-word repair.
+ */
+export function mostlyReversed(
+  text: string,
+  counts: ReadonlyMap<string, number> = loadWordCounts(),
+): boolean {
+  let asWritten = 0;
+  let flipped = 0;
+
+  for (const word of text.match(PERSIAN_LETTERS) ?? []) {
+    if ([...word].length < 2) continue;
+    if (counts.has(word)) asWritten++;
+    if (counts.has([...word].reverse().join(""))) flipped++;
+  }
+
+  return flipped > 2 * asWritten;
+}
+
 /** True for model output that is empty or stuck in a loop (same line repeated). */
 export function isDegenerateOcr(text: string): boolean {
   const lines = text

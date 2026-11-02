@@ -7,6 +7,7 @@ import {
   assessPage,
   hasReversedWords,
   isDegenerateOcr,
+  mostlyReversed,
   normalizeText,
   repairReversedWords,
   reverseWordLetters,
@@ -28,7 +29,7 @@ export interface ExtractionResult {
 export interface OcrSettings {
   imageWidth: number;
   prompt: "en" | "fa";
-  repair: "page" | "word";
+  repair: "page" | "word" | "both";
 }
 
 const defaultSettings = (): OcrSettings => ({
@@ -75,6 +76,14 @@ export function cleanOcrText(
   const normalized = normalizeText(text);
 
   if (repair === "word") return repairReversedWords(normalized);
+
+  if (repair === "both") {
+    // Flip the page only if it is mostly reversed (judged on all known
+    // words), then fix the words the model reversed one by one.
+    const flip = mostlyReversed(normalized);
+    if (flip) logger.info(`[OCR] Page ${pageNumber}: Persian words came out reversed, fixing`);
+    return repairReversedWords(flip ? reverseWordLetters(normalized) : normalized);
+  }
 
   if (hasReversedWords(normalized)) {
     logger.info(`[OCR] Page ${pageNumber}: Persian words came out reversed, fixing`);
