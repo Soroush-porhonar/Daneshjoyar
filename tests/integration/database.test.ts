@@ -392,7 +392,7 @@ describe("answer logs and feedback", () => {
     rewrittenQuestion: null,
     route: "document" as const,
     retrievalMode: "focused",
-    documentId: null,
+    documentIds: [] as number[],
     context: [{ page: 14, chunkIndex: 13, isHit: true }],
     answer: "جواب",
     latencyMs: 9000,
@@ -424,10 +424,10 @@ describe("answer logs and feedback", () => {
     const documentId = await addDocument(alice, "a.pdf", [1, 2]);
     await createAnswerLog({
       ...log(alice),
-      documentId,
+      documentIds: [documentId],
       context: [
-        { page: 1, chunkIndex: 0, isHit: false },
-        { page: 2, chunkIndex: 1, isHit: true },
+        { documentId, page: 1, chunkIndex: 0, isHit: false },
+        { documentId, page: 2, chunkIndex: 1, isHit: true },
       ],
     });
 
@@ -443,14 +443,16 @@ describe("answer logs and feedback", () => {
     const alice = await addUser("alice");
     const first = await addDocument(alice, "a.pdf", [1]);
     const second = await addDocument(alice, "b.pdf", [2]);
-    await createAnswerLog({
+    const id = await createAnswerLog({
       ...log(alice),
-      documentId: first,
+      documentIds: [first, second],
       context: [
         { documentId: second, page: 1, chunkIndex: 0, isHit: true },
         { page: 4, chunkIndex: 3, isHit: true }, // logged before chunks named their document
       ],
     });
+    // Rows from that time named their one document in document_id.
+    await pool.query("UPDATE answer_logs SET document_id = $2 WHERE id = $1", [id, first]);
 
     expect(await getLastAnswerHits(alice)).toEqual([
       { documentId: second, chunkIndex: 0 },

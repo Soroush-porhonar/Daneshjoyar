@@ -1,11 +1,12 @@
 import { config } from "../config.js";
 import { logger } from "../logger.js";
-import { getSelectedDocumentId } from "../db/conversations.js";
+import { listCompletedDocuments } from "../db/documents.js";
+import type { CompletedDocument } from "../db/documents.js";
 import {
   NO_DOCUMENT_CONTENT_TEXT,
-  NO_DOCUMENT_SELECTED_TEXT,
   NO_RELEVANT_CONTENT_TEXT,
   SOURCES_HEADING,
+  summaryHeaderText,
   sourceLineText,
 } from "../messages.js";
 import { chat } from "../llm/ollamaClient.js";
@@ -20,6 +21,7 @@ import { batchByChars } from "./batch.js";
 import { getDocumentChunks, rankedCandidates, retrieveContext } from "./retrieve.js";
 import type { ChunkRef, ContextChunk, RetrievedChunk } from "./retrieve.js";
 import type { RetrievalMode } from "./router.js";
+import { normalizeText } from "./textQuality.js";
 
 interface SourceChunk {
   filename: string;
@@ -180,11 +182,11 @@ export function pagesMentioned(summaries: string[]): Set<number> {
 
 async function answerBroadQuestion(
   userId: number,
-  documentId: number,
+  document: CompletedDocument,
   question: string,
   signal?: AbortSignal,
 ): Promise<string> {
-  const chunks = await getDocumentChunks(userId, documentId);
+  const chunks = await getDocumentChunks(userId, document.id);
 
   if (chunks.length === 0) {
     return NO_DOCUMENT_CONTENT_TEXT;
@@ -218,21 +220,24 @@ async function answerBroadQuestion(
   const mentioned = pagesMentioned(summaries);
   const cited = chunks.filter((chunk) => chunk.pageNumber != null && mentioned.has(chunk.pageNumber));
 
-  return appendSources(answer, cited.length > 0 ? cited : chunks);
+  // Say which document was summarised: it was picked, not chosen by the student.
+  return `${summaryHeaderText(document.filename)}\n\n${appendSources(answer, cited.length > 0 ? cited : chunks)}`;
 }
 
 async function answerFocusedQuestion(
   userId: number,
-  documentId: number,
   question: string,
   mode: "focused" | "multi_part",
+  scope: { documentId?: number; ranked?: RetrievedChunk[] },
   signal?: AbortSignal,
-  ranked?: RetrievedChunk[],
   trace?: AnswerTrace,
 ): Promise<string> {
-  const chunks = await retrieveContext(userId, question, mode, { documentId, ...(ranked ? { ranked } : {}) });
+  const chunks = await retrieveContext(userId, question, mode, scope);
 
-  if (trace) trace.context = chunks;
+  if (trace) {
+    trace.context = chunks;
+    trace.documentIds = [...new Set(chunks.filter((chunk) => chunk.isHit).map((chunk) => chunk.documentId))];
+  }
 
   if (chunks.length === 0) {
     return NO_RELEVANT_CONTENT_TEXT;
@@ -250,7 +255,8 @@ async function answerFocusedQuestion(
 
 /** Filled in while answering, for the answer log. */
 export interface AnswerTrace {
-  documentId?: number | null;
+  /** The documents the answer drew on. */
+  documentIds?: number[];
   /** The chunks the model was given (empty for whole-document summaries). */
   context?: ContextChunk[];
 }
@@ -258,12 +264,11 @@ export interface AnswerTrace {
 /** Search results fetched early, while the router was still deciding. */
 export interface Prefetch {
   question: string;
-  documentId: number | null;
   ranked: RetrievedChunk[];
 }
 
 /**
- * Starts searching the selected document right away, in parallel with the
+ * Starts searching the user's documents right away, in parallel with the
  * router (search and reranking run on the CPU, the router on the GPU).
  * The result is simply ignored if the message turns out to be chat.
  * For a follow-up, `previous` (the last answer's hits) is reranked together
@@ -274,65 +279,95 @@ export function prefetchCandidates(
   question: string,
   previous?: ChunkRef[] | null,
 ): Promise<Prefetch> {
-  const prefetch = (async () => {
-    const documentId = await getSelectedDocumentId(userId);
-    const ranked =
-      documentId === null
-        ? []
-        : await rankedCandidates(userId, question, { documentId, include: previous ?? [] });
-    return { question, documentId, ranked };
-  })();
+  const prefetch = rankedCandidates(userId, question, { include: previous ?? [] }).then(
+    (ranked) => ({ question, ranked }),
+  );
 
   // Not every prefetch is awaited (chat messages); avoid unhandled rejections.
   prefetch.catch(() => {});
   return prefetch;
 }
 
-/** Answers from the user's selected document. */
+/** The text of a filename that a student might type: no extension, normalised. */
+const comparableName = (filename: string) =>
+  normalizeText(filename.replace(/\.pdf$/i, "")).toLowerCase().trim();
+
+/**
+ * Which document a summary request is about, in this order: the only one; a
+ * document whose name the question contains; the document most of the best
+ * search hits come from, when they clearly match; otherwise the newest upload.
+ */
+export function pickDocument(
+  documents: CompletedDocument[],
+  question: string,
+  ranked: RetrievedChunk[],
+): CompletedDocument | null {
+  if (documents.length <= 1) return documents[0] ?? null;
+
+  const text = normalizeText(question).toLowerCase();
+  const named = documents
+    .filter((document) => comparableName(document.filename).length >= 3)
+    .filter((document) => text.includes(comparableName(document.filename)))
+    .sort((a, b) => comparableName(b.filename).length - comparableName(a.filename).length);
+  if (named[0]) return named[0];
+
+  // Vote of the top hits (1/rank), only when the best one clearly matches the question.
+  const top = ranked.slice(0, 5);
+  if ((top[0]?.rerankScore ?? Number.NEGATIVE_INFINITY) >= config.reranker.relevantScore) {
+    const votes = new Map<number, number>();
+    top.forEach((chunk, rank) => votes.set(chunk.documentId, (votes.get(chunk.documentId) ?? 0) + 1 / (rank + 1)));
+    const [bestId] = [...votes.entries()].sort((a, b) => b[1] - a[1])[0]!;
+    const voted = documents.find((document) => document.id === bestId);
+    if (voted) return voted;
+  }
+
+  // documents is newest first.
+  return documents[0]!;
+}
+
+export interface AnswerOptions {
+  signal?: AbortSignal;
+  /** Results searched early; used only if fetched for this exact question. */
+  prefetch?: Promise<Prefetch>;
+  trace?: AnswerTrace;
+  /** Answer only from this document (the evals pin one version). */
+  documentId?: number;
+}
+
+/** Answers from the user's documents: the most relevant chunks of any of them, or one picked document for summaries. */
 export async function answerFromDocuments(
   userId: number,
   question: string,
   retrievalMode: RetrievalMode = "multi_part",
-  signal?: AbortSignal,
-  prefetch?: Promise<Prefetch>,
-  trace?: AnswerTrace,
+  { signal, prefetch, trace, documentId }: AnswerOptions = {},
 ): Promise<string> {
   // Use early results only if they were fetched for this exact question;
   // if fetching them failed, search again normally.
   const early = await prefetch?.catch(() => null);
-  const usable = early?.question === question ? early : null;
-  const documentId = usable ? usable.documentId : await getSelectedDocumentId(userId);
+  const ranked = early?.question === question ? early.ranked : undefined;
 
-  if (trace) trace.documentId = documentId;
-
-  if (documentId === null) {
-    return NO_DOCUMENT_SELECTED_TEXT;
-  }
-
-  return answerFromDocument(userId, documentId, question, retrievalMode, signal, usable?.ranked, trace);
-}
-
-/** Answers from one specific document (also used by the answer eval). */
-export async function answerFromDocument(
-  userId: number,
-  documentId: number,
-  question: string,
-  retrievalMode: RetrievalMode,
-  signal?: AbortSignal,
-  ranked?: RetrievedChunk[],
-  trace?: AnswerTrace,
-): Promise<string> {
   if (retrievalMode === "broad") {
-    return answerBroadQuestion(userId, documentId, question, signal);
+    const documents = (await listCompletedDocuments(userId)).filter(
+      (document) => documentId === undefined || document.id === documentId,
+    );
+    const document = pickDocument(
+      documents,
+      question,
+      ranked ?? (documents.length > 1 ? await rankedCandidates(userId, question) : []),
+    );
+
+    if (!document) return NO_DOCUMENT_CONTENT_TEXT;
+    if (trace) trace.documentIds = [document.id];
+
+    return answerBroadQuestion(userId, document, question, signal);
   }
 
   return answerFocusedQuestion(
     userId,
-    documentId,
     question,
     retrievalMode,
+    { ...(documentId === undefined ? {} : { documentId }), ...(ranked ? { ranked } : {}) },
     signal,
-    ranked,
     trace,
   );
 }

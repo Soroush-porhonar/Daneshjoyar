@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { ContextChunk, DocumentChunk } from "../src/rag/retrieve.js";
+import type { ContextChunk, DocumentChunk, RetrievedChunk } from "../src/rag/retrieve.js";
 
-vi.mock("../src/db/conversations.js", () => ({ getSelectedDocumentId: vi.fn() }));
+vi.mock("../src/db/documents.js", () => ({ listCompletedDocuments: vi.fn() }));
 vi.mock("../src/rag/retrieve.js", () => ({
   retrieveContext: vi.fn(),
   getDocumentChunks: vi.fn(),
@@ -9,17 +9,17 @@ vi.mock("../src/rag/retrieve.js", () => ({
 }));
 vi.mock("../src/llm/ollamaClient.js", () => ({ chat: vi.fn() }));
 
-const { answerFromDocuments, prefetchCandidates } = await import("../src/rag/answer.js");
-const { getSelectedDocumentId } = await import("../src/db/conversations.js");
+const { answerFromDocuments, pickDocument, prefetchCandidates } = await import("../src/rag/answer.js");
+const { listCompletedDocuments } = await import("../src/db/documents.js");
 const { getDocumentChunks, rankedCandidates, retrieveContext } = await import(
   "../src/rag/retrieve.js"
 );
 const { chat } = await import("../src/llm/ollamaClient.js");
 const messages = await import("../src/messages.js");
 
-const chunk = (chunkIndex: number, pageNumber: number, isHit = true): ContextChunk => ({
-  documentId: 1,
-  filename: "notes.pdf",
+const chunk = (chunkIndex: number, pageNumber: number, isHit = true, documentId = 1): ContextChunk => ({
+  documentId,
+  filename: documentId === 1 ? "notes.pdf" : "other.pdf",
   pageNumber,
   chunkIndex,
   content: `متن صفحه ${pageNumber}`,
@@ -31,18 +31,12 @@ const prompt = (call: number) => vi.mocked(chat).mock.calls[call]![0].messages[1
 
 beforeEach(() => {
   vi.clearAllMocks();
-  vi.mocked(getSelectedDocumentId).mockResolvedValue(1);
+  vi.mocked(listCompletedDocuments).mockResolvedValue([{ id: 1, filename: "notes.pdf" }]);
+  vi.mocked(rankedCandidates).mockResolvedValue([]);
   vi.mocked(chat).mockResolvedValue("پاسخ مدل");
 });
 
 describe("answerFromDocuments", () => {
-  it("asks the user to pick a document first", async () => {
-    vi.mocked(getSelectedDocumentId).mockResolvedValue(null);
-
-    expect(await answerFromDocuments(8, "سؤال")).toBe(messages.NO_DOCUMENT_SELECTED_TEXT);
-    expect(chat).not.toHaveBeenCalled();
-  });
-
   it("does not call the model when nothing relevant was found", async () => {
     vi.mocked(retrieveContext).mockResolvedValue([]);
 
@@ -52,7 +46,7 @@ describe("answerFromDocuments", () => {
     expect(chat).not.toHaveBeenCalled();
   });
 
-  it("answers from the retrieved chunks and cites only the real hits", async () => {
+  it("answers from the retrieved chunks of all documents and cites only the real hits", async () => {
     vi.mocked(retrieveContext).mockResolvedValue([chunk(0, 3, false), chunk(1, 4), chunk(2, 5, false)]);
 
     const answer = await answerFromDocuments(8, "سؤال من", "focused");
@@ -61,7 +55,28 @@ describe("answerFromDocuments", () => {
     expect(prompt(0)).toContain("متن صفحه 3"); // neighbours are context...
     expect(answer).toContain(messages.sourceLineText("notes.pdf", 4));
     expect(answer).not.toContain(messages.sourceLineText("notes.pdf", 3)); // ...but not sources
-    expect(retrieveContext).toHaveBeenCalledWith(8, "سؤال من", "focused", { documentId: 1 });
+    expect(retrieveContext).toHaveBeenCalledWith(8, "سؤال من", "focused", {});
+  });
+
+  it("records every document the answer's hits came from", async () => {
+    vi.mocked(retrieveContext).mockResolvedValue([
+      chunk(1, 4),
+      chunk(2, 5, false, 3), // a neighbour only: not a source
+      chunk(7, 2, true, 2),
+    ]);
+    const trace = {};
+
+    await answerFromDocuments(8, "سؤال", "focused", { trace });
+
+    expect(trace).toMatchObject({ documentIds: [1, 2] });
+  });
+
+  it("can be pinned to one document (the evals compare versions)", async () => {
+    vi.mocked(retrieveContext).mockResolvedValue([chunk(0, 2)]);
+
+    await answerFromDocuments(8, "سؤال", "focused", { documentId: 4 });
+
+    expect(retrieveContext).toHaveBeenCalledWith(8, "سؤال", "focused", { documentId: 4 });
   });
 
   it("puts the student's question after the sources, so exercise questions in notes aren't answered instead", async () => {
@@ -79,31 +94,30 @@ describe("answerFromDocuments", () => {
   it("uses results searched early for the same question instead of searching again", async () => {
     vi.mocked(retrieveContext).mockResolvedValue([chunk(0, 2)]);
     const ranked = [{ ...chunk(0, 2), distance: 0.2 }];
-    const early = Promise.resolve({ question: "سؤال", documentId: 4, ranked });
+    const prefetch = Promise.resolve({ question: "سؤال", ranked });
 
-    await answerFromDocuments(8, "سؤال", "focused", undefined, early);
+    await answerFromDocuments(8, "سؤال", "focused", { prefetch });
 
-    expect(getSelectedDocumentId).not.toHaveBeenCalled();
-    expect(retrieveContext).toHaveBeenCalledWith(8, "سؤال", "focused", { documentId: 4, ranked });
+    expect(retrieveContext).toHaveBeenCalledWith(8, "سؤال", "focused", { ranked });
   });
 
   it("searches again when the early results were for a different question", async () => {
     vi.mocked(retrieveContext).mockResolvedValue([chunk(0, 2)]);
-    const early = Promise.resolve({ question: "سؤال دیگر", documentId: 4, ranked: [] });
+    const prefetch = Promise.resolve({ question: "سؤال دیگر", ranked: [] });
 
-    await answerFromDocuments(8, "سؤال", "focused", undefined, early);
+    await answerFromDocuments(8, "سؤال", "focused", { prefetch });
 
-    expect(retrieveContext).toHaveBeenCalledWith(8, "سؤال", "focused", { documentId: 1 });
+    expect(retrieveContext).toHaveBeenCalledWith(8, "سؤال", "focused", {});
   });
 
   it("searches again when the early search failed", async () => {
     vi.mocked(retrieveContext).mockResolvedValue([chunk(0, 2)]);
-    const failed = Promise.reject(new Error("db down"));
-    failed.catch(() => {});
+    const prefetch = Promise.reject(new Error("db down"));
+    prefetch.catch(() => {});
 
-    await answerFromDocuments(8, "سؤال", "focused", undefined, failed);
+    await answerFromDocuments(8, "سؤال", "focused", { prefetch });
 
-    expect(retrieveContext).toHaveBeenCalledWith(8, "سؤال", "focused", { documentId: 1 });
+    expect(retrieveContext).toHaveBeenCalledWith(8, "سؤال", "focused", {});
   });
 
   it("uses low temperature for factual answers", async () => {
@@ -133,7 +147,8 @@ describe("answerFromDocuments", () => {
     // 5 × 4000 chars with a 9000-char budget -> 3 batches + 1 final call.
     expect(chat).toHaveBeenCalledTimes(4);
     expect(prompt(3)).toContain("خلاصه بخش 3");
-    expect(answer.startsWith("پاسخ نهایی")).toBe(true);
+    // The summary says which document it is about: the bot picked it.
+    expect(answer.startsWith(`${messages.summaryHeaderText("notes.pdf")}\n\nپاسخ نهایی`)).toBe(true);
     expect(answer).toContain(messages.sourceLineText("notes.pdf", 5));
   });
 
@@ -155,6 +170,13 @@ describe("answerFromDocuments", () => {
     expect(answer).not.toContain(messages.sourceLineText("notes.pdf", 3));
   });
 
+  it("says there is nothing to summarise without documents", async () => {
+    vi.mocked(listCompletedDocuments).mockResolvedValue([]);
+
+    expect(await answerFromDocuments(8, "خلاصه کن", "broad")).toBe(messages.NO_DOCUMENT_CONTENT_TEXT);
+    expect(chat).not.toHaveBeenCalled();
+  });
+
   it("numbers the sources in the prompt and lists the ones the answer cites", async () => {
     vi.mocked(retrieveContext).mockResolvedValue([chunk(0, 3, false), chunk(1, 4), chunk(2, 5)]);
     vi.mocked(chat).mockResolvedValue("پشته LIFO است [3].");
@@ -170,26 +192,56 @@ describe("answerFromDocuments", () => {
     vi.mocked(retrieveContext).mockResolvedValue([chunk(0, 1)]);
     const controller = new AbortController();
 
-    await answerFromDocuments(8, "سؤال", "focused", controller.signal);
+    await answerFromDocuments(8, "سؤال", "focused", { signal: controller.signal });
 
     expect(vi.mocked(chat).mock.calls[0]![0].signal).toBe(controller.signal);
   });
 });
 
-describe("prefetchCandidates", () => {
-  beforeEach(() => vi.mocked(rankedCandidates).mockResolvedValue([]));
+describe("pickDocument (which document a summary is about)", () => {
+  // Newest first, like listCompletedDocuments.
+  const documents = [
+    { id: 3, filename: "CamScanner 05-18-2025.pdf" },
+    { id: 2, filename: "جزوه درس آزمون نرم افزار.pdf" },
+    { id: 1, filename: "DataStructure_Chapter1.pdf" },
+  ];
+  const hit = (documentId: number, rerankScore: number): RetrievedChunk => ({
+    ...chunk(0, 1, true, documentId),
+    distance: 0.3,
+    rerankScore,
+  });
 
-  it("reranks the previous answer's hits together with the results", async () => {
+  it("takes the only document", () => {
+    expect(pickDocument([documents[2]!], "خلاصه کن", [])).toBe(documents[2]);
+  });
+
+  it("takes the document the question names", () => {
+    expect(pickDocument(documents, "datastructure_chapter1 رو خلاصه کن", [hit(2, 5)])).toBe(documents[2]);
+  });
+
+  it("otherwise takes the document most of the clearly matching hits come from", () => {
+    const ranked = [hit(2, 4), hit(1, 1), hit(2, 0.5), hit(1, -2)];
+
+    expect(pickDocument(documents, "تست نرم افزار رو خلاصه کن", ranked)).toBe(documents[1]);
+  });
+
+  it("falls back to the newest upload when nothing clearly matches", () => {
+    expect(pickDocument(documents, "خلاصه کن", [hit(1, -6), hit(2, -7)])).toBe(documents[0]);
+  });
+});
+
+describe("prefetchCandidates", () => {
+  it("searches all documents, reranking the previous answer's hits with the results", async () => {
     const previous = [{ documentId: 1, chunkIndex: 4 }, { documentId: 2, chunkIndex: 5 }];
 
     await prefetchCandidates(8, "سؤال", previous);
 
-    expect(rankedCandidates).toHaveBeenCalledWith(8, "سؤال", { documentId: 1, include: previous });
+    expect(rankedCandidates).toHaveBeenCalledWith(8, "سؤال", { include: previous });
   });
 
   it("searches normally without previous hits", async () => {
     await prefetchCandidates(8, "سؤال", null);
 
-    expect(rankedCandidates).toHaveBeenCalledWith(8, "سؤال", { documentId: 1, include: [] });
+    expect(rankedCandidates).toHaveBeenCalledWith(8, "سؤال", { include: [] });
   });
 });

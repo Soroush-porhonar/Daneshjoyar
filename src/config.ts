@@ -52,6 +52,13 @@ export const config = {
      * correct chunks but rejected only 2/6 negatives, which the model refuses anyway.
      */
     minScore: process.env.RERANKER_MIN_SCORE ? Number(process.env.RERANKER_MIN_SCORE) : null,
+    /**
+     * A best chunk scoring at least this clearly matches the question: a
+     * summary request is about that chunk's document. Unanswerable questions'
+     * best chunks scored at most -3.9 (npm run eval); provisional until the
+     * router calibration (npm run eval:router -- --with-search).
+     */
+    relevantScore: 0,
   },
 
   embedding: {

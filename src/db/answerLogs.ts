@@ -18,7 +18,8 @@ export interface NewAnswerLog {
   rewrittenQuestion: string | null;
   route: "document" | "chat";
   retrievalMode: string | null;
-  documentId: number | null;
+  /** The documents the answer drew on. */
+  documentIds: number[];
   context: LoggedChunk[];
   answer: string;
   latencyMs: number;
@@ -27,7 +28,7 @@ export interface NewAnswerLog {
 export async function createAnswerLog(log: NewAnswerLog): Promise<number> {
   const result = await pool.query<{ id: number }>(
     `INSERT INTO answer_logs
-       (user_id, question, rewritten_question, route, retrieval_mode, document_id,
+       (user_id, question, rewritten_question, route, retrieval_mode, document_ids,
         context, answer, latency_ms)
      VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9)
      RETURNING id`,
@@ -37,7 +38,7 @@ export async function createAnswerLog(log: NewAnswerLog): Promise<number> {
       log.rewrittenQuestion,
       log.route,
       log.retrievalMode,
-      log.documentId,
+      log.documentIds,
       JSON.stringify(log.context),
       log.answer,
       log.latencyMs,

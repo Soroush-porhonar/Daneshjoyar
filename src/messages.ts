@@ -228,10 +228,13 @@ export const NO_DOCUMENT_SELECTED_TEXT =
   `دکمه «${MENU_DOCUMENTS}» رو بزن و جزوه‌ای که می‌خوای رو انتخاب کن.`;
 
 export const NO_DOCUMENT_CONTENT_TEXT =
-  "توی جزوه انتخاب‌شده محتوایی پیدا نکردم.";
+  "توی جزوه‌هات محتوایی پیدا نکردم.";
 
 export const NO_RELEVANT_CONTENT_TEXT =
-  "توی جزوه انتخاب‌شده چیز مرتبطی با سؤالت پیدا نکردم.";
+  "توی جزوه‌هات چیز مرتبطی با سؤالت پیدا نکردم.";
+
+/** First line of a summary: the bot picked the document, so it says which. */
+export const summaryHeaderText = (filename: string): string => `📄 خلاصه «${filename}»:`;
 
 export const SOURCES_HEADING = "**منابع:**";
 

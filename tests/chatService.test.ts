@@ -82,7 +82,7 @@ describe("handleMessage", () => {
       { documentId: 5, chunkIndex: 12 },
       { documentId: 6, chunkIndex: 3 },
     ];
-    const search = Promise.resolve({ question: `بازنویسی: ${current.content}`, documentId: 5, ranked: [] });
+    const search = Promise.resolve({ question: `بازنویسی: ${current.content}`, ranked: [] });
     vi.mocked(getLastAnswerHits).mockResolvedValue(previousHits);
     vi.mocked(prefetchCandidates).mockReturnValue(search);
     vi.mocked(routeMessage).mockResolvedValue({ route: "document", retrievalMode: "focused" });
@@ -97,9 +97,7 @@ describe("handleMessage", () => {
       USER_ID,
       `بازنویسی: ${current.content}`,
       "focused",
-      undefined,
-      search,
-      expect.any(Object),
+      expect.objectContaining({ prefetch: search }),
     );
     expect(saveMessage).toHaveBeenLastCalledWith(11, "assistant", "جواب از جزوه");
     expect(lastReply()).toBe("جواب از جزوه");
@@ -117,7 +115,7 @@ describe("handleMessage", () => {
 
   it("starts searching a standalone question while the router decides", async () => {
     const question = "الگوریتم پریم چطور درخت پوشای کمینه را پیدا می‌کند و مرتبه اجرایی آن چیست؟";
-    const early = Promise.resolve({ question, documentId: 5, ranked: [] });
+    const early = Promise.resolve({ question, ranked: [] });
     vi.mocked(prefetchCandidates).mockReturnValue(early);
     vi.mocked(routeMessage).mockResolvedValue({ route: "document", retrievalMode: "focused" });
 
@@ -128,18 +126,17 @@ describe("handleMessage", () => {
       USER_ID,
       question,
       "focused",
-      undefined,
-      early,
-      expect.any(Object),
+      expect.objectContaining({ prefetch: early }),
     );
   });
 
   it("logs a document answer and attaches 👍/👎 buttons to it", async () => {
     vi.mocked(routeMessage).mockResolvedValue({ route: "document", retrievalMode: "focused" });
     vi.mocked(answerFromDocuments).mockImplementation(
-      async (_user, _q, _mode, _signal, _prefetch, trace) => {
-        trace!.documentId = 5;
-        trace!.context = [
+      async (_user, _q, _mode, options) => {
+        const trace = options!.trace!;
+        trace.documentIds = [5];
+        trace.context = [
           { documentId: 5, filename: "a.pdf", pageNumber: 14, chunkIndex: 13, content: "x", isHit: true },
         ];
         return "جواب از جزوه";
@@ -155,7 +152,7 @@ describe("handleMessage", () => {
         rewrittenQuestion: `بازنویسی: ${current.content}`,
         route: "document",
         retrievalMode: "focused",
-        documentId: 5,
+        documentIds: [5],
         context: [{ documentId: 5, page: 14, pageEnd: null, chunkIndex: 13, isHit: true }],
         answer: "جواب از جزوه",
         latencyMs: expect.any(Number),
@@ -223,7 +220,7 @@ describe("handleMessage", () => {
 
   it("ignores the early search when the message is chat", async () => {
     vi.mocked(prefetchCandidates).mockReturnValue(
-      Promise.resolve({ question: "x", documentId: 5, ranked: [] }),
+      Promise.resolve({ question: "x", ranked: [] }),
     );
     vi.mocked(routeMessage).mockResolvedValue({ route: "chat", retrievalMode: "focused" });
 

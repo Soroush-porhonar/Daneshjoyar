@@ -24,7 +24,7 @@ import { NO_RELEVANT_CONTENT_TEXT, SOURCES_HEADING } from "../src/messages.js";
 import { previousHits } from "./evalHelpers.js";
 import {
   REFUSAL_PATTERN,
-  answerFromDocument,
+  answerFromDocuments,
   citedNumbers,
   formatChunks,
   numberSources,
@@ -165,7 +165,10 @@ for (const q of questions) {
     include.length > 0
       ? await rankedCandidates(document.user_id, question, { documentId: document.id, include })
       : undefined;
-  const answer = await answerFromDocument(document.user_id, document.id, question, mode, undefined, ranked);
+  const answer = await answerFromDocuments(document.user_id, question, mode, {
+    documentId: document.id,
+    ...(ranked ? { prefetch: Promise.resolve({ question, ranked }) } : {}),
+  });
   const seconds = (performance.now() - start) / 1000;
 
   const body = answer.split(SOURCES_HEADING)[0]!;

@@ -53,7 +53,7 @@ const chatLog = (question: string): AnswerLogInfo => ({
   rewrittenQuestion: null,
   route: "chat",
   retrievalMode: null,
-  documentId: null,
+  documentIds: [],
   context: [],
 });
 
@@ -119,9 +119,7 @@ async function composeAnswer(
       userId,
       question,
       classification.retrievalMode,
-      signal,
-      search,
-      trace,
+      { ...(signal ? { signal } : {}), ...(search ? { prefetch: search } : {}), trace },
     );
 
     return {
@@ -131,7 +129,7 @@ async function composeAnswer(
         rewrittenQuestion: question === text ? null : question,
         route: "document",
         retrievalMode: classification.retrievalMode,
-        documentId: trace.documentId ?? null,
+        documentIds: trace.documentIds ?? [],
         context: (trace.context ?? []).map((chunk) => ({
           page: chunk.pageNumber,
           pageEnd: chunk.pageEnd ?? null,

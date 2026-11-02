@@ -32,9 +32,10 @@ interface Row {
 
 const { rows } = await pool.query<Row>(
   `SELECT a.id, a.question, a.rewritten_question, a.route, a.retrieval_mode,
-          d.filename, a.context, a.answer, a.latency_ms, a.feedback, a.created_at
+          (SELECT string_agg(d.filename, ', ') FROM documents d
+           WHERE d.id = ANY(a.document_ids) OR d.id = a.document_id) AS filename,
+          a.context, a.answer, a.latency_ms, a.feedback, a.created_at
    FROM answer_logs a
-   LEFT JOIN documents d ON d.id = a.document_id
    WHERE a.created_at > NOW() - make_interval(days => $1)
    ORDER BY a.created_at DESC`,
   [days],

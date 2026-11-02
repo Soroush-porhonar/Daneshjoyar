@@ -11,7 +11,7 @@
 import { readFile } from "node:fs/promises";
 import { performance } from "node:perf_hooks";
 import { pool } from "../src/db/pool.js";
-import { answerFromDocument } from "../src/rag/answer.js";
+import { answerFromDocuments } from "../src/rag/answer.js";
 import { generateEmbedding } from "../src/rag/embeddings.js";
 import { retrieveContext } from "../src/rag/retrieve.js";
 import { rewriteQuestion } from "../src/rag/rewrite.js";
@@ -81,8 +81,8 @@ for (const q of questions) {
   await time("retrieval", () => retrieveContext(document.user_id, question, mode, { documentId: document.id }));
   const retrievalMs = performance.now() - retrievalStart;
   const answerStart = performance.now();
-  await answerFromDocument(document.user_id, document.id, question, q.mode);
-  // answerFromDocument retrieves again; subtract that to get the LLM time.
+  await answerFromDocuments(document.user_id, question, q.mode, { documentId: document.id });
+  // answerFromDocuments retrieves again; subtract that to get the LLM time.
   timings.generation!.push(performance.now() - answerStart - retrievalMs);
   timings.total!.push(performance.now() - totalStart - retrievalMs);
 }
