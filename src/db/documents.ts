@@ -20,6 +20,31 @@ export async function listDocuments(userId: number): Promise<DocumentSummary[]> 
   return result.rows;
 }
 
+/** An upload that was still being processed when the bot stopped. */
+export interface InterruptedUpload {
+  chatId: string;
+  filename: string;
+}
+
+/**
+ * Marks uploads left 'processing' by a crash or restart as failed and returns
+ * them. Only one bot runs, so at startup nothing is really still processing;
+ * their chunks were never saved (they are written in one transaction at the
+ * end). Failed uploads don't count as duplicates, so the file can be sent again.
+ */
+export async function failInterruptedDocuments(): Promise<InterruptedUpload[]> {
+  const result = await pool.query<InterruptedUpload>(
+    `UPDATE documents d
+     SET status = 'failed'
+     FROM users u
+     WHERE u.id = d.user_id
+       AND d.status = 'processing'
+     RETURNING u.bale_chat_id AS "chatId", d.filename`,
+  );
+
+  return result.rows;
+}
+
 /**
  * The user's existing copy of a file (same name and size), if any. Failed
  * uploads don't count, so a file can be sent again after a failure.

@@ -27,7 +27,13 @@ const { findOrCreateUser } = await import("../../src/db/users.js");
 const { findOrCreateConversation, getSelectedDocumentId, selectDocument } = await import(
   "../../src/db/conversations.js"
 );
-const { deleteDocument, findDocumentFilename, findDuplicateDocument, listCompletedFilenames } = await import(
+const {
+  deleteDocument,
+  failInterruptedDocuments,
+  findDocumentFilename,
+  findDuplicateDocument,
+  listCompletedFilenames,
+} = await import(
   "../../src/db/documents.js"
 );
 const { isUpdateProcessed, markUpdateProcessed } = await import("../../src/db/updates.js");
@@ -337,6 +343,45 @@ describe("duplicate uploads (same user, same name and size)", () => {
     await ingestPdf(alice, "notes.pdf", "x.pdf");
 
     await expect(ingestPdf(alice, "notes.pdf", "x.pdf")).resolves.toBeTruthy();
+  });
+});
+
+describe("uploads interrupted by a crash or restart", () => {
+  it("marks uploads left 'processing' as failed and says whose they were", async () => {
+    const alice = await addUser("alice");
+    const stuck = await addDocument(alice, "stuck.pdf", [1], "processing");
+    const done = await addDocument(alice, "done.pdf", [2]);
+
+    expect(await failInterruptedDocuments()).toEqual([{ chatId: "alice", filename: "stuck.pdf" }]);
+
+    const statuses = await pool.query<{ id: number; status: string }>(
+      "SELECT id, status FROM documents ORDER BY id",
+    );
+    expect(statuses.rows).toEqual([
+      { id: stuck, status: "failed" },
+      { id: done, status: "completed" },
+    ]);
+    expect(await failInterruptedDocuments()).toEqual([]);
+  });
+
+  it("the interrupted file can be sent again afterwards", async () => {
+    const alice = await addUser("alice");
+    await pool.query(
+      `INSERT INTO documents (user_id, filename, status, file_size) VALUES ($1, 'notes.pdf', 'processing', 1234)`,
+      [alice],
+    );
+    expect(await findDuplicateDocument(alice, "notes.pdf", 1234)).not.toBeNull();
+
+    await failInterruptedDocuments();
+
+    expect(await findDuplicateDocument(alice, "notes.pdf", 1234)).toBeNull();
+    // The unique index no longer counts it either.
+    await expect(
+      pool.query(
+        `INSERT INTO documents (user_id, filename, status, file_size) VALUES ($1, 'notes.pdf', 'processing', 1234)`,
+        [alice],
+      ),
+    ).resolves.toBeTruthy();
   });
 });
 

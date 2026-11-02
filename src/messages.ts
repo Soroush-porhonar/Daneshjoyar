@@ -196,6 +196,9 @@ export const ocrStartedText = (
     ? `\n⚠️ ${skipped} صفحه دیگه به‌خاطر محدودیت تعداد صفحه خونده نمی‌شه.`
     : "");
 
+export const uploadInterruptedText = (filename: string): string =>
+  `⚠️ پردازش فایل «${filename}» به‌خاطر راه‌اندازی دوباره ربات نیمه‌کاره موند. لطفاً دوباره بفرستش.`;
+
 export const ocrProgressText = (done: number, total: number): string =>
   `⏳ خوندن صفحه‌ها: ${done} از ${total}`;
 
