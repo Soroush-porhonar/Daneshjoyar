@@ -55,3 +55,5 @@ Desktop.ini
 
 # Local model files (reranker GGUF)
 models/
+
+CLAUDE.md

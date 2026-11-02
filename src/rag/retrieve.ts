@@ -15,8 +15,12 @@ export interface RetrievedChunk {
   chunkIndex: number;
   /** Slide decks: chunks with the same title share a section; null otherwise. */
   sectionIndex?: number | null;
+  /** Slide decks: the slide title (part of the embedded text); null otherwise. */
+  sectionTitle?: string | null;
   content: string;
   distance: number;
+  /** Cross-encoder relevance (higher is better); missing when the reranker is off or failed. */
+  rerankScore?: number;
 }
 
 /** A chunk that will be placed in the model's context (a hit or its neighbour). */
@@ -120,6 +124,7 @@ async function vectorSearch(
          dc.page_end AS "pageEnd",
          dc.chunk_index AS "chunkIndex",
          dc.section_index AS "sectionIndex",
+         dc.section_title AS "sectionTitle",
          dc.content,
          dc.embedding <=> $2::vector AS distance,
          ROW_NUMBER() OVER (
@@ -145,6 +150,7 @@ async function vectorSearch(
        "pageEnd",
        "chunkIndex",
        "sectionIndex",
+       "sectionTitle",
        content,
        distance
      FROM ranked_chunks
@@ -203,6 +209,7 @@ async function keywordSearch(
        dc.page_end AS "pageEnd",
        dc.chunk_index AS "chunkIndex",
        dc.section_index AS "sectionIndex",
+       dc.section_title AS "sectionTitle",
        dc.content,
        dc.embedding <=> $5::vector AS distance
      FROM document_chunks dc
@@ -247,10 +254,42 @@ export function fuseRankings(
     .map((entry) => entry.chunk);
 }
 
+/** Specific chunks of one document (by chunk index), with their distance to the question. */
+async function chunksByIndex(
+  userId: number,
+  embedding: number[],
+  documentId: number,
+  chunkIndexes: number[],
+): Promise<RetrievedChunk[]> {
+  const result = await pool.query<RetrievedChunk>(
+    `SELECT
+       dc.document_id AS "documentId",
+       d.filename,
+       dc.page_number AS "pageNumber",
+       dc.page_end AS "pageEnd",
+       dc.chunk_index AS "chunkIndex",
+       dc.section_index AS "sectionIndex",
+       dc.section_title AS "sectionTitle",
+       dc.content,
+       dc.embedding <=> $4::vector AS distance
+     FROM document_chunks dc
+     JOIN documents d ON d.id = dc.document_id
+     WHERE d.user_id = $1
+       AND d.status = 'completed'
+       AND dc.document_id = $2
+       AND dc.chunk_index = ANY($3::int[])
+     ORDER BY distance`,
+    [userId, documentId, chunkIndexes, `[${embedding.join(",")}]`],
+  );
+
+  return result.rows;
+}
+
 /**
  * Search candidates for a question: vector search, plus keyword search fused
  * with RRF when hybrid search is on. Keyword hits skip the distance cutoff,
- * since an exact term match is evidence of its own.
+ * since an exact term match is evidence of its own. `include` adds specific
+ * chunks of the document after them (follow-ups: the previous answer's hits).
  */
 export async function searchCandidates(
   userId: number,
@@ -258,15 +297,24 @@ export async function searchCandidates(
   limit: number,
   documentId?: number,
   maxDistance: number = config.rag.maxCosineDistance,
+  include: number[] = [],
 ): Promise<RetrievedChunk[]> {
   checkLimit(limit);
   const embedding = await generateEmbedding(question);
   const vectorHits = await vectorSearch(userId, embedding, limit, documentId, maxDistance);
+  const hits = config.rag.hybridSearch
+    ? fuseRankings([
+        vectorHits,
+        await keywordSearch(userId, question, embedding, limit, documentId),
+      ]).slice(0, limit)
+    : vectorHits;
 
-  if (!config.rag.hybridSearch) return vectorHits;
+  if (include.length === 0 || documentId === undefined) return hits;
 
-  const keywordHits = await keywordSearch(userId, question, embedding, limit, documentId);
-  return fuseRankings([vectorHits, keywordHits]).slice(0, limit);
+  const found = new Set(hits.map(chunkKey));
+  const extra = await chunksByIndex(userId, embedding, documentId, include);
+
+  return [...hits, ...extra.filter((chunk) => !found.has(chunkKey(chunk)))];
 }
 
 /** Chunks by position, plus every chunk of the given sections. */
@@ -351,18 +399,39 @@ export function mergeContext(
 /**
  * Search candidates ordered best first (reranked when the reranker is on).
  * Independent of the retrieval mode, so it can start before the router decides.
+ * `include`: chunks that compete with the search results (see searchCandidates).
  */
 export async function rankedCandidates(
   userId: number,
   question: string,
   documentId: number,
+  include: number[] = [],
 ): Promise<RetrievedChunk[]> {
   // With a reranker: fetch more candidates and let it pick the best.
   const limit = config.reranker.enabled
     ? Math.max(config.rag.retrievalLimits.multi_part, config.reranker.candidates)
     : config.rag.retrievalLimits.multi_part;
-  const candidates = await searchCandidates(userId, question, limit, documentId);
+  const candidates = await searchCandidates(
+    userId,
+    question,
+    limit,
+    documentId,
+    config.rag.maxCosineDistance,
+    include,
+  );
   return rerankChunks(question, candidates);
+}
+
+/**
+ * Drops hits the reranker judged irrelevant. Chunks without a score (reranker
+ * off or down) are kept, so a reranker failure never hides results.
+ */
+export function relevantHits(
+  ranked: RetrievedChunk[],
+  minScore: number | null = config.reranker.minScore,
+): RetrievedChunk[] {
+  if (minScore === null) return ranked;
+  return ranked.filter((chunk) => chunk.rerankScore === undefined || chunk.rerankScore >= minScore);
 }
 
 export async function retrieveContext(
@@ -373,7 +442,7 @@ export async function retrieveContext(
   /** Candidates already ranked for this question and document (fetched early). */
   ranked?: RetrievedChunk[],
 ): Promise<ContextChunk[]> {
-  const hits = (ranked ?? (await rankedCandidates(userId, question, documentId)))
+  const hits = relevantHits(ranked ?? (await rankedCandidates(userId, question, documentId)))
     .slice(0, config.rag.retrievalLimits[mode])
     .map((hit) => ({ ...hit, isHit: true }));
 

@@ -5,12 +5,15 @@ vi.mock("../src/db/conversations.js", () => ({ getSelectedDocumentId: vi.fn() })
 vi.mock("../src/rag/retrieve.js", () => ({
   retrieveContext: vi.fn(),
   getDocumentChunks: vi.fn(),
+  rankedCandidates: vi.fn(),
 }));
 vi.mock("../src/llm/ollamaClient.js", () => ({ chat: vi.fn() }));
 
-const { answerFromDocuments } = await import("../src/rag/answer.js");
+const { answerFromDocuments, prefetchCandidates } = await import("../src/rag/answer.js");
 const { getSelectedDocumentId } = await import("../src/db/conversations.js");
-const { getDocumentChunks, retrieveContext } = await import("../src/rag/retrieve.js");
+const { getDocumentChunks, rankedCandidates, retrieveContext } = await import(
+  "../src/rag/retrieve.js"
+);
 const { chat } = await import("../src/llm/ollamaClient.js");
 const messages = await import("../src/messages.js");
 
@@ -134,6 +137,35 @@ describe("answerFromDocuments", () => {
     expect(answer).toContain(messages.sourceLineText("notes.pdf", 5));
   });
 
+  it("cites only the pages the batch summaries drew on in broad mode", async () => {
+    const chunks: DocumentChunk[] = [1, 2, 3].map((page) => ({
+      documentId: 1,
+      filename: "notes.pdf",
+      pageNumber: page,
+      chunkIndex: page - 1,
+      content: `متن صفحه ${page}`,
+    }));
+    vi.mocked(getDocumentChunks).mockResolvedValue(chunks);
+    vi.mocked(chat).mockResolvedValueOnce("تعریف پشته (صفحه PDF 2)").mockResolvedValueOnce("پاسخ نهایی");
+
+    const answer = await answerFromDocuments(8, "فصل را خلاصه کن", "broad");
+
+    expect(answer).toContain(messages.sourceLineText("notes.pdf", 2));
+    expect(answer).not.toContain(messages.sourceLineText("notes.pdf", 1));
+    expect(answer).not.toContain(messages.sourceLineText("notes.pdf", 3));
+  });
+
+  it("numbers the sources in the prompt and lists the ones the answer cites", async () => {
+    vi.mocked(retrieveContext).mockResolvedValue([chunk(0, 3, false), chunk(1, 4), chunk(2, 5)]);
+    vi.mocked(chat).mockResolvedValue("پشته LIFO است [3].");
+
+    const answer = await answerFromDocuments(8, "سؤال", "focused");
+
+    expect(prompt(0)).toContain("منبع 3 — فایل: notes.pdf، صفحه PDF 5");
+    expect(answer).toContain(`- [3] ${messages.sourceLineText("notes.pdf", 5)}`);
+    expect(answer).not.toContain(messages.sourceLineText("notes.pdf", 4));
+  });
+
   it("passes the cancel signal to the model", async () => {
     vi.mocked(retrieveContext).mockResolvedValue([chunk(0, 1)]);
     const controller = new AbortController();
@@ -141,5 +173,21 @@ describe("answerFromDocuments", () => {
     await answerFromDocuments(8, "سؤال", "focused", controller.signal);
 
     expect(vi.mocked(chat).mock.calls[0]![0].signal).toBe(controller.signal);
+  });
+});
+
+describe("prefetchCandidates", () => {
+  beforeEach(() => vi.mocked(rankedCandidates).mockResolvedValue([]));
+
+  it("reranks the previous answer's hits with the results when they are from the selected document", async () => {
+    await prefetchCandidates(8, "سؤال", { documentId: 1, chunkIndexes: [4, 5] });
+
+    expect(rankedCandidates).toHaveBeenCalledWith(8, "سؤال", 1, [4, 5]);
+  });
+
+  it("ignores hits from another document", async () => {
+    await prefetchCandidates(8, "سؤال", { documentId: 2, chunkIndexes: [4, 5] });
+
+    expect(rankedCandidates).toHaveBeenCalledWith(8, "سؤال", 1, []);
   });
 });

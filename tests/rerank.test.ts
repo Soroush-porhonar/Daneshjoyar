@@ -39,6 +39,7 @@ describe("rerankChunks", () => {
     const ranked = await rerankChunks("سؤال", chunks);
 
     expect(ranked.map((c) => c.content)).toEqual(["ب", "ج", "الف"]);
+    expect(ranked.map((c) => c.rerankScore)).toEqual([0.9, 0.5, 0.1]);
   });
 
   it("sends the question and the chunk texts", async () => {
@@ -48,6 +49,18 @@ describe("rerankChunks", () => {
 
     const body = JSON.parse(fetchMock.mock.calls[0]![1].body as string);
     expect(body).toEqual({ query: "سؤال", documents: ["الف", "ب", "ج"] });
+  });
+
+  it("sends the slide title with the chunk, like the embedded text", async () => {
+    reply({ results: [0, 1].map((index) => ({ index, relevance_score: 0 })) });
+
+    await rerankChunks("سؤال", [
+      { content: "متن اسلاید", sectionTitle: "صف" },
+      { content: "صف\nمتن", sectionTitle: "صف" },
+    ]);
+
+    const body = JSON.parse(fetchMock.mock.calls[0]![1].body as string);
+    expect(body.documents).toEqual(["صف\nمتن اسلاید", "صف\nمتن"]);
   });
 
   it("keeps the search order when the service is down", async () => {

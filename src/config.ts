@@ -43,6 +43,15 @@ export const config = {
     /** Search returns this many candidates; the reranker keeps the best few. */
     candidates: 10,
     timeoutMs: 20_000,
+    /**
+     * Hits the reranker scores below this are not shown to the model or cited;
+     * with none left the bot says it found nothing, without an LLM call.
+     * Off by default (RERANKER_MIN_SCORE to try): measured on 85 answerable and 6
+     * unanswerable questions, correct chunks score -7.8 .. 7.6 and the negatives'
+     * best chunk -7.4 .. -3.9, so they overlap. The best cut-off (-5) kept 84/85
+     * correct chunks but rejected only 2/6 negatives, which the model refuses anyway.
+     */
+    minScore: process.env.RERANKER_MIN_SCORE ? Number(process.env.RERANKER_MIN_SCORE) : null,
   },
 
   embedding: {

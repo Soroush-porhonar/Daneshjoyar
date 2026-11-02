@@ -18,7 +18,7 @@ vi.mock("../src/db/documents.js", () => ({
   findDocumentFilename: vi.fn(),
   deleteDocument: vi.fn(),
 }));
-vi.mock("../src/db/answerLogs.js", () => ({ createAnswerLog: vi.fn() }));
+vi.mock("../src/db/answerLogs.js", () => ({ createAnswerLog: vi.fn(), getLastAnswerHits: vi.fn() }));
 vi.mock("../src/llm/generalChat.js", () => ({ askAI: vi.fn() }));
 vi.mock("../src/rag/answer.js", () => ({
   answerFromDocuments: vi.fn(),
@@ -39,7 +39,7 @@ const { saveMessage, getRecentMessages } = await import("../src/db/messages.js")
 const { listCompletedFilenames } = await import("../src/db/documents.js");
 const { askAI } = await import("../src/llm/generalChat.js");
 const { answerFromDocuments, prefetchCandidates } = await import("../src/rag/answer.js");
-const { createAnswerLog } = await import("../src/db/answerLogs.js");
+const { createAnswerLog, getLastAnswerHits } = await import("../src/db/answerLogs.js");
 const { needsRewrite, rewriteQuestion } = await import("../src/rag/rewrite.js");
 const { routeMessage } = await import("../src/rag/router.js");
 const { logger } = await import("../src/logger.js");
@@ -77,22 +77,38 @@ beforeEach(() => {
 const lastReply = () => vi.mocked(sendMessage).mock.calls.at(-1)?.[1];
 
 describe("handleMessage", () => {
-  it("answers document questions from the documents with the rewritten question", async () => {
+  it("answers a follow-up with the rewritten question, reranking the previous answer's hits too", async () => {
+    const previousHits = { documentId: 5, chunkIndexes: [12, 13] };
+    const search = Promise.resolve({ question: `بازنویسی: ${current.content}`, documentId: 5, ranked: [] });
+    vi.mocked(getLastAnswerHits).mockResolvedValue(previousHits);
+    vi.mocked(prefetchCandidates).mockReturnValue(search);
     vi.mocked(routeMessage).mockResolvedValue({ route: "document", retrievalMode: "focused" });
 
     await expect(handleMessage(CHAT_ID, current.content)).resolves.toBe(true);
 
     expect(rewriteQuestion).toHaveBeenCalledWith(current.content, earlier, undefined);
+    // Searched only once rewritten, never with the bare follow-up text.
+    expect(prefetchCandidates).toHaveBeenCalledTimes(1);
+    expect(prefetchCandidates).toHaveBeenCalledWith(USER_ID, `بازنویسی: ${current.content}`, previousHits);
     expect(answerFromDocuments).toHaveBeenCalledWith(
       USER_ID,
       `بازنویسی: ${current.content}`,
       "focused",
       undefined,
-      undefined, // a follow-up is not searched before it is rewritten
+      search,
       expect.any(Object),
     );
-    expect(prefetchCandidates).not.toHaveBeenCalled();
     expect(saveMessage).toHaveBeenLastCalledWith(11, "assistant", "جواب از جزوه");
+    expect(lastReply()).toBe("جواب از جزوه");
+  });
+
+  it("still answers a follow-up when the previous answer cannot be read", async () => {
+    vi.mocked(getLastAnswerHits).mockRejectedValue(new Error("db down"));
+    vi.mocked(routeMessage).mockResolvedValue({ route: "document", retrievalMode: "focused" });
+
+    await expect(handleMessage(CHAT_ID, current.content)).resolves.toBe(true);
+
+    expect(prefetchCandidates).toHaveBeenCalledWith(USER_ID, `بازنویسی: ${current.content}`, null);
     expect(lastReply()).toBe("جواب از جزوه");
   });
 

@@ -110,6 +110,12 @@ export function cleanPages(pages: PageText[], options: ChunkOptions): CleanPage[
     .filter((page) => page.text.length > 0);
 }
 
+/** The chunk text plus its slide title when the text does not start with it. */
+export function withTitle(title: string | null | undefined, content: string): string {
+  return title && !content.startsWith(title) ? `${title}
+${content}` : content;
+}
+
 /** Slide decks: chunks stay inside their slide and carry its title and section. */
 function chunkPaged(pages: CleanPage[], options: ChunkOptions): Omit<TextChunk, "chunkIndex">[] {
   const titles = pages.map((page) => pageTitle(page.text));
@@ -120,13 +126,12 @@ function chunkPaged(pages: CleanPage[], options: ChunkOptions): Omit<TextChunk, 
 
     return splitRanges(page.text, options.chunkSize, options.overlap).map(([start, end]) => {
       const content = page.text.slice(start, end).trim();
-      const addTitle = options.titleInEmbedding && title !== null && !content.startsWith(title);
 
       return {
         pageNumber: page.pageNumber,
         pageEnd: page.pageNumber,
         content,
-        embedText: addTitle ? `${title}\n${content}` : content,
+        embedText: options.titleInEmbedding ? withTitle(title, content) : content,
         method: page.method,
         sectionTitle: title,
         sectionIndex: sections[i]!,

@@ -20,9 +20,16 @@
  */
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { performance } from "node:perf_hooks";
+import { bootstrapInterval, pairedInterval } from "./bootstrap.js";
+import { previousHits } from "./evalHelpers.js";
 import { config } from "../src/config.js";
 import { pool } from "../src/db/pool.js";
-import { retrieveContext, retrieveRelevantChunks, searchCandidates } from "../src/rag/retrieve.js";
+import {
+  rankedCandidates,
+  retrieveContext,
+  retrieveRelevantChunks,
+  searchCandidates,
+} from "../src/rag/retrieve.js";
 import { rerankChunks } from "../src/rag/rerank.js";
 import { rewriteQuestion } from "../src/rag/rewrite.js";
 import type { HistoryMessage } from "../src/rag/rewrite.js";
@@ -51,12 +58,17 @@ interface Row {
   wrongDistance: number | null;
   /** Expected page present in the context the model would really get. */
   inContext: boolean;
-  /** Rank after the follow-up was rewritten (follow_up only). */
-  rewriteRank?: number;
+  /**
+   * Follow-ups: vector rank of the message as typed, before rewriting. The other
+   * ranks use the rewritten question (and the previous answer's hits), like production.
+   */
+  originalRank?: number;
   /** Rank in hybrid search (vector + keyword, RRF); equals `rank` when hybrid is off. */
   hybridRank: number;
   /** Rank after the reranker re-ordered the hybrid candidates (the production order). */
   rerankRank: number;
+  /** Reranker score of the first correct chunk (positives) or of the best chunk (negatives). */
+  rerankScore?: number | null;
   rewritten?: string;
   pages: string;
   ms: number;
@@ -135,10 +147,19 @@ for (const q of questions) {
     continue;
   }
 
+  // Like production: follow-ups are rewritten before searching, and the
+  // previous answer's hits compete with the search results.
+  const rewritten =
+    q.type === "follow_up" && useRewrite && q.history
+      ? await rewriteQuestion(q.question, q.history)
+      : undefined;
+  const text = rewritten ?? q.question;
+  const include = q.type === "follow_up" ? await previousHits(document, q.history) : [];
+
   const start = performance.now();
   const chunks = await retrieveRelevantChunks(
     document.user_id,
-    q.question,
+    text,
     limit,
     document.id,
     NO_THRESHOLD,
@@ -148,23 +169,27 @@ for (const q of questions) {
   const distances = chunks.map((chunk) => Number(chunk.distance));
   const rank = rankOf(chunks, q.expectedPages);
   // Hybrid search (vector + keyword, RRF), then the reranker on top, like production.
-  const hybrid = await searchCandidates(document.user_id, q.question, limit, document.id, NO_THRESHOLD);
+  const hybrid = await searchCandidates(
+    document.user_id,
+    text,
+    limit,
+    document.id,
+    NO_THRESHOLD,
+    include,
+  );
   const hybridRank = rankOf(hybrid, q.expectedPages);
-  const rerankRank = rankOf(await rerankChunks(q.question, hybrid), q.expectedPages);
+  const reranked = await rerankChunks(text, hybrid);
+  const rerankRank = rankOf(reranked, q.expectedPages);
+  const scored = q.type === "negative" ? reranked[0] : reranked[rerankRank - 1];
   const wrongIndex = chunks.findIndex((chunk) => !covers(chunk, q.expectedPages));
-
-  // Like production: follow-ups are rewritten before the context is built.
-  const rewritten =
-    q.type === "follow_up" && useRewrite && q.history
-      ? await rewriteQuestion(q.question, q.history)
-      : undefined;
 
   const mode = q.mode === "broad" ? "multi_part" : q.mode;
   const context = await retrieveContext(
     document.user_id,
-    rewritten ?? q.question,
+    text,
     mode,
     document.id,
+    include.length > 0 ? await rankedCandidates(document.user_id, text, document.id, include) : undefined,
   );
 
   const row: Row = {
@@ -174,6 +199,7 @@ for (const q of questions) {
     rank,
     hybridRank,
     rerankRank,
+    rerankScore: scored?.rerankScore ?? null,
     distance:
       q.type === "negative" ? (distances[0] ?? null) : rank > 0 ? distances[rank - 1]! : null,
     wrongDistance: wrongIndex >= 0 ? distances[wrongIndex]! : null,
@@ -183,15 +209,15 @@ for (const q of questions) {
   };
 
   if (rewritten !== undefined) {
-    const rewrittenChunks = await retrieveRelevantChunks(
+    const originalChunks = await retrieveRelevantChunks(
       document.user_id,
-      rewritten,
+      q.question,
       limit,
       document.id,
       NO_THRESHOLD,
     );
     row.rewritten = rewritten;
-    row.rewriteRank = rankOf(rewrittenChunks, q.expectedPages);
+    row.originalRank = rankOf(originalChunks, q.expectedPages);
   }
 
   rows.push(row);
@@ -211,7 +237,7 @@ console.table(
     dist: fmt(row.distance),
     wrong: fmt(row.wrongDistance),
     context: row.type === "negative" ? "" : row.inContext ? "yes" : "NO",
-    rewrite: row.rewriteRank === undefined ? "" : row.rewriteRank || "MISS",
+    "as typed": row.originalRank === undefined ? "" : row.originalRank || "MISS",
     pages: row.pages,
     ms: row.ms,
   })),
@@ -294,6 +320,26 @@ console.table(
   ),
 );
 
+/** The production-order measures, per question (1 = yes, 0 = no). */
+const measures: Record<string, (row: Row) => number> = {
+  "+rerank hit@1": (row) => Number(row.rerankRank === 1),
+  "+rerank hit@3": (row) => Number(row.rerankRank >= 1 && row.rerankRank <= 3),
+  "in context": (row) => Number(row.inContext),
+};
+
+const interval = ([low, high]: [number, number]) => `${pct(low)}–${pct(high)}`;
+
+console.log(
+  `95% intervals (all, n=${positives.length}): ` +
+    Object.entries(measures)
+      .map(([name, measure]) => {
+        const values = positives.map(measure);
+        const share = values.reduce((sum, value) => sum + value, 0) / Math.max(values.length, 1);
+        return `${name} ${pct(share)} (${interval(bootstrapInterval(values))})`;
+      })
+      .join(", "),
+);
+
 // Negatives: with the production threshold, would the bot still find "something"?
 const falsePositives = negatives.filter(
   (row) => row.distance !== null && row.distance <= threshold,
@@ -303,12 +349,13 @@ console.log(
     `threshold ${threshold} (the model must then refuse on its own).`,
 );
 
-const followUps = rows.filter((row) => row.rewriteRank !== undefined);
+const followUps = rows.filter((row) => row.originalRank !== undefined);
 if (followUps.length > 0) {
   const found = (ranks: number[]) => ranks.filter((rank) => rank >= 1 && rank <= 3).length;
   console.log(
-    `Follow-ups hit@3: original ${found(followUps.map((r) => r.rank))}/${followUps.length}, ` +
-      `rewritten ${found(followUps.map((r) => r.rewriteRank!))}/${followUps.length}`,
+    `Follow-ups hit@3: as typed ${found(followUps.map((r) => r.originalRank!))}/${followUps.length}, ` +
+      `rewritten ${found(followUps.map((r) => r.rank))}/${followUps.length}, ` +
+      `+ previous answer's hits, reranked ${found(followUps.map((r) => r.rerankRank))}/${followUps.length}`,
   );
 }
 
@@ -350,6 +397,41 @@ console.table(
   })),
 );
 
+// --- Reranker score calibration (config.reranker.minScore) -----------------------
+// Hits scored below the minimum are dropped; with none left the bot refuses
+// without calling the LLM. Pick the highest value that still keeps ~98% of correct chunks.
+
+const minScore = config.reranker.minScore;
+const correctScores = finite(positives.map((r) => r.rerankScore ?? Number.NaN));
+const negativeScores = finite(negatives.map((r) => r.rerankScore ?? Number.NaN));
+
+if (correctScores.length > 0) {
+  console.log(
+    `\nReranker scores: correct chunks ${range(correctScores)}, negatives' best chunk ${range(negativeScores)}`,
+  );
+
+  const lowest = Math.min(...correctScores, ...negativeScores);
+  const highest = Math.max(...correctScores, ...negativeScores);
+  const steps = 10;
+  const candidates = [
+    ...Array.from({ length: steps + 1 }, (_, i) => lowest + ((highest - lowest) * i) / steps),
+    ...(minScore === null ? [] : [minScore]),
+  ].sort((a, b) => a - b);
+
+  console.table(
+    candidates.map((t) => ({
+      "min score": Number(t.toFixed(3)),
+      "keeps correct": pct(correctScores.filter((s) => s >= t).length / correctScores.length),
+      "rejects negatives": pct(
+        negativeScores.filter((s) => s < t).length / Math.max(negativeScores.length, 1),
+      ),
+      current: t === minScore ? "<-" : "",
+    })),
+  );
+} else {
+  console.log("\nReranker scores: none (reranker off or down).");
+}
+
 // --- Save and compare with the previous run -------------------------------------
 
 async function previousResult(): Promise<{ file: string; rows: Row[] } | null> {
@@ -382,6 +464,22 @@ if (previous) {
 
   console.log(`\nCompared with ${previous.file}:`);
   console.log(changes.length > 0 ? changes.join("\n") : "no rank changes");
+
+  // Is the overall change bigger than the noise? (Same questions in both runs.)
+  const shared = positives.filter((row) => before.has(row.id));
+  const points = (value: number) => `${value >= 0 ? "+" : ""}${Math.round(value * 100)}`;
+
+  for (const [name, measure] of Object.entries(measures)) {
+    const after = shared.map(measure);
+    const old = shared.map((row) => measure(before.get(row.id)!));
+    const change = (after.reduce((s, v) => s + v, 0) - old.reduce((s, v) => s + v, 0)) / Math.max(shared.length, 1);
+    const [low, high] = pairedInterval(old, after);
+    const verdict = low > 0 ? "better" : high < 0 ? "WORSE" : "within noise";
+
+    console.log(
+      `${name}: ${points(change)} points (95% ${points(low)} … ${points(high)}) on ${shared.length} shared questions — ${verdict}`,
+    );
+  }
 }
 
 if (save) {
@@ -395,6 +493,7 @@ if (save) {
         settings: {
           limit,
           threshold,
+          minRerankScore: config.reranker.minScore,
           retrievalLimits: config.rag.retrievalLimits,
           maxContextChunks: config.rag.maxContextChunks,
           chunkSize: config.rag.chunkSize,

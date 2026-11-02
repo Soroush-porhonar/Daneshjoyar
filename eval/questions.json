@@ -615,7 +615,7 @@
     "type": "paraphrase",
     "mode": "focused",
     "question": "یک تستر نرم‌افزار خوب چه مهارت‌های غیرفنی‌ای باید داشته باشد؟",
-    "expectedPages": [5],
+    "expectedPages": [5, 170],
     "mustInclude": ["تحلیلی"],
     "filename": "جزوه درس آزمون نرم افزاراستاد زاغری 405.pdf"
   },
@@ -642,7 +642,7 @@
     "type": "paraphrase",
     "mode": "focused",
     "question": "چطور بفهمیم کار تست طبق برنامه پیش می‌رود و اگر عقب بودیم چه کنیم؟",
-    "expectedPages": [41],
+    "expectedPages": [41, 159, 184],
     "mustInclude": ["Monitoring"],
     "filename": "جزوه درس آزمون نرم افزاراستاد زاغری 405.pdf"
   },
@@ -705,7 +705,7 @@
     "type": "paraphrase",
     "mode": "focused",
     "question": "تست کیس‌ها را بر چه اساسی اولویت‌بندی می‌کنیم؟",
-    "expectedPages": [49],
+    "expectedPages": [49, 161, 167],
     "mustInclude": ["ریسک"],
     "filename": "جزوه درس آزمون نرم افزاراستاد زاغری 405.pdf"
   },
@@ -723,7 +723,7 @@
     "type": "paraphrase",
     "mode": "focused",
     "question": "کسی که تست جعبه سفید انجام می‌دهد باید چه چیزهایی بلد باشد؟",
-    "expectedPages": [99],
+    "expectedPages": [99, 104, 134],
     "mustInclude": ["کد"],
     "filename": "جزوه درس آزمون نرم افزاراستاد زاغری 405.pdf"
   },

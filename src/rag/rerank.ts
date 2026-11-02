@@ -5,20 +5,27 @@
  */
 import { config } from "../config.js";
 import { logger } from "../logger.js";
+import { withTitle } from "./chunk.js";
 
 interface RerankResponse {
   results?: { index: number; relevance_score: number }[];
 }
 
+/** What the reranker reads: the same text the chunk was embedded with (slide title included). */
+function rerankText(chunk: { content: string; sectionTitle?: string | null }): string {
+  return config.rag.chunking.titleInEmbedding ? withTitle(chunk.sectionTitle, chunk.content) : chunk.content;
+}
+
 /**
- * Returns the chunks ordered by relevance to the question (best first).
+ * Returns the chunks ordered by relevance to the question (best first), each
+ * with its `rerankScore`.
  * On any failure the original order is kept, so search still works when the
  * reranker service is down.
  */
-export async function rerankChunks<T extends { content: string }>(
+export async function rerankChunks<T extends { content: string; sectionTitle?: string | null }>(
   question: string,
   chunks: T[],
-): Promise<T[]> {
+): Promise<(T & { rerankScore?: number })[]> {
   if (!config.reranker.enabled || chunks.length < 2) return chunks;
 
   try {
@@ -26,7 +33,7 @@ export async function rerankChunks<T extends { content: string }>(
       method: "POST",
       headers: { "Content-Type": "application/json" },
       signal: AbortSignal.timeout(config.reranker.timeoutMs),
-      body: JSON.stringify({ query: question, documents: chunks.map((chunk) => chunk.content) }),
+      body: JSON.stringify({ query: question, documents: chunks.map(rerankText) }),
     });
 
     if (!response.ok) {
@@ -45,7 +52,7 @@ export async function rerankChunks<T extends { content: string }>(
 
     return [...results]
       .sort((a, b) => b.relevance_score - a.relevance_score)
-      .map((result) => chunks[result.index]!);
+      .map((result) => ({ ...chunks[result.index]!, rerankScore: result.relevance_score }));
   } catch (error: unknown) {
     logger.warn("[RAG] Reranking failed, keeping search order:", error);
     return chunks;

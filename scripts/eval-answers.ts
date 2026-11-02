@@ -21,8 +21,15 @@ import { performance } from "node:perf_hooks";
 import { pool } from "../src/db/pool.js";
 import { chat } from "../src/llm/ollamaClient.js";
 import { NO_RELEVANT_CONTENT_TEXT, SOURCES_HEADING } from "../src/messages.js";
-import { answerFromDocument, formatChunks } from "../src/rag/answer.js";
-import { retrieveContext } from "../src/rag/retrieve.js";
+import { previousHits } from "./evalHelpers.js";
+import {
+  REFUSAL_PATTERN,
+  answerFromDocument,
+  citedNumbers,
+  formatChunks,
+  numberSources,
+} from "../src/rag/answer.js";
+import { rankedCandidates, retrieveContext } from "../src/rag/retrieve.js";
 import { rewriteQuestion } from "../src/rag/rewrite.js";
 import type { HistoryMessage } from "../src/rag/rewrite.js";
 import { normalizeText } from "../src/rag/textQuality.js";
@@ -92,8 +99,6 @@ function persianShare(text: string): number {
   return persian / Math.max(persian + latin, 1);
 }
 
-const REFUSAL = /(پیدا نکردم|اطلاعاتی (در|درباره)|وجود ندارد|نیامده|اشاره‌ای نشده|ذکر نشده|کافی نیست|در منابع .*نیست)/;
-
 const JUDGE_SCHEMA = {
   type: "object",
   properties: {
@@ -115,7 +120,9 @@ async function judge(question: string, sources: string, answer: string): Promise
         content:
           "You are a strict grader of a study assistant. " +
           "faithful = every fact in the ANSWER is supported by the SOURCES (saying the sources do not cover something is faithful). " +
-          "answersQuestion = the ANSWER actually answers the QUESTION. " +
+          "answersQuestion = the ANSWER actually answers the QUESTION; when the SOURCES do not contain the answer, " +
+          "clearly saying so is the correct answer and counts as true. " +
+          "Numbers like [2] in the ANSWER cite the numbered SOURCES. " +
           "reason = one short English sentence.",
       },
       {
@@ -152,14 +159,20 @@ for (const q of questions) {
   const start = performance.now();
   const question = q.history ? await rewriteQuestion(q.question, q.history) : q.question;
   const mode = q.mode;
-  const answer = await answerFromDocument(document.user_id, document.id, question, mode);
+  // Like production: a follow-up's search also reranks the previous answer's hits.
+  const include = q.history ? await previousHits(document, q.history) : [];
+  const ranked =
+    include.length > 0
+      ? await rankedCandidates(document.user_id, question, document.id, include)
+      : undefined;
+  const answer = await answerFromDocument(document.user_id, document.id, question, mode, undefined, ranked);
   const seconds = (performance.now() - start) / 1000;
 
   const body = answer.split(SOURCES_HEADING)[0]!;
   const negative = q.type === "negative";
   const cites = negative ? null : citedPages(answer).some((p) => q.expectedPages.includes(p));
   const missing = (q.mustInclude ?? []).filter((k) => !comparable(body).includes(comparable(k)));
-  const refused = answer === NO_RELEVANT_CONTENT_TEXT || REFUSAL.test(body);
+  const refused = answer === NO_RELEVANT_CONTENT_TEXT || REFUSAL_PATTERN.test(body);
 
   let judgement: Judgement | null = null;
   if (useJudge && answer !== NO_RELEVANT_CONTENT_TEXT && mode !== "broad") {
@@ -168,8 +181,9 @@ for (const q of questions) {
       question,
       mode === "multi_part" ? "multi_part" : "focused",
       document.id,
+      ranked,
     );
-    judgement = await judge(question, formatChunks(context), body).catch(() => null);
+    judgement = await judge(question, formatChunks(context, numberSources(context)), body).catch(() => null);
   }
 
   const passed = negative
@@ -180,6 +194,8 @@ for (const q of questions) {
     id: q.id,
     type: q.type,
     cites: cites === null ? "" : cites ? "yes" : "NO",
+    // Did the model cite [n] inline? (If not, the bot lists every hit instead.)
+    inline: negative || refused ? "" : citedNumbers(body).size > 0 ? "yes" : "NO",
     keywords: negative ? "" : missing.length === 0 ? "yes" : `NO (${missing.join(", ")})`,
     persian: `${Math.round(persianShare(body) * 100)}%`,
     refused: negative ? (refused ? "yes" : "NO") : "",
@@ -206,9 +222,11 @@ const judged = rows.filter((r) => r.faithful !== "-").length;
 console.log(
   `\npassed ${count("pass", "PASS")}/${rows.length}  ` +
     `cites ${count("cites", "yes")}/${positives}  ` +
+    `inline [n] ${count("inline", "yes")}/${count("inline", "yes") + count("inline", "NO")}  ` +
     `keywords ${count("keywords", "yes")}/${positives}  ` +
     `refused negatives ${count("refused", "yes")}/${negatives}  ` +
     `judge faithful ${count("faithful", "yes")}/${judged}  ` +
+    `judge answers ${count("answers", "yes")}/${judged}  ` +
     `avg ${Math.round(rows.reduce((s, r) => s + (r.s as number), 0) / Math.max(rows.length, 1))}s`,
 );
 
