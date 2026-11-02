@@ -163,7 +163,7 @@ for (const q of questions) {
   const include = q.history ? await previousHits(document, q.history) : [];
   const ranked =
     include.length > 0
-      ? await rankedCandidates(document.user_id, question, document.id, include)
+      ? await rankedCandidates(document.user_id, question, { documentId: document.id, include })
       : undefined;
   const answer = await answerFromDocument(document.user_id, document.id, question, mode, undefined, ranked);
   const seconds = (performance.now() - start) / 1000;
@@ -180,8 +180,7 @@ for (const q of questions) {
       document.user_id,
       question,
       mode === "multi_part" ? "multi_part" : "focused",
-      document.id,
-      ranked,
+      { documentId: document.id, ...(ranked ? { ranked } : {}) },
     );
     judgement = await judge(question, formatChunks(context, numberSources(context)), body).catch(() => null);
   }

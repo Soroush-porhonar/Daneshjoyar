@@ -78,7 +78,10 @@ const lastReply = () => vi.mocked(sendMessage).mock.calls.at(-1)?.[1];
 
 describe("handleMessage", () => {
   it("answers a follow-up with the rewritten question, reranking the previous answer's hits too", async () => {
-    const previousHits = { documentId: 5, chunkIndexes: [12, 13] };
+    const previousHits = [
+      { documentId: 5, chunkIndex: 12 },
+      { documentId: 6, chunkIndex: 3 },
+    ];
     const search = Promise.resolve({ question: `بازنویسی: ${current.content}`, documentId: 5, ranked: [] });
     vi.mocked(getLastAnswerHits).mockResolvedValue(previousHits);
     vi.mocked(prefetchCandidates).mockReturnValue(search);
@@ -153,7 +156,7 @@ describe("handleMessage", () => {
         route: "document",
         retrievalMode: "focused",
         documentId: 5,
-        context: [{ page: 14, pageEnd: null, chunkIndex: 13, isHit: true }],
+        context: [{ documentId: 5, page: 14, pageEnd: null, chunkIndex: 13, isHit: true }],
         answer: "جواب از جزوه",
         latencyMs: expect.any(Number),
       }),

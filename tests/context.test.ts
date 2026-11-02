@@ -62,6 +62,18 @@ describe("mergeContext", () => {
   it("handles no neighbours", () => {
     expect(indexes(mergeContext([chunk(3), chunk(1)], [], 5))).toEqual([1, 3]);
   });
+
+  it("keeps chunks of different documents apart, best hit's document first", () => {
+    const inDocument = (documentId: number, chunkIndex: number) => ({ ...chunk(chunkIndex), documentId });
+    const merged = mergeContext(
+      [inDocument(2, 5), inDocument(1, 5)],
+      [inDocument(2, 4), inDocument(1, 6), inDocument(1, 4)],
+      5,
+    );
+
+    // Same chunk numbers in two files are different chunks; a neighbour only joins its own file's hit.
+    expect(merged.map((c) => `${c.documentId}:${c.chunkIndex}`)).toEqual(["2:4", "2:5", "1:4", "1:5", "1:6"]);
+  });
 });
 
 describe("relevantHits", () => {

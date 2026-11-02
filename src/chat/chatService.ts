@@ -135,6 +135,7 @@ async function composeAnswer(
         context: (trace.context ?? []).map((chunk) => ({
           page: chunk.pageNumber,
           pageEnd: chunk.pageEnd ?? null,
+          documentId: chunk.documentId,
           chunkIndex: chunk.chunkIndex,
           isHit: chunk.isHit,
         })),

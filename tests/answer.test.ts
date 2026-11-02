@@ -61,7 +61,7 @@ describe("answerFromDocuments", () => {
     expect(prompt(0)).toContain("متن صفحه 3"); // neighbours are context...
     expect(answer).toContain(messages.sourceLineText("notes.pdf", 4));
     expect(answer).not.toContain(messages.sourceLineText("notes.pdf", 3)); // ...but not sources
-    expect(retrieveContext).toHaveBeenCalledWith(8, "سؤال من", "focused", 1, undefined);
+    expect(retrieveContext).toHaveBeenCalledWith(8, "سؤال من", "focused", { documentId: 1 });
   });
 
   it("puts the student's question after the sources, so exercise questions in notes aren't answered instead", async () => {
@@ -84,7 +84,7 @@ describe("answerFromDocuments", () => {
     await answerFromDocuments(8, "سؤال", "focused", undefined, early);
 
     expect(getSelectedDocumentId).not.toHaveBeenCalled();
-    expect(retrieveContext).toHaveBeenCalledWith(8, "سؤال", "focused", 4, ranked);
+    expect(retrieveContext).toHaveBeenCalledWith(8, "سؤال", "focused", { documentId: 4, ranked });
   });
 
   it("searches again when the early results were for a different question", async () => {
@@ -93,7 +93,7 @@ describe("answerFromDocuments", () => {
 
     await answerFromDocuments(8, "سؤال", "focused", undefined, early);
 
-    expect(retrieveContext).toHaveBeenCalledWith(8, "سؤال", "focused", 1, undefined);
+    expect(retrieveContext).toHaveBeenCalledWith(8, "سؤال", "focused", { documentId: 1 });
   });
 
   it("searches again when the early search failed", async () => {
@@ -103,7 +103,7 @@ describe("answerFromDocuments", () => {
 
     await answerFromDocuments(8, "سؤال", "focused", undefined, failed);
 
-    expect(retrieveContext).toHaveBeenCalledWith(8, "سؤال", "focused", 1, undefined);
+    expect(retrieveContext).toHaveBeenCalledWith(8, "سؤال", "focused", { documentId: 1 });
   });
 
   it("uses low temperature for factual answers", async () => {
@@ -179,15 +179,17 @@ describe("answerFromDocuments", () => {
 describe("prefetchCandidates", () => {
   beforeEach(() => vi.mocked(rankedCandidates).mockResolvedValue([]));
 
-  it("reranks the previous answer's hits with the results when they are from the selected document", async () => {
-    await prefetchCandidates(8, "سؤال", { documentId: 1, chunkIndexes: [4, 5] });
+  it("reranks the previous answer's hits together with the results", async () => {
+    const previous = [{ documentId: 1, chunkIndex: 4 }, { documentId: 2, chunkIndex: 5 }];
 
-    expect(rankedCandidates).toHaveBeenCalledWith(8, "سؤال", 1, [4, 5]);
+    await prefetchCandidates(8, "سؤال", previous);
+
+    expect(rankedCandidates).toHaveBeenCalledWith(8, "سؤال", { documentId: 1, include: previous });
   });
 
-  it("ignores hits from another document", async () => {
-    await prefetchCandidates(8, "سؤال", { documentId: 2, chunkIndexes: [4, 5] });
+  it("searches normally without previous hits", async () => {
+    await prefetchCandidates(8, "سؤال", null);
 
-    expect(rankedCandidates).toHaveBeenCalledWith(8, "سؤال", 1, []);
+    expect(rankedCandidates).toHaveBeenCalledWith(8, "سؤال", { documentId: 1, include: [] });
   });
 });

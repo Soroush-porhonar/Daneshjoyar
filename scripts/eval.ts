@@ -188,8 +188,12 @@ for (const q of questions) {
     document.user_id,
     text,
     mode,
-    document.id,
-    include.length > 0 ? await rankedCandidates(document.user_id, text, document.id, include) : undefined,
+    {
+      documentId: document.id,
+      ...(include.length > 0
+        ? { ranked: await rankedCandidates(document.user_id, text, { documentId: document.id, include }) }
+        : {}),
+    },
   );
 
   const row: Row = {

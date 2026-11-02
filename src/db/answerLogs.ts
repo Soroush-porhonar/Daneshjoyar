@@ -4,6 +4,8 @@ export type Feedback = 1 | -1;
 
 /** A chunk the model saw, as stored in the log. */
 export interface LoggedChunk {
+  /** Missing in rows logged before answers could use several documents. */
+  documentId?: number;
   page: number | null;
   pageEnd?: number | null;
   chunkIndex: number;
@@ -45,10 +47,10 @@ export async function createAnswerLog(log: NewAnswerLog): Promise<number> {
   return result.rows[0]!.id;
 }
 
-/** The search hits behind the user's latest answer, when it came from a document. */
+/** The search hits behind the user's latest answer, when it came from documents. */
 export async function getLastAnswerHits(
   userId: number,
-): Promise<{ documentId: number; chunkIndexes: number[] } | null> {
+): Promise<{ documentId: number; chunkIndex: number }[]> {
   const result = await pool.query<{
     route: string;
     document_id: number | null;
@@ -64,12 +66,13 @@ export async function getLastAnswerHits(
 
   const row = result.rows[0];
 
-  if (!row || row.route !== "document" || row.document_id === null) return null;
+  if (!row || row.route !== "document") return [];
 
-  return {
-    documentId: row.document_id,
-    chunkIndexes: row.context.filter((chunk) => chunk.isHit).map((chunk) => chunk.chunkIndex),
-  };
+  // Older rows name the document once for the whole answer.
+  return row.context.flatMap((chunk) => {
+    const documentId = chunk.documentId ?? row.document_id;
+    return chunk.isHit && documentId != null ? [{ documentId, chunkIndex: chunk.chunkIndex }] : [];
+  });
 }
 
 /**

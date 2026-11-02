@@ -18,7 +18,7 @@ import {
 } from "../llm/prompts/rag.js";
 import { batchByChars } from "./batch.js";
 import { getDocumentChunks, rankedCandidates, retrieveContext } from "./retrieve.js";
-import type { ContextChunk, RetrievedChunk } from "./retrieve.js";
+import type { ChunkRef, ContextChunk, RetrievedChunk } from "./retrieve.js";
 import type { RetrievalMode } from "./router.js";
 
 interface SourceChunk {
@@ -230,7 +230,7 @@ async function answerFocusedQuestion(
   ranked?: RetrievedChunk[],
   trace?: AnswerTrace,
 ): Promise<string> {
-  const chunks = await retrieveContext(userId, question, mode, documentId, ranked);
+  const chunks = await retrieveContext(userId, question, mode, { documentId, ...(ranked ? { ranked } : {}) });
 
   if (trace) trace.context = chunks;
 
@@ -262,29 +262,24 @@ export interface Prefetch {
   ranked: RetrievedChunk[];
 }
 
-/** Chunks of a document that should compete with the search results. */
-export interface PreviousHits {
-  documentId: number;
-  chunkIndexes: number[];
-}
-
 /**
  * Starts searching the selected document right away, in parallel with the
  * router (search and reranking run on the CPU, the router on the GPU).
  * The result is simply ignored if the message turns out to be chat.
  * For a follow-up, `previous` (the last answer's hits) is reranked together
- * with the search results when it is from the same document.
+ * with the search results.
  */
 export function prefetchCandidates(
   userId: number,
   question: string,
-  previous?: PreviousHits | null,
+  previous?: ChunkRef[] | null,
 ): Promise<Prefetch> {
   const prefetch = (async () => {
     const documentId = await getSelectedDocumentId(userId);
-    const include = previous?.documentId === documentId ? previous.chunkIndexes : [];
     const ranked =
-      documentId === null ? [] : await rankedCandidates(userId, question, documentId, include);
+      documentId === null
+        ? []
+        : await rankedCandidates(userId, question, { documentId, include: previous ?? [] });
     return { question, documentId, ranked };
   })();
 

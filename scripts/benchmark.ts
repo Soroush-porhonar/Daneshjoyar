@@ -78,7 +78,7 @@ for (const q of questions) {
   await time("embedding", () => generateEmbedding(question));
   const mode = q.mode === "multi_part" ? "multi_part" : "focused";
   const retrievalStart = performance.now();
-  await time("retrieval", () => retrieveContext(document.user_id, question, mode, document.id));
+  await time("retrieval", () => retrieveContext(document.user_id, question, mode, { documentId: document.id }));
   const retrievalMs = performance.now() - retrievalStart;
   const answerStart = performance.now();
   await answerFromDocument(document.user_id, document.id, question, q.mode);

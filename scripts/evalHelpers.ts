@@ -1,6 +1,7 @@
 /** Shared by the eval scripts. */
 import { config } from "../src/config.js";
 import { rankedCandidates, relevantHits } from "../src/rag/retrieve.js";
+import type { ChunkRef } from "../src/rag/retrieve.js";
 import type { HistoryMessage } from "../src/rag/rewrite.js";
 
 /**
@@ -10,10 +11,14 @@ import type { HistoryMessage } from "../src/rag/rewrite.js";
 export async function previousHits(
   document: { id: number; user_id: number },
   history: HistoryMessage[] = [],
-): Promise<number[]> {
+): Promise<ChunkRef[]> {
   const last = [...history].reverse().find((message) => message.role === "user");
   if (!last) return [];
 
-  const ranked = relevantHits(await rankedCandidates(document.user_id, last.content, document.id));
-  return ranked.slice(0, config.rag.retrievalLimits.focused).map((chunk) => chunk.chunkIndex);
+  const ranked = relevantHits(
+    await rankedCandidates(document.user_id, last.content, { documentId: document.id }),
+  );
+  return ranked
+    .slice(0, config.rag.retrievalLimits.focused)
+    .map(({ documentId, chunkIndex }) => ({ documentId, chunkIndex }));
 }
