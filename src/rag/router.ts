@@ -64,6 +64,28 @@ export function parseClassification(content: string): MessageClassification {
   };
 }
 
+/**
+ * The router sees only file names ("CamScanner 05-18.pdf" says nothing), so it
+ * can take a question about the notes for general chat. When the early search
+ * found a chunk that clearly answers the message (`topScore`, the reranker's
+ * best score), the notes win.
+ */
+export function resolveRoute(
+  classification: MessageClassification,
+  topScore: number | undefined,
+): MessageClassification {
+  if (
+    classification.route === "chat" &&
+    topScore !== undefined &&
+    topScore >= config.reranker.relevantScore
+  ) {
+    logger.info("Router said chat, but the notes clearly match:", { topScore });
+    return { route: "document", retrievalMode: "focused" };
+  }
+
+  return classification;
+}
+
 export async function routeMessage(
   text: string,
   documentNames: string[],

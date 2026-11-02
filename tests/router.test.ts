@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { parseClassification } from "../src/rag/router.js";
+import { config } from "../src/config.js";
+import { parseClassification, resolveRoute } from "../src/rag/router.js";
 
 describe("parseClassification", () => {
   it("accepts a valid document route", () => {
@@ -21,5 +22,26 @@ describe("parseClassification", () => {
     '{"route":"document"}',
   ])("rejects %s", (content) => {
     expect(() => parseClassification(content)).toThrow();
+  });
+});
+
+describe("resolveRoute", () => {
+  const chat = { route: "chat" as const, retrievalMode: "focused" as const };
+  const strong = config.reranker.relevantScore + 1;
+  const weak = config.reranker.relevantScore - 1;
+
+  it("answers from the notes when the router said chat but a chunk clearly matches", () => {
+    expect(resolveRoute(chat, strong)).toEqual({ route: "document", retrievalMode: "focused" });
+  });
+
+  it("keeps chat when nothing matches clearly or nothing was found", () => {
+    expect(resolveRoute(chat, weak)).toBe(chat);
+    expect(resolveRoute(chat, undefined)).toBe(chat);
+  });
+
+  it("never changes a document route", () => {
+    const broad = { route: "document" as const, retrievalMode: "broad" as const };
+
+    expect(resolveRoute(broad, weak)).toBe(broad);
   });
 });

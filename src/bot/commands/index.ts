@@ -3,7 +3,6 @@ import {
   confirmDeleteCommand,
   deleteCommand,
   documentsCommand,
-  selectCommand,
 } from "./documents.js";
 import { aboutCommand, helpCommand, startCommand } from "./info.js";
 import type { CommandContext, CommandHandler, CommandReply } from "./types.js";
@@ -14,7 +13,6 @@ const COMMANDS: Record<string, CommandHandler> = {
   "/help": helpCommand,
   "/about": aboutCommand,
   "/documents": documentsCommand,
-  "/select": selectCommand,
   "/delete": deleteCommand,
   "/confirm_delete": confirmDeleteCommand,
   "/cancel_delete": cancelDeleteCommand,

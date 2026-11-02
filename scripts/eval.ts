@@ -7,6 +7,11 @@
  *   npm run eval -- --no-rewrite          # skip LLM rewriting of follow-ups
  *   npm run eval -- --no-save             # don't write eval/results/*.json
  *   npm run eval -- --doc "x.pdf=12"      # pin a document version (before/after)
+ *   npm run eval -- --per-doc             # search only each question's own document
+ *
+ * Like the bot, each question searches all documents of the user who owns its
+ * document; a hit counts only if it is on the right page of the right file.
+ * "wrong-document" counts top-3 chunks from other files.
  *
  * Question types (eval/questions.json):
  *   exact_term  - uses the same words as the slide (names, formulas, acronyms)
@@ -69,6 +74,8 @@ interface Row {
   rerankRank: number;
   /** Reranker score of the first correct chunk (positives) or of the best chunk (negatives). */
   rerankScore?: number | null;
+  /** How many of the top 3 reranked chunks come from another document (0 in --per-doc runs). */
+  wrongDocumentsTop3?: number;
   rewritten?: string;
   pages: string;
   ms: number;
@@ -88,6 +95,7 @@ const limit = Number(flag("limit") ?? 10);
 const only = flag("only");
 const useRewrite = !args.includes("--no-rewrite");
 const save = !args.includes("--no-save");
+const perDocument = args.includes("--per-doc");
 const threshold = config.rag.maxCosineDistance;
 
 /** --doc "name.pdf=12": use that document version instead of the newest one (before/after comparisons). */
@@ -116,26 +124,29 @@ async function findDocument(filename: string) {
 }
 
 interface PageSpan {
+  documentId: number;
   pageNumber: number | null;
   pageEnd?: number | null;
 }
 
-/** True when a chunk's pages (it may cross a page break) include an expected page. */
-function covers(chunk: PageSpan, expected: number[]): boolean {
-  if (chunk.pageNumber === null) return false;
+/** True when a chunk is in the expected document and its pages (it may cross a page break) include an expected page. */
+function covers(chunk: PageSpan, documentId: number, expected: number[]): boolean {
+  if (chunk.documentId !== documentId || chunk.pageNumber === null) return false;
   const end = chunk.pageEnd ?? chunk.pageNumber;
   return expected.some((page) => page >= chunk.pageNumber! && page <= end);
 }
 
-/** 1-based rank of the first chunk on an expected page, 0 if none. */
-function rankOf(chunks: PageSpan[], expected: number[]): number {
-  return chunks.findIndex((chunk) => covers(chunk, expected)) + 1;
+/** 1-based rank of the first chunk on an expected page of the expected document, 0 if none. */
+function rankOf(chunks: PageSpan[], documentId: number, expected: number[]): number {
+  return chunks.findIndex((chunk) => covers(chunk, documentId, expected)) + 1;
 }
 
-const span = (chunk: PageSpan) =>
-  chunk.pageEnd && chunk.pageEnd !== chunk.pageNumber
+/** Pages for the table; chunks from another document are marked with "x". */
+const span = (chunk: PageSpan, documentId: number) =>
+  (chunk.documentId === documentId ? "" : "x") +
+  (chunk.pageEnd && chunk.pageEnd !== chunk.pageNumber
     ? `${chunk.pageNumber}-${chunk.pageEnd}`
-    : String(chunk.pageNumber);
+    : String(chunk.pageNumber));
 
 const rows: Row[] = [];
 
@@ -154,42 +165,49 @@ for (const q of questions) {
       ? await rewriteQuestion(q.question, q.history)
       : undefined;
   const text = rewritten ?? q.question;
-  const include = q.type === "follow_up" ? await previousHits(document, q.history) : [];
+  // Like the bot: all of the user's documents, unless --per-doc.
+  const scopeId = perDocument ? document.id : undefined;
+  const scope = scopeId === undefined ? {} : { documentId: scopeId };
+  const include = q.type === "follow_up" ? await previousHits(document, q.history, scopeId) : [];
 
   const start = performance.now();
   const chunks = await retrieveRelevantChunks(
     document.user_id,
     text,
     limit,
-    document.id,
+    scopeId,
     NO_THRESHOLD,
   );
   const ms = performance.now() - start;
 
   const distances = chunks.map((chunk) => Number(chunk.distance));
-  const rank = rankOf(chunks, q.expectedPages);
+  const rank = rankOf(chunks, document.id, q.expectedPages);
   // Hybrid search (vector + keyword, RRF), then the reranker on top, like production.
   const hybrid = await searchCandidates(
     document.user_id,
     text,
     limit,
-    document.id,
+    scopeId,
     NO_THRESHOLD,
     include,
   );
-  const hybridRank = rankOf(hybrid, q.expectedPages);
+  const hybridRank = rankOf(hybrid, document.id, q.expectedPages);
   const reranked = await rerankChunks(text, hybrid);
-  const rerankRank = rankOf(reranked, q.expectedPages);
+  const rerankRank = rankOf(reranked, document.id, q.expectedPages);
   const scored = q.type === "negative" ? reranked[0] : reranked[rerankRank - 1];
-  const wrongIndex = chunks.findIndex((chunk) => !covers(chunk, q.expectedPages));
+  const wrongIndex = chunks.findIndex((chunk) => !covers(chunk, document.id, q.expectedPages));
 
   const mode = q.mode === "broad" ? "multi_part" : q.mode;
   const context = await retrieveContext(
     document.user_id,
     text,
     mode,
-    document.id,
-    include.length > 0 ? await rankedCandidates(document.user_id, text, document.id, include) : undefined,
+    {
+      ...scope,
+      ...(include.length > 0
+        ? { ranked: await rankedCandidates(document.user_id, text, { ...scope, include }) }
+        : {}),
+    },
   );
 
   const row: Row = {
@@ -200,11 +218,12 @@ for (const q of questions) {
     hybridRank,
     rerankRank,
     rerankScore: scored?.rerankScore ?? null,
+    wrongDocumentsTop3: reranked.slice(0, 3).filter((chunk) => chunk.documentId !== document.id).length,
     distance:
       q.type === "negative" ? (distances[0] ?? null) : rank > 0 ? distances[rank - 1]! : null,
     wrongDistance: wrongIndex >= 0 ? distances[wrongIndex]! : null,
-    inContext: rankOf(context, q.expectedPages) > 0,
-    pages: chunks.slice(0, 5).map(span).join(","),
+    inContext: rankOf(context, document.id, q.expectedPages) > 0,
+    pages: chunks.slice(0, 5).map((chunk) => span(chunk, document.id)).join(","),
     ms: Math.round(ms),
   };
 
@@ -213,11 +232,11 @@ for (const q of questions) {
       document.user_id,
       q.question,
       limit,
-      document.id,
+      scopeId,
       NO_THRESHOLD,
     );
     row.rewritten = rewritten;
-    row.originalRank = rankOf(originalChunks, q.expectedPages);
+    row.originalRank = rankOf(originalChunks, document.id, q.expectedPages);
   }
 
   rows.push(row);
@@ -338,6 +357,13 @@ console.log(
         return `${name} ${pct(share)} (${interval(bootstrapInterval(values))})`;
       })
       .join(", "),
+);
+
+const wrongDocuments = positives.reduce((sum, row) => sum + (row.wrongDocumentsTop3 ?? 0), 0);
+console.log(
+  `Scope: ${perDocument ? "each question's own document (--per-doc)" : "all of the user's documents"}; ` +
+    `top-3 reranked chunks from another document: ${pct(wrongDocuments / Math.max(positives.length * 3, 1))} ` +
+    `(${positives.filter((row) => (row.wrongDocumentsTop3 ?? 0) > 0).length} questions affected)`,
 );
 
 // Negatives: with the production threshold, would the bot still find "something"?
@@ -493,6 +519,7 @@ if (save) {
         settings: {
           limit,
           threshold,
+          scope: perDocument ? "per-document" : "all-documents",
           minRerankScore: config.reranker.minScore,
           retrievalLimits: config.rag.retrievalLimits,
           maxContextChunks: config.rag.maxContextChunks,

@@ -125,17 +125,6 @@ export async function ingestPdf(
         [documentId],
       );
 
-      // Automatically select the newly uploaded document.
-      await client.query(
-        `
-    UPDATE conversations
-    SET selected_document_id = $2,
-        updated_at = NOW()
-    WHERE user_id = $1
-  `,
-        [userId, documentId],
-      );
-
       await client.query("COMMIT");
     } catch (error: unknown) {
       try {

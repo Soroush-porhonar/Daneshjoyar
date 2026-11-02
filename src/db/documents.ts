@@ -80,6 +80,25 @@ export async function findDocumentFilename(
   return result.rows[0]?.filename ?? null;
 }
 
+export interface CompletedDocument {
+  id: number;
+  filename: string;
+}
+
+/** The user's ready documents, newest first. */
+export async function listCompletedDocuments(userId: number): Promise<CompletedDocument[]> {
+  const result = await pool.query<CompletedDocument>(
+    `SELECT id, filename
+     FROM documents
+     WHERE user_id = $1
+       AND status = 'completed'
+     ORDER BY created_at DESC, id DESC`,
+    [userId],
+  );
+
+  return result.rows;
+}
+
 export async function listCompletedFilenames(userId: number): Promise<string[]> {
   const result = await pool.query<{ filename: string }>(
     `SELECT DISTINCT filename

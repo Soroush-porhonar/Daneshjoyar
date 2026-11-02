@@ -10,11 +10,10 @@ function allMessages(): [string, string][] {
       samples.push([name, value]);
     } else if (name === "documentNameButton" || name === "documentInfoText") {
       // These take a document status, not numbers.
-      const fn = value as (name: string, status: string, active: boolean) => string;
+      const fn = value as (name: string, status: string) => string;
       for (const status of ["pending", "processing", "completed", "failed"]) {
-        samples.push([`${name}(${status})`, fn("جزوه.pdf", status, false)]);
+        samples.push([`${name}(${status})`, fn("جزوه.pdf", status)]);
       }
-      samples.push([`${name}(active)`, fn("جزوه.pdf", "completed", true)]);
     } else if (typeof value === "function") {
       const fn = value as (...args: unknown[]) => string;
       samples.push([name, fn("جزوه.pdf", 2, 3)]);
@@ -45,7 +44,7 @@ describe("user-facing messages", () => {
   });
 
   it.each(allMessages())(
-    "%s keeps every command left-to-right (shows /select 3, not 3 /select)",
+    "%s keeps every command left-to-right (shows /delete 3, not 3 /delete)",
     (_name, text) => {
       for (const match of text.matchAll(/\/[a-z_]+(?: \d+)?/g)) {
         const start = match.index!;
@@ -58,13 +57,10 @@ describe("user-facing messages", () => {
 
   it("shows typed commands in the form the bot actually parses", () => {
     // Help no longer lists commands (buttons do the work); the usage hints still show them.
-    expect(messages.SELECT_USAGE_TEXT).toContain("/select 1");
     expect(messages.DELETE_USAGE_TEXT).toContain("/delete 1");
   });
 
-  it("the documents list only explains the active document; the buttons show the documents", () => {
-    expect(messages.DOCUMENTS_LIST_TEXT).toContain("سند فعال");
-    expect(messages.DOCUMENTS_LIST_TEXT).toContain(messages.SELECT_BUTTON);
+  it("the documents list explains the buttons; the buttons show the documents", () => {
     expect(messages.DOCUMENTS_LIST_TEXT).toContain(messages.DELETE_BUTTON);
     expect(messages.DOCUMENTS_LIST_TEXT).not.toContain("شناسه");
   });

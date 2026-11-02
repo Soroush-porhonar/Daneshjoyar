@@ -254,12 +254,19 @@ export function fuseRankings(
     .map((entry) => entry.chunk);
 }
 
-/** Specific chunks of one document (by chunk index), with their distance to the question. */
-async function chunksByIndex(
+/** A chunk's position: which document, which chunk in it. */
+export interface ChunkRef {
+  documentId: number;
+  chunkIndex: number;
+}
+
+const refKey = (chunk: ChunkRef) => `${chunk.documentId}:${chunk.chunkIndex}`;
+
+/** Specific chunks (of any of the user's documents), with their distance to the question. */
+async function chunksByRef(
   userId: number,
   embedding: number[],
-  documentId: number,
-  chunkIndexes: number[],
+  refs: ChunkRef[],
 ): Promise<RetrievedChunk[]> {
   const result = await pool.query<RetrievedChunk>(
     `SELECT
@@ -276,20 +283,25 @@ async function chunksByIndex(
      JOIN documents d ON d.id = dc.document_id
      WHERE d.user_id = $1
        AND d.status = 'completed'
-       AND dc.document_id = $2
-       AND dc.chunk_index = ANY($3::int[])
+       AND (dc.document_id, dc.chunk_index) IN (SELECT * FROM unnest($2::int[], $3::int[]))
      ORDER BY distance`,
-    [userId, documentId, chunkIndexes, `[${embedding.join(",")}]`],
+    [
+      userId,
+      refs.map((ref) => ref.documentId),
+      refs.map((ref) => ref.chunkIndex),
+      `[${embedding.join(",")}]`,
+    ],
   );
 
   return result.rows;
 }
 
 /**
- * Search candidates for a question: vector search, plus keyword search fused
- * with RRF when hybrid search is on. Keyword hits skip the distance cutoff,
- * since an exact term match is evidence of its own. `include` adds specific
- * chunks of the document after them (follow-ups: the previous answer's hits).
+ * Search candidates for a question across the user's documents (or one, with
+ * `documentId`): vector search, plus keyword search fused with RRF when hybrid
+ * search is on. Keyword hits skip the distance cutoff, since an exact term
+ * match is evidence of its own. `include` adds specific chunks after them
+ * (follow-ups: the previous answer's hits).
  */
 export async function searchCandidates(
   userId: number,
@@ -297,7 +309,7 @@ export async function searchCandidates(
   limit: number,
   documentId?: number,
   maxDistance: number = config.rag.maxCosineDistance,
-  include: number[] = [],
+  include: ChunkRef[] = [],
 ): Promise<RetrievedChunk[]> {
   checkLimit(limit);
   const embedding = await generateEmbedding(question);
@@ -309,21 +321,22 @@ export async function searchCandidates(
       ]).slice(0, limit)
     : vectorHits;
 
-  if (include.length === 0 || documentId === undefined) return hits;
+  const wanted = include.filter((ref) => documentId === undefined || ref.documentId === documentId);
+  if (wanted.length === 0) return hits;
 
   const found = new Set(hits.map(chunkKey));
-  const extra = await chunksByIndex(userId, embedding, documentId, include);
+  const extra = await chunksByRef(userId, embedding, wanted);
 
   return [...hits, ...extra.filter((chunk) => !found.has(chunkKey(chunk)))];
 }
 
-/** Chunks by position, plus every chunk of the given sections. */
+/** Chunks by position, plus every chunk of the given sections (of the user's documents). */
 async function getNeighbours(
-  documentId: number,
-  chunkIndexes: number[],
-  sectionIndexes: number[],
+  userId: number,
+  chunks: ChunkRef[],
+  sections: { documentId: number; sectionIndex: number }[],
 ): Promise<ContextChunk[]> {
-  if (chunkIndexes.length === 0 && sectionIndexes.length === 0) return [];
+  if (chunks.length === 0 && sections.length === 0) return [];
 
   const result = await pool.query<ContextChunk>(
     `SELECT
@@ -337,37 +350,48 @@ async function getNeighbours(
        false AS "isHit"
      FROM document_chunks dc
      JOIN documents d ON d.id = dc.document_id
-     WHERE dc.document_id = $1
-       AND (dc.chunk_index = ANY($2::int[]) OR dc.section_index = ANY($3::int[]))`,
-    [documentId, chunkIndexes, sectionIndexes],
+     WHERE d.user_id = $1
+       AND (
+         (dc.document_id, dc.chunk_index) IN (SELECT * FROM unnest($2::int[], $3::int[]))
+         OR (dc.document_id, dc.section_index) IN (SELECT * FROM unnest($4::int[], $5::int[]))
+       )`,
+    [
+      userId,
+      chunks.map((chunk) => chunk.documentId),
+      chunks.map((chunk) => chunk.chunkIndex),
+      sections.map((section) => section.documentId),
+      sections.map((section) => section.sectionIndex),
+    ],
   );
 
   return result.rows;
 }
 
-/** A neighbour belongs to a hit when it is next to it or in the same section. */
+/** A neighbour belongs to a hit when it is next to it or in the same section of the same document. */
 function belongsTo(chunk: ContextChunk, hit: ContextChunk): boolean {
   return (
-    Math.abs(chunk.chunkIndex - hit.chunkIndex) === 1 ||
-    (hit.sectionIndex != null && chunk.sectionIndex === hit.sectionIndex)
+    chunk.documentId === hit.documentId &&
+    (Math.abs(chunk.chunkIndex - hit.chunkIndex) === 1 ||
+      (hit.sectionIndex != null && chunk.sectionIndex === hit.sectionIndex))
   );
 }
 
 /**
  * Combines ranked hits with their neighbours: hits always come first, then
  * neighbours of the best-ranked hit (closest first), then of the next hit,
- * until `cap` chunks are used. The result is de-duplicated and in reading order.
+ * until `cap` chunks are used. The result is de-duplicated and in reading
+ * order, document by document (the document of the best hit first).
  */
 export function mergeContext(
   hits: ContextChunk[],
   neighbours: ContextChunk[],
   cap: number,
 ): ContextChunk[] {
-  const chosen = new Map<number, ContextChunk>();
+  const chosen = new Map<string, ContextChunk>();
 
   for (const chunk of hits) {
     if (chosen.size >= cap) break;
-    chosen.set(chunk.chunkIndex, chunk);
+    chosen.set(refKey(chunk), chunk);
   }
 
   // Lower is better: rank of the hit it belongs to, then distance from that hit.
@@ -385,27 +409,33 @@ export function mergeContext(
 
   for (const chunk of ranked) {
     if (chosen.size >= cap) break;
-    if (!chosen.has(chunk.chunkIndex)) chosen.set(chunk.chunkIndex, chunk);
+    if (!chosen.has(refKey(chunk))) chosen.set(refKey(chunk), chunk);
   }
 
-  return [...chosen.values()].sort((a, b) => a.chunkIndex - b.chunkIndex);
+  const documentOrder = [...new Set(hits.map((hit) => hit.documentId))];
+
+  return [...chosen.values()].sort(
+    (a, b) =>
+      documentOrder.indexOf(a.documentId) - documentOrder.indexOf(b.documentId) ||
+      a.chunkIndex - b.chunkIndex,
+  );
+}
+
+export interface SearchScope {
+  /** Search only this document (eval: pin a version); all the user's documents by default. */
+  documentId?: number;
+  /** Chunks that compete with the search results (see searchCandidates). */
+  include?: ChunkRef[];
 }
 
 /**
- * The context sent to the model for focused / multi-part questions:
- * the most similar chunks plus the chunks right before and after them, and
- * for slide decks the other slides of the same section.
- */
-/**
  * Search candidates ordered best first (reranked when the reranker is on).
  * Independent of the retrieval mode, so it can start before the router decides.
- * `include`: chunks that compete with the search results (see searchCandidates).
  */
 export async function rankedCandidates(
   userId: number,
   question: string,
-  documentId: number,
-  include: number[] = [],
+  { documentId, include = [] }: SearchScope = {},
 ): Promise<RetrievedChunk[]> {
   // With a reranker: fetch more candidates and let it pick the best.
   const limit = config.reranker.enabled
@@ -434,35 +464,47 @@ export function relevantHits(
   return ranked.filter((chunk) => chunk.rerankScore === undefined || chunk.rerankScore >= minScore);
 }
 
+/**
+ * The context sent to the model for focused / multi-part questions: the best
+ * chunks (from whichever documents they are in) plus the chunks right before
+ * and after them, and for slide decks the other slides of the same section.
+ */
 export async function retrieveContext(
   userId: number,
   question: string,
   mode: ContextMode,
-  documentId: number,
-  /** Candidates already ranked for this question and document (fetched early). */
-  ranked?: RetrievedChunk[],
+  {
+    ranked,
+    ...scope
+  }: SearchScope & {
+    /** Candidates already ranked for this question (fetched early). */
+    ranked?: RetrievedChunk[];
+  } = {},
 ): Promise<ContextChunk[]> {
-  const hits = relevantHits(ranked ?? (await rankedCandidates(userId, question, documentId)))
+  const hits = relevantHits(ranked ?? (await rankedCandidates(userId, question, scope)))
     .slice(0, config.rag.retrievalLimits[mode])
     .map((hit) => ({ ...hit, isHit: true }));
 
   if (hits.length === 0) return [];
 
-  const hitIndexes = new Set(hits.map((hit) => hit.chunkIndex));
-  const wanted = new Set<number>();
+  const hitKeys = new Set(hits.map(refKey));
+  const wanted = new Map<string, ChunkRef>();
 
   for (const hit of hits) {
-    for (const index of [hit.chunkIndex - 1, hit.chunkIndex + 1]) {
-      if (index >= 0 && !hitIndexes.has(index)) wanted.add(index);
+    for (const chunkIndex of [hit.chunkIndex - 1, hit.chunkIndex + 1]) {
+      const ref = { documentId: hit.documentId, chunkIndex };
+      if (chunkIndex >= 0 && !hitKeys.has(refKey(ref))) wanted.set(refKey(ref), ref);
     }
   }
 
   const sections = config.rag.sectionExpansion
-    ? [...new Set(hits.map((hit) => hit.sectionIndex).filter((s): s is number => s != null))]
+    ? hits
+        .filter((hit) => hit.sectionIndex != null)
+        .map((hit) => ({ documentId: hit.documentId, sectionIndex: hit.sectionIndex! }))
     : [];
 
-  const neighbours = (await getNeighbours(documentId, [...wanted], sections)).filter(
-    (chunk) => !hitIndexes.has(chunk.chunkIndex),
+  const neighbours = (await getNeighbours(userId, [...wanted.values()], sections)).filter(
+    (chunk) => !hitKeys.has(refKey(chunk)),
   );
 
   return mergeContext(hits, neighbours, config.rag.maxContextChunks[mode]);

@@ -29,7 +29,11 @@ vi.mock("../src/rag/rewrite.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/rag/rewrite.js")>()),
   rewriteQuestion: vi.fn(),
 }));
-vi.mock("../src/rag/router.js", () => ({ routeMessage: vi.fn() }));
+// Keep the real resolveRoute (when the notes overrule the router); fake the LLM call.
+vi.mock("../src/rag/router.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/rag/router.js")>()),
+  routeMessage: vi.fn(),
+}));
 
 const { handleMessage } = await import("../src/chat/chatService.js");
 const { removeButtons, sendMessage } = await import("../src/bale.js");
@@ -78,8 +82,11 @@ const lastReply = () => vi.mocked(sendMessage).mock.calls.at(-1)?.[1];
 
 describe("handleMessage", () => {
   it("answers a follow-up with the rewritten question, reranking the previous answer's hits too", async () => {
-    const previousHits = { documentId: 5, chunkIndexes: [12, 13] };
-    const search = Promise.resolve({ question: `بازنویسی: ${current.content}`, documentId: 5, ranked: [] });
+    const previousHits = [
+      { documentId: 5, chunkIndex: 12 },
+      { documentId: 6, chunkIndex: 3 },
+    ];
+    const search = Promise.resolve({ question: `بازنویسی: ${current.content}`, ranked: [] });
     vi.mocked(getLastAnswerHits).mockResolvedValue(previousHits);
     vi.mocked(prefetchCandidates).mockReturnValue(search);
     vi.mocked(routeMessage).mockResolvedValue({ route: "document", retrievalMode: "focused" });
@@ -94,9 +101,7 @@ describe("handleMessage", () => {
       USER_ID,
       `بازنویسی: ${current.content}`,
       "focused",
-      undefined,
-      search,
-      expect.any(Object),
+      expect.objectContaining({ prefetch: search }),
     );
     expect(saveMessage).toHaveBeenLastCalledWith(11, "assistant", "جواب از جزوه");
     expect(lastReply()).toBe("جواب از جزوه");
@@ -114,7 +119,7 @@ describe("handleMessage", () => {
 
   it("starts searching a standalone question while the router decides", async () => {
     const question = "الگوریتم پریم چطور درخت پوشای کمینه را پیدا می‌کند و مرتبه اجرایی آن چیست؟";
-    const early = Promise.resolve({ question, documentId: 5, ranked: [] });
+    const early = Promise.resolve({ question, ranked: [] });
     vi.mocked(prefetchCandidates).mockReturnValue(early);
     vi.mocked(routeMessage).mockResolvedValue({ route: "document", retrievalMode: "focused" });
 
@@ -125,18 +130,17 @@ describe("handleMessage", () => {
       USER_ID,
       question,
       "focused",
-      undefined,
-      early,
-      expect.any(Object),
+      expect.objectContaining({ prefetch: early }),
     );
   });
 
   it("logs a document answer and attaches 👍/👎 buttons to it", async () => {
     vi.mocked(routeMessage).mockResolvedValue({ route: "document", retrievalMode: "focused" });
     vi.mocked(answerFromDocuments).mockImplementation(
-      async (_user, _q, _mode, _signal, _prefetch, trace) => {
-        trace!.documentId = 5;
-        trace!.context = [
+      async (_user, _q, _mode, options) => {
+        const trace = options!.trace!;
+        trace.documentIds = [5];
+        trace.context = [
           { documentId: 5, filename: "a.pdf", pageNumber: 14, chunkIndex: 13, content: "x", isHit: true },
         ];
         return "جواب از جزوه";
@@ -152,8 +156,8 @@ describe("handleMessage", () => {
         rewrittenQuestion: `بازنویسی: ${current.content}`,
         route: "document",
         retrievalMode: "focused",
-        documentId: 5,
-        context: [{ page: 14, pageEnd: null, chunkIndex: 13, isHit: true }],
+        documentIds: [5],
+        context: [{ documentId: 5, page: 14, pageEnd: null, chunkIndex: 13, isHit: true }],
         answer: "جواب از جزوه",
         latencyMs: expect.any(Number),
       }),
@@ -166,6 +170,42 @@ describe("handleMessage", () => {
         ],
       ],
     });
+  });
+
+  it("answers from the notes when the router says chat but the early search clearly matched", async () => {
+    const question = "سیستم خبره چیست و چه خصوصیاتی دارد؟ لطفاً کامل و دقیق توضیح بده";
+    const early = Promise.resolve({
+      question,
+      ranked: [{ documentId: 58, filename: "CamScanner.pdf", pageNumber: 1, chunkIndex: 0, content: "x", distance: 0.3, rerankScore: 6 }],
+    });
+    vi.mocked(prefetchCandidates).mockReturnValue(early);
+    vi.mocked(routeMessage).mockResolvedValue({ route: "chat", retrievalMode: "focused" });
+
+    await handleMessage(CHAT_ID, question);
+
+    expect(askAI).not.toHaveBeenCalled();
+    expect(answerFromDocuments).toHaveBeenCalledWith(
+      USER_ID,
+      question,
+      "focused",
+      expect.objectContaining({ prefetch: early }),
+    );
+  });
+
+  it("keeps general chat when the early search found nothing that clearly matches", async () => {
+    const question = "به نظرت کدوم تیم قهرمان جام جهانی میشه؟ دوست دارم نظرت رو بدونم";
+    vi.mocked(prefetchCandidates).mockReturnValue(
+      Promise.resolve({
+        question,
+        ranked: [{ documentId: 58, filename: "CamScanner.pdf", pageNumber: 1, chunkIndex: 0, content: "x", distance: 0.5, rerankScore: -8 }],
+      }),
+    );
+    vi.mocked(routeMessage).mockResolvedValue({ route: "chat", retrievalMode: "focused" });
+
+    await handleMessage(CHAT_ID, question);
+
+    expect(askAI).toHaveBeenCalled();
+    expect(answerFromDocuments).not.toHaveBeenCalled();
   });
 
   it("logs chat answers too", async () => {
@@ -220,7 +260,7 @@ describe("handleMessage", () => {
 
   it("ignores the early search when the message is chat", async () => {
     vi.mocked(prefetchCandidates).mockReturnValue(
-      Promise.resolve({ question: "x", documentId: 5, ranked: [] }),
+      Promise.resolve({ question: "x", ranked: [] }),
     );
     vi.mocked(routeMessage).mockResolvedValue({ route: "chat", retrievalMode: "focused" });
 

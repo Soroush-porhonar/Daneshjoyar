@@ -8,7 +8,7 @@ describe("parseCommand", () => {
   });
 
   it("parses a command with arguments", () => {
-    const parsed = parseCommand("  /select   3 ");
+    const parsed = parseCommand("  /delete   3 ");
 
     expect(parsed?.args).toEqual(["3"]);
   });
@@ -23,7 +23,7 @@ describe("parseCommand", () => {
   });
 
   it("accepts a command copied together with its invisible direction marks", () => {
-    const parsed = parseCommand("‎/select 3‎");
+    const parsed = parseCommand("‎/delete 3‎");
 
     expect(parsed?.args).toEqual(["3"]);
   });

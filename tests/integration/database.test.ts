@@ -24,14 +24,13 @@ vi.mock("../../src/rag/pdf.js", () => ({ openPdf: vi.fn() }));
 
 const { pool } = await import("../../src/db/pool.js");
 const { findOrCreateUser } = await import("../../src/db/users.js");
-const { findOrCreateConversation, getSelectedDocumentId, selectDocument } = await import(
-  "../../src/db/conversations.js"
-);
+const { findOrCreateConversation } = await import("../../src/db/conversations.js");
 const {
   deleteDocument,
   failInterruptedDocuments,
   findDocumentFilename,
   findDuplicateDocument,
+  listCompletedDocuments,
   listCompletedFilenames,
 } = await import(
   "../../src/db/documents.js"
@@ -113,13 +112,11 @@ describe("user isolation (one student must never see another's documents)", () =
     await expect(getDocumentChunks(alice, bobsDocument)).rejects.toThrow();
   });
 
-  it("cannot select, see or delete another user's document", async () => {
+  it("cannot see or delete another user's document", async () => {
     const alice = await addUser("alice");
     const bob = await addUser("bob");
     const bobsDocument = await addDocument(bob, "bob.pdf", [1]);
 
-    expect(await selectDocument(alice, bobsDocument)).toBe(false);
-    expect(await getSelectedDocumentId(alice)).toBeNull();
     expect(await findDocumentFilename(alice, bobsDocument)).toBeNull();
     expect(await deleteDocument(alice, bobsDocument)).toBe(false);
     expect(await findDocumentFilename(bob, bobsDocument)).toBe("bob.pdf");
@@ -136,14 +133,18 @@ describe("documents", () => {
     expect(await listCompletedFilenames(alice)).toEqual(["ready.pdf"]);
   });
 
-  it("only completed documents can be selected", async () => {
+  it("lists the user's ready documents newest first, for picking what to summarise", async () => {
     const alice = await addUser("alice");
-    const failed = await addDocument(alice, "broken.pdf", [], "failed");
-    const ready = await addDocument(alice, "ready.pdf", [1]);
+    const bob = await addUser("bob");
+    const older = await addDocument(alice, "older.pdf", [1]);
+    await addDocument(alice, "broken.pdf", [], "failed");
+    const newer = await addDocument(alice, "newer.pdf", [2]);
+    await addDocument(bob, "bob.pdf", [3]);
 
-    expect(await selectDocument(alice, failed)).toBe(false);
-    expect(await selectDocument(alice, ready)).toBe(true);
-    expect(await getSelectedDocumentId(alice)).toBe(ready);
+    expect(await listCompletedDocuments(alice)).toEqual([
+      { id: newer, filename: "newer.pdf" },
+      { id: older, filename: "older.pdf" },
+    ]);
   });
 
   it("deleting a document also deletes its chunks", async () => {
@@ -185,7 +186,7 @@ describe("retrieval", () => {
     const alice = await addUser("alice");
     const documentId = await addDocument(alice, "a.pdf", [5, 6, 1, 7, 8]);
 
-    const context = await retrieveContext(alice, "#1", "focused", documentId);
+    const context = await retrieveContext(alice, "#1", "focused", { documentId });
 
     expect(context.map((chunk) => chunk.chunkIndex)).toEqual([1, 2, 3]);
     expect(context.map((chunk) => chunk.isHit)).toEqual([false, true, false]);
@@ -202,7 +203,7 @@ describe("retrieval", () => {
       [documentId],
     );
 
-    const context = await retrieveContext(alice, "#1", "focused", documentId);
+    const context = await retrieveContext(alice, "#1", "focused", { documentId });
 
     // Hit 2, its neighbours 1 and 3, and the rest of its section (4); not other sections.
     expect(context.map((chunk) => chunk.chunkIndex)).toEqual([1, 2, 3, 4]);
@@ -241,7 +242,7 @@ describe("retrieval", () => {
     const alice = await addUser("alice");
     const documentId = await addDocument(alice, "a.pdf", [5, 6]);
 
-    await expect(retrieveContext(alice, "#1", "focused", documentId)).resolves.toEqual([]);
+    await expect(retrieveContext(alice, "#1", "focused", { documentId })).resolves.toEqual([]);
   });
 });
 
@@ -252,7 +253,7 @@ describe("ingestPdf", () => {
     text: `این متن صفحه ${pageNumber} از جزوه آزمایشی است و به اندازه کافی طولانی است ${marker}`,
   });
 
-  it("stores page-tagged chunks, completes the document and selects it", async () => {
+  it("stores page-tagged chunks and completes the document", async () => {
     const alice = await addUser("alice");
     vi.mocked(openPdf).mockResolvedValue({
       pages: [page(1, "#1"), page(2, "#2")],
@@ -264,7 +265,6 @@ describe("ingestPdf", () => {
 
     expect(result).toMatchObject({ pageCount: 2, ocrPages: 0 });
     expect(await listCompletedFilenames(alice)).toEqual(["notes.pdf"]);
-    expect(await getSelectedDocumentId(alice)).toBe(result.documentId);
 
     const hits = await retrieveRelevantChunks(alice, "#2", 10);
     expect(hits.map((hit) => hit.pageNumber)).toEqual([2]);
@@ -392,7 +392,7 @@ describe("answer logs and feedback", () => {
     rewrittenQuestion: null,
     route: "document" as const,
     retrievalMode: "focused",
-    documentId: null,
+    documentIds: [] as number[],
     context: [{ page: 14, chunkIndex: 13, isHit: true }],
     answer: "جواب",
     latencyMs: 9000,
@@ -424,19 +424,40 @@ describe("answer logs and feedback", () => {
     const documentId = await addDocument(alice, "a.pdf", [1, 2]);
     await createAnswerLog({
       ...log(alice),
-      documentId,
+      documentIds: [documentId],
       context: [
-        { page: 1, chunkIndex: 0, isHit: false },
-        { page: 2, chunkIndex: 1, isHit: true },
+        { documentId, page: 1, chunkIndex: 0, isHit: false },
+        { documentId, page: 2, chunkIndex: 1, isHit: true },
       ],
     });
 
-    expect(await getLastAnswerHits(alice)).toEqual({ documentId, chunkIndexes: [1] });
+    expect(await getLastAnswerHits(alice)).toEqual([{ documentId, chunkIndex: 1 }]);
 
     // A later chat answer means the next message is not a follow-up on those pages.
     await createAnswerLog({ ...log(alice), route: "chat", retrievalMode: null, context: [] });
 
-    expect(await getLastAnswerHits(alice)).toBeNull();
+    expect(await getLastAnswerHits(alice)).toEqual([]);
+  });
+
+  it("reads each hit's own document, and the answer's document in older rows", async () => {
+    const alice = await addUser("alice");
+    const first = await addDocument(alice, "a.pdf", [1]);
+    const second = await addDocument(alice, "b.pdf", [2]);
+    const id = await createAnswerLog({
+      ...log(alice),
+      documentIds: [first, second],
+      context: [
+        { documentId: second, page: 1, chunkIndex: 0, isHit: true },
+        { page: 4, chunkIndex: 3, isHit: true }, // logged before chunks named their document
+      ],
+    });
+    // Rows from that time named their one document in document_id.
+    await pool.query("UPDATE answer_logs SET document_id = $2 WHERE id = $1", [id, first]);
+
+    expect(await getLastAnswerHits(alice)).toEqual([
+      { documentId: second, chunkIndex: 0 },
+      { documentId: first, chunkIndex: 3 },
+    ]);
   });
 });
 
@@ -445,7 +466,10 @@ describe("follow-ups: the previous answer's chunks as candidates", () => {
     const alice = await addUser("alice");
     const documentId = await addDocument(alice, "a.pdf", [1, 5, 6]);
 
-    const candidates = await searchCandidates(alice, "#1", 10, documentId, undefined, [2, 0]);
+    const candidates = await searchCandidates(alice, "#1", 10, documentId, undefined, [
+      { documentId, chunkIndex: 2 },
+      { documentId, chunkIndex: 0 },
+    ]);
 
     // Chunk 2 is far from the question but still a candidate; chunk 0 is not repeated.
     expect(candidates.map((chunk) => chunk.chunkIndex)).toEqual([0, 2]);
@@ -456,9 +480,38 @@ describe("follow-ups: the previous answer's chunks as candidates", () => {
     const bob = await addUser("bob");
     const bobsDocument = await addDocument(bob, "bob.pdf", [5, 6]);
 
-    await expect(searchCandidates(alice, "#1", 10, bobsDocument, undefined, [0, 1])).resolves.toEqual(
-      [],
-    );
+    await expect(
+      searchCandidates(alice, "#1", 10, undefined, undefined, [
+        { documentId: bobsDocument, chunkIndex: 0 },
+        { documentId: bobsDocument, chunkIndex: 1 },
+      ]),
+    ).resolves.toEqual([]);
+  });
+
+  it("searches all the user's documents and keeps each chunk's neighbours in its own document", async () => {
+    const alice = await addUser("alice");
+    const first = await addDocument(alice, "a.pdf", [5, 1, 6]);
+    const second = await addDocument(alice, "b.pdf", [7, 1, 8]);
+
+    const context = await retrieveContext(alice, "#1", "focused");
+
+    // Both documents' chunk 1 match; each brings its own chunks 0 and 2, never the other file's.
+    expect(context.map((chunk) => [chunk.filename, chunk.chunkIndex, chunk.isHit])).toEqual([
+      ["a.pdf", 0, false],
+      ["a.pdf", 1, true],
+      ["a.pdf", 2, false],
+      ["b.pdf", 0, false],
+      ["b.pdf", 1, true],
+    ]);
+    expect(new Set(context.map((chunk) => chunk.documentId))).toEqual(new Set([first, second]));
+  });
+
+  it("never searches another user's documents", async () => {
+    const alice = await addUser("alice");
+    const bob = await addUser("bob");
+    await addDocument(bob, "bob.pdf", [1]);
+
+    await expect(retrieveContext(alice, "#1", "focused")).resolves.toEqual([]);
   });
 });
 

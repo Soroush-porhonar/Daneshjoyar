@@ -5,7 +5,7 @@
  * - Persian only; the only Latin text allowed is "PDF" and command names.
  * - Friendly, informal "تو" voice (می‌تونی، بفرست، دوباره امتحان کن).
  * - Bold (**...**) only for section titles; one emoji at the start of a section.
- * - Commands are always written with cmd(), e.g. cmd("/select 3").
+ * - Commands are always written with cmd(), e.g. cmd("/delete 3").
  * - Buttons do the common actions; typed commands keep working.
  */
 import type { DocumentStatus } from "./db/documents.js";
@@ -15,7 +15,7 @@ const LRM = "‎";
 
 /**
  * A command as shown to users. Inside right-to-left Persian text, clients
- * reorder "/select 3" into "3 /select"; the marks keep it in order.
+ * reorder "/delete 3" into "3 /delete"; the marks keep it in order.
  */
 const cmd = (command: string): string => `${LRM}${command}${LRM}`;
 
@@ -52,19 +52,19 @@ export const HELP_TEXT = `📚 **راهنمای دانشجویار**
 **چطور ازم استفاده کنی؟**
 
 📄 **۱. فرستادن جزوه**
-یک فایل PDF بفرست. بعد از پردازش، خودکار به‌عنوان سند فعال انتخاب می‌شه. اگه فایل اسکن‌شده باشه، پردازشش چند دقیقه طول می‌کشه.
+یک فایل PDF بفرست. اگه فایل اسکن‌شده باشه، پردازشش چند دقیقه طول می‌کشه.
 
 💬 **۲. پرسیدن سؤال**
-سؤالت رو درباره سند فعال بپرس. لازم نیست هر بار فایل رو دوباره انتخاب کنی. زیر هر جواب با 👍 یا 👎 بگو مفید بود یا نه.
+سؤالت رو بپرس؛ خودم توی همه جزوه‌هات می‌گردم و جواب رو با اسم فایل و شماره صفحه بهت می‌دم. لازم نیست جزوه‌ای رو انتخاب کنی. زیر هر جواب با 👍 یا 👎 بگو مفید بود یا نه.
 
-📚 **۳. مدیریت جزوه‌ها**
-دکمه «${MENU_DOCUMENTS}» رو بزن؛ زیر فهرست، برای انتخاب یا حذف هر جزوه دکمه هست.
+📝 **۳. خلاصه**
+بگو کدوم جزوه یا چه موضوعی رو خلاصه کنم، مثلاً «جزوه ساختمان داده رو خلاصه کن».
 
-🌐 **۴. سؤال‌های عمومی**
-اگه سؤالت به جزوه‌هات ربطی نداشته باشه، مثل یک دستیار هوشمند معمولی جوابت رو می‌دم.
+📚 **۴. مدیریت جزوه‌ها**
+دکمه «${MENU_DOCUMENTS}» رو بزن؛ زیر فهرست، برای حذف هر جزوه دکمه هست.
 
-
-💡 **نکته:** هر PDF جدیدی که با موفقیت پردازش بشه، خودکار سند فعال می‌شه.`;
+🌐 **۵. سؤال‌های عمومی**
+اگه سؤالت به جزوه‌هات ربطی نداشته باشه، مثل یک دستیار هوشمند معمولی جوابت رو می‌دم.`;
 
 export const ABOUT_TEXT = `🎓 **دانشجویار** | دستیار هوشمند مطالعه
 
@@ -72,8 +72,8 @@ export const ABOUT_TEXT = `🎓 **دانشجویار** | دستیار هوشمن
 
 ✨ **امکانات فعلی:**
 📄 دریافت و پردازش فایل‌های PDF (حتی اسکن‌شده)
-💬 جواب دادن به سؤال‌های درسی از روی جزوه‌هات
-📚 دیدن و انتخاب جزوه‌ها
+💬 جواب دادن به سؤال‌های درسی از روی همه جزوه‌هات
+📚 دیدن جزوه‌ها
 🗑️ حذف جزوه‌های ذخیره‌شده
 ⏹️ لغو درخواست‌های در حال انجام
 
@@ -93,47 +93,23 @@ export const DOCUMENT_STATUS_TEXT: Record<DocumentStatus, string> = {
 export const NO_DOCUMENTS_TEXT =
   "هنوز هیچ جزوه‌ای نفرستادی.\n\nبرای شروع، یک فایل PDF برام بفرست. 📄";
 
-/** Button labels under the documents list (one row per document). */
-export const SELECT_BUTTON = "📌 انتخاب";
-export const ACTIVE_BUTTON = "✅ فعال";
+/** Button label under each document in the list. */
 export const DELETE_BUTTON = "🗑️ حذف";
 
-/** The document's name on its button: ✅ active, ⏳ still processing, ⚠️ failed. */
-export const documentNameButton = (
-  name: string,
-  status: DocumentStatus,
-  active: boolean,
-): string => {
-  const icon = active
-    ? "✅"
-    : status === "failed"
-      ? "⚠️"
-      : status === "completed"
-        ? "📄"
-        : "⏳";
+/** The document's name on its button: 📄 ready, ⏳ still processing, ⚠️ failed. */
+export const documentNameButton = (name: string, status: DocumentStatus): string => {
+  const icon = status === "failed" ? "⚠️" : status === "completed" ? "📄" : "⏳";
   return `${icon} ${name}`;
 };
 
 /** Popup when a document's name is tapped (names on buttons are shortened). */
-export const documentInfoText = (
-  filename: string,
-  status: DocumentStatus,
-  active: boolean,
-): string =>
-  `${filename}\nوضعیت: ${DOCUMENT_STATUS_TEXT[status]}${active ? " — سند فعال" : ""}`;
+export const documentInfoText = (filename: string, status: DocumentStatus): string =>
+  `${filename}\nوضعیت: ${DOCUMENT_STATUS_TEXT[status]}`;
 
 export const DOCUMENTS_LIST_TEXT =
   `📚 **جزوه‌های تو**\n\n` +
-  `📌 **سند فعال** جزوه‌ایه که سؤال‌هات از روی اون جواب داده می‌شه؛ کنار اسمش ✅ می‌بینی. ` +
-  `هر PDF جدیدی که بفرستی، بعد از پردازش خودکار سند فعال می‌شه.\n\n` +
-  `👇 برای فعال کردن یک جزوه «${SELECT_BUTTON}» و برای پاک کردنش «${DELETE_BUTTON}» رو بزن.`;
-
-export const SELECT_USAGE_TEXT = `شناسه جزوه رو این‌طوری وارد کن:\n${cmd("/select 1")}`;
-
-export const SELECT_FAILED_TEXT = `این جزوه پیدا نشد، هنوز پردازشش تموم نشده یا مال تو نیست. فهرست جزوه‌ها: ${cmd("/documents")}`;
-
-export const selectedText = (documentId: number): string =>
-  `✅ جزوه شماره ${documentId} به‌عنوان سند فعال انتخاب شد. حالا می‌تونی سؤالت رو بپرسی.`;
+  `سؤال‌هات رو از روی همه این جزوه‌ها جواب می‌دم.\n\n` +
+  `👇 روی اسم هر جزوه بزن تا اسم کاملش رو ببینی، و برای پاک کردنش «${DELETE_BUTTON}» رو بزن.`;
 
 // --- Deleting a document -------------------------------------------------------
 
@@ -180,7 +156,7 @@ export const duplicateDocumentText = (filename: string, stillProcessing: boolean
   stillProcessing
     ? `📎 فایل «${filename}» رو قبلاً فرستادی و الان در حال پردازشه. یه کم صبر کن تا آماده بشه.`
     : `📎 فایل «${filename}» رو قبلاً فرستادی و توی جزوه‌هات هست، پس دوباره ذخیره‌ش نکردم.\n\n` +
-      `اگه می‌خوای ازش سؤال بپرسی، از دکمه زیر انتخابش کن.`;
+      `می‌تونی همین الان ازش سؤال بپرسی.`;
 
 export const FILE_RECEIVED_TEXT =
   "📥 فایلت رسید. دارم پردازشش می‌کنم، یه کم صبر کن...";
@@ -203,9 +179,9 @@ export const ocrProgressText = (done: number, total: number): string =>
   `⏳ خوندن صفحه‌ها: ${done} از ${total}`;
 
 export const fileProcessedText = (ocrPages: number): string =>
-  `✅ جزوه‌ات آماده‌ست و به‌عنوان **سند فعال** انتخاب شد.\n\n` +
-  `حالا می‌تونی مستقیم درباره‌ش سؤال بپرسی.\n\n` +
-  `📚 برای دیدن جزوه‌های قبلی یا عوض کردن سند فعال، دکمه زیر رو بزن.` +
+  `✅ جزوه‌ات آماده‌ست.\n\n` +
+  `حالا می‌تونی درباره‌ش سؤال بپرسی؛ جواب سؤال‌هات رو از همه جزوه‌هات پیدا می‌کنم.\n\n` +
+  `📚 برای دیدن جزوه‌هات، دکمه زیر رو بزن.` +
   (ocrPages > 0 ? `\n\n🔍 ${ocrPages} صفحه با تشخیص متن خونده شد.` : "");
 
 // --- Chatting ------------------------------------------------------------------
@@ -223,15 +199,14 @@ export const NO_REQUEST_TO_CANCEL_TEXT =
 
 // --- Answers from documents ---------------------------------------------------
 
-export const NO_DOCUMENT_SELECTED_TEXT =
-  "هنوز جزوه‌ای برای مطالعه انتخاب نکردی.\n\n" +
-  `دکمه «${MENU_DOCUMENTS}» رو بزن و جزوه‌ای که می‌خوای رو انتخاب کن.`;
-
 export const NO_DOCUMENT_CONTENT_TEXT =
-  "توی جزوه انتخاب‌شده محتوایی پیدا نکردم.";
+  "توی جزوه‌هات محتوایی پیدا نکردم.";
 
 export const NO_RELEVANT_CONTENT_TEXT =
-  "توی جزوه انتخاب‌شده چیز مرتبطی با سؤالت پیدا نکردم.";
+  "توی جزوه‌هات چیز مرتبطی با سؤالت پیدا نکردم.";
+
+/** First line of a summary: the bot picked the document, so it says which. */
+export const summaryHeaderText = (filename: string): string => `📄 خلاصه «${filename}»:`;
 
 export const SOURCES_HEADING = "**منابع:**";
 

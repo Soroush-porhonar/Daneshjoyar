@@ -2,7 +2,6 @@
  * Inline buttons and their callback data. Formats (all within Bale's 64 bytes):
  *   fb:<log id>:<1|-1>   👍/👎 on an answer
  *   info:<document id>   show a document's full name and status
- *   sel:<document id>    make a document the active one
  *   del:<document id>    ask to delete a document
  *   delok / delno        confirm / cancel the pending delete
  *   docs                 show the documents list
@@ -11,18 +10,16 @@
 import type { InlineButton } from "../bale.js";
 import type { DocumentSummary } from "../db/documents.js";
 import {
-  ACTIVE_BUTTON,
   CANCEL_BUTTON,
   DELETE_BUTTON,
   DELETE_CANCEL_BUTTON,
   DELETE_CONFIRM_BUTTON,
   MENU_DOCUMENTS,
-  SELECT_BUTTON,
   documentNameButton,
 } from "../messages.js";
 
 export type Callback =
-  | { action: "info" | "select" | "delete"; documentId: number }
+  | { action: "info" | "delete"; documentId: number }
   | { action: "confirmDelete" | "cancelDelete" | "documents" | "cancel" };
 
 /** Longest document name shown on its (full-width) button. */
@@ -35,32 +32,19 @@ function shortName(filename: string): string {
 
 /**
  * Two rows per document: the name alone (buttons in a row share the width
- * equally, so it gets the full width), then [📌 انتخاب] [🗑️ حذف]. Tapping the
- * name shows its full name and status; only ready documents can be selected;
- * the active one reads «✅ فعال».
+ * equally, so it gets the full width), then [🗑️ حذف]. Tapping the name shows
+ * its full name and status.
  */
-export function documentButtons(
-  documents: DocumentSummary[],
-  selectedDocumentId: number | null,
-): InlineButton[][] {
-  return documents.flatMap((document) => {
-    const active = document.id === selectedDocumentId;
-
-    return [
-      [
-        {
-          text: documentNameButton(shortName(document.filename), document.status, active),
-          callback_data: `info:${document.id}`,
-        },
-      ],
-      [
-        ...(document.status === "completed"
-          ? [{ text: active ? ACTIVE_BUTTON : SELECT_BUTTON, callback_data: `sel:${document.id}` }]
-          : []),
-        { text: DELETE_BUTTON, callback_data: `del:${document.id}` },
-      ],
-    ];
-  });
+export function documentButtons(documents: DocumentSummary[]): InlineButton[][] {
+  return documents.flatMap((document) => [
+    [
+      {
+        text: documentNameButton(shortName(document.filename), document.status),
+        callback_data: `info:${document.id}`,
+      },
+    ],
+    [{ text: DELETE_BUTTON, callback_data: `del:${document.id}` }],
+  ]);
 }
 
 export const confirmDeleteButtons = (): InlineButton[][] => [
@@ -86,9 +70,10 @@ export function parseCallback(data: string | undefined): Callback | null {
   if (!data) return null;
   if (Object.hasOwn(SIMPLE, data)) return SIMPLE[data]!;
 
-  const match = /^(info|sel|del):(\d+)$/.exec(data);
+  // Old list messages may still carry "sel:" buttons; selection no longer exists.
+  const match = /^(info|del):(\d+)$/.exec(data);
   if (!match) return null;
 
-  const action = match[1] === "info" ? "info" : match[1] === "sel" ? "select" : "delete";
+  const action = match[1] === "info" ? "info" : "delete";
   return { action, documentId: Number(match[2]) };
 }

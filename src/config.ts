@@ -52,6 +52,16 @@ export const config = {
      * correct chunks but rejected only 2/6 negatives, which the model refuses anyway.
      */
     minScore: process.env.RERANKER_MIN_SCORE ? Number(process.env.RERANKER_MIN_SCORE) : null,
+    /**
+     * A best chunk scoring at least this clearly matches the message: the bot
+     * answers from the notes even if the router (which sees only file names)
+     * said chat, and a summary request is about that chunk's document.
+     * Measured (npm run eval:router -- --with-search, 10 documents): chat
+     * messages' best chunks scored -9.0 .. -3.0, questions about the notes
+     * -2.2 .. 6.2 (13 of 19 at 0 or more); unanswerable questions' best chunks
+     * at most -3.9 (npm run eval). 0 keeps a 3-point margin above any chat.
+     */
+    relevantScore: 0,
   },
 
   embedding: {
