@@ -6,11 +6,14 @@ export interface DocumentSummary {
   id: number;
   filename: string;
   status: DocumentStatus;
+  /** From background enrichment; null until the document is enriched. */
+  title?: string | null;
+  topics?: string[] | null;
 }
 
 export async function listDocuments(userId: number): Promise<DocumentSummary[]> {
   const result = await pool.query<DocumentSummary>(
-    `SELECT id, filename, status
+    `SELECT id, filename, status, title, topics
      FROM documents
      WHERE user_id = $1
      ORDER BY created_at DESC, id DESC`,
@@ -83,12 +86,15 @@ export async function findDocumentFilename(
 export interface CompletedDocument {
   id: number;
   filename: string;
+  /** From background enrichment; null until the document is enriched. */
+  title?: string | null;
+  topics?: string[] | null;
 }
 
 /** The user's ready documents, newest first. */
 export async function listCompletedDocuments(userId: number): Promise<CompletedDocument[]> {
   const result = await pool.query<CompletedDocument>(
-    `SELECT id, filename
+    `SELECT id, filename, title, topics
      FROM documents
      WHERE user_id = $1
        AND status = 'completed'

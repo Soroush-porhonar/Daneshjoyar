@@ -1,6 +1,7 @@
 import { config } from "../config.js";
 import { logger } from "../logger.js";
 import { listCompletedDocuments } from "../db/documents.js";
+import { getSectionSummaries } from "../db/enrichment.js";
 import type { CompletedDocument } from "../db/documents.js";
 import {
   NO_DOCUMENT_CONTENT_TEXT,
@@ -17,7 +18,7 @@ import {
   buildBroadSynthesisPrompt,
   buildFocusedUserPrompt,
 } from "../llm/prompts/rag.js";
-import { batchByChars } from "./batch.js";
+import { batchByChars, fitSummaries } from "./batch.js";
 import { getDocumentChunks, rankedCandidates, retrieveContext } from "./retrieve.js";
 import type { ChunkRef, ContextChunk, RetrievedChunk } from "./retrieve.js";
 import type { RetrievalMode } from "./router.js";
@@ -192,22 +193,36 @@ async function answerBroadQuestion(
     return NO_DOCUMENT_CONTENT_TEXT;
   }
 
-  const summaries: string[] = [];
+  // Enriched documents have the per-section summaries stored: one model call
+  // instead of one per section. Others are summarised now (map-reduce).
+  const stored = await getSectionSummaries(userId, document.id);
+  const summaries: string[] =
+    stored.length > 0
+      ? fitSummaries(
+          stored.map(
+            (section) =>
+              `خلاصه بخش ${section.sectionIndex + 1} (صفحه ${section.pageStart ?? "?"} تا ${section.pageEnd ?? "?"}):\n${section.summary}`,
+          ),
+          config.rag.storedSummaryChars,
+        )
+      : [];
 
-  for (const [index, batch] of batchByChars(
-    chunks,
-    config.rag.broadBatchChars,
-  ).entries()) {
-    const batchNumber = index + 1;
+  if (stored.length === 0) {
+    for (const [index, batch] of batchByChars(
+      chunks,
+      config.rag.broadBatchChars,
+    ).entries()) {
+      const batchNumber = index + 1;
 
-    const summary = await generate(
-      BROAD_EXTRACTION_SYSTEM_PROMPT,
-      buildBatchExtractionPrompt(question, formatChunks(batch)),
-      signal,
-    );
+      const summary = await generate(
+        BROAD_EXTRACTION_SYSTEM_PROMPT,
+        buildBatchExtractionPrompt(question, formatChunks(batch)),
+        signal,
+      );
 
-    summaries.push(`خلاصه بخش ${batchNumber}:\n${summary}`);
-    logger.debug(`[RAG] Batch ${batchNumber} summary:\n${summary}`);
+      summaries.push(`خلاصه بخش ${batchNumber}:\n${summary}`);
+      logger.debug(`[RAG] Batch ${batchNumber} summary:\n${summary}`);
+    }
   }
 
   const answer = await generate(
@@ -216,8 +231,9 @@ async function answerBroadQuestion(
     signal,
   );
 
-  // Cite the pages the summaries drew on, not every page of the document.
-  const mentioned = pagesMentioned(summaries);
+  // Cite the pages the summaries drew on, not every page of the document
+  // (only the summaries' own text: the section labels name page ranges).
+  const mentioned = pagesMentioned(stored.length > 0 ? stored.map((section) => section.summary) : summaries);
   const cited = chunks.filter((chunk) => chunk.pageNumber != null && mentioned.has(chunk.pageNumber));
 
   // Say which document was summarised: it was picked, not chosen by the student.
@@ -292,10 +308,22 @@ export function prefetchCandidates(
 const comparableName = (filename: string) =>
   normalizeText(filename.replace(/\.pdf$/i, "")).toLowerCase().trim();
 
+/** The longest of a document's title and topics that the question contains (0 if none). */
+function profileMatch(document: CompletedDocument, text: string): number {
+  return Math.max(
+    0,
+    ...[document.title, ...(document.topics ?? [])]
+      .map((term) => (term ? normalizeText(term).toLowerCase() : ""))
+      .filter((term) => term.length >= 3 && text.includes(term))
+      .map((term) => term.length),
+  );
+}
+
 /**
  * Which document a summary request is about, in this order: the only one; a
- * document whose name the question contains; the document most of the best
- * search hits come from, when they clearly match; otherwise the newest upload.
+ * document whose name the question contains; a document whose title or a
+ * topic the question contains (enriched documents); the document most of the
+ * best search hits come from, when they clearly match; otherwise the newest upload.
  */
 export function pickDocument(
   documents: CompletedDocument[],
@@ -310,6 +338,12 @@ export function pickDocument(
     .filter((document) => text.includes(comparableName(document.filename)))
     .sort((a, b) => comparableName(b.filename).length - comparableName(a.filename).length);
   if (named[0]) return named[0];
+
+  const [byProfile] = documents
+    .map((document) => ({ document, match: profileMatch(document, text) }))
+    .filter(({ match }) => match > 0)
+    .sort((a, b) => b.match - a.match);
+  if (byProfile) return byProfile.document;
 
   // Vote of the top hits (1/rank), only when the best one clearly matches the question.
   const top = ranked.slice(0, 5);

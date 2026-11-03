@@ -96,6 +96,29 @@ export const config = {
     hybridSearch: process.env.HYBRID_SEARCH === "true",
     /** RRF constant: each list adds 1 / (k + rank); 60 is the usual value. */
     rrfK: 60,
+    /**
+     * Enriched documents (src/rag/enrich.ts): search chunks by their embedding
+     * with the document title and a context sentence in front, and let the
+     * reranker read the same text (CHUNK_CONTEXT). Measured on 93 questions
+     * over 8 enriched documents (npm run eval, all-documents search): rerank
+     * hit@1 85% -> 82%, hit@3 95% -> 91% (a dozen questions slipped from
+     * rank 1 to 2 on the long notes), although fewer top-3 chunks came from
+     * the wrong document (8.6% -> 5.4%). With the reranker reading the plain
+     * chunk instead: no gain (hit@1 84%, in context 96% -> 94%). So it is off.
+     */
+    chunkContext: process.env.CHUNK_CONTEXT === "true",
+    /**
+     * Also search the questions each enriched chunk answers, fused with the
+     * chunk search by RRF (QUESTION_INDEX=false to switch off). Same 93
+     * questions: no question got worse, 4 improved (3 on the scanned handout,
+     * whose OCR text is noisy but whose generated questions are clean),
+     * hit@10 before reranking 96% -> 99%; answers (npm run eval:answers)
+     * 43 -> 44 of 54 passed, judged faithful 52 -> 53. Within the bootstrap
+     * noise, but never worse; the extra search takes ~10 ms (1,375 questions).
+     */
+    questionIndex: process.env.QUESTION_INDEX !== "false",
+    /** Summary requests: max characters of stored section summaries in the one synthesis call. */
+    storedSummaryChars: 16_000,
     /** Slide decks: give the model the hit's whole section (no measured effect at the current context cap). */
     sectionExpansion: process.env.SECTION_EXPANSION === "true",
     /**
@@ -121,10 +144,43 @@ export const config = {
     maxPages: process.env.OCR_MAX_PAGES ? Number(process.env.OCR_MAX_PAGES) : Infinity,
     /** Measured on the GPU (RX 6800S): ~44 s per page; used for the time estimate. */
     secondsPerPage: 45,
-    imageWidth: 1000,
+    /**
+     * Page image width sent to the vision model (OCR_IMAGE_WIDTH). Measured on
+     * the AMD GPU: 1400 px took 1 min 50 s per page (1000 px: ~50 s), and the
+     * next 1400 px request crashed the GPU driver (Vulkan "device lost").
+     */
+    imageWidth: Number(process.env.OCR_IMAGE_WIDTH ?? 1000),
+    /**
+     * Prompt language (OCR_PROMPT=fa|en). Measured on 3 scanned pages against
+     * hand-written reference text (npm run eval:ocr -- --ref): English 18.6%
+     * character errors, Persian 22.8%.
+     */
+    prompt: process.env.OCR_PROMPT === "fa" ? ("fa" as const) : ("en" as const),
+    /**
+     * Repair of words the model wrote reversed (OCR_REPAIR):
+     * - "page": flip every word when reversed common words dominate the page,
+     * - "word": flip each word whose reversed spelling is much more common,
+     * - "both": flip the page only if, over all known words, it reads far
+     *   better flipped; then the word repair for what is left.
+     * Same 3 pages: none 41.5%, word 20.4%, page 18.6%, both 15.5% (page 2
+     * came out fully reversed, pages 1 and 5 partly; "both" is best on each).
+     * What remains is misread letters, which no repair fixes.
+     */
+    repair:
+      process.env.OCR_REPAIR === "page" || process.env.OCR_REPAIR === "word"
+        ? process.env.OCR_REPAIR
+        : ("both" as const),
     timeoutMs: 300_000,
     /** Progress every 5 pages, or every ~10% for big documents. */
     progressEvery: 5,
+  },
+
+  /** Upload-time enrichment (src/rag/enrich.ts), in the background after a document is usable. */
+  enrichment: {
+    /** ENRICHMENT=false: new uploads are not queued (npm run enrich still works). */
+    enabled: process.env.ENRICHMENT !== "false",
+    /** How often the worker looks for queued documents when idle. */
+    pollMs: 30_000,
   },
 
   bale: {

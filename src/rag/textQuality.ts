@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+
 /** Invisible characters that carry no meaning (ZWNJ U+200C is kept: it matters in Persian). */
 const INVISIBLE = /[​‍‎‏‪-‮⁠﻿]/g;
 
@@ -127,6 +129,9 @@ const NORMAL_WORDS = new Set(COMMON_WORDS);
 /** A run of Persian/Arabic letters (not digits or punctuation); ZWNJ stays inside words. */
 const PERSIAN_LETTERS = /[ء-يٱ-ۓە‌]+/g;
 
+/** One Persian word, for counting words (see scripts/build-word-frequencies.ts). */
+export const PERSIAN_WORD = PERSIAN_LETTERS;
+
 /**
  * The vision model sometimes writes every Persian word with its letters in
  * reverse ("تراهم یاه" for "مهارت های") while English stays correct. True when
@@ -147,6 +152,69 @@ export function hasReversedWords(text: string): boolean {
 /** Reverses the letters inside every Persian word; English, digits and punctuation are untouched. */
 export function reverseWordLetters(text: string): string {
   return text.replace(PERSIAN_LETTERS, (word) => [...word].reverse().join(""));
+}
+
+/** A reversed spelling must occur at least this often in good text to be trusted... */
+const REPAIR_MIN_COUNT = 3;
+/** ...and this many times more often than the word as written (5 would turn درک into کرد: 61 vs 7). */
+const REPAIR_RATIO = 10;
+
+let wordCounts: Map<string, number> | null = null;
+
+/** Word counts from good text layers (src/rag/wordFrequencies.json, npm run build:words). */
+function loadWordCounts(): Map<string, number> {
+  wordCounts ??= new Map(
+    Object.entries(
+      JSON.parse(readFileSync(new URL("./wordFrequencies.json", import.meta.url), "utf-8")) as Record<
+        string,
+        number
+      >,
+    ),
+  );
+  return wordCounts;
+}
+
+/**
+ * Word by word: flips a Persian word whose reversed spelling is a much more
+ * common word («هب» -> «به», «رد» -> «در»), and leaves every other word as it
+ * is. Unlike reverseWordLetters, correct words on the same page stay correct
+ * when the vision model reversed only some of them.
+ */
+export function repairReversedWords(
+  text: string,
+  counts: ReadonlyMap<string, number> = loadWordCounts(),
+): string {
+  return text.replace(PERSIAN_LETTERS, (word) => {
+    if ([...word].length < 2) return word;
+
+    const reversed = [...word].reverse().join("");
+    const asWritten = counts.get(word) ?? 0;
+    const flipped = counts.get(reversed) ?? 0;
+
+    return flipped >= REPAIR_MIN_COUNT && flipped > REPAIR_RATIO * asWritten ? reversed : word;
+  });
+}
+
+/**
+ * True when far more of a text's words are known words once flipped than as
+ * written: the model reversed (nearly) the whole page. Judged on all known
+ * words, not a few common ones, so a page with only some reversed words is
+ * left to the word-by-word repair.
+ */
+export function mostlyReversed(
+  text: string,
+  counts: ReadonlyMap<string, number> = loadWordCounts(),
+): boolean {
+  let asWritten = 0;
+  let flipped = 0;
+
+  for (const word of text.match(PERSIAN_LETTERS) ?? []) {
+    if ([...word].length < 2) continue;
+    if (counts.has(word)) asWritten++;
+    if (counts.has([...word].reverse().join(""))) flipped++;
+  }
+
+  return flipped > 2 * asWritten;
 }
 
 /** True for model output that is empty or stuck in a loop (same line repeated). */

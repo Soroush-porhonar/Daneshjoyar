@@ -18,6 +18,7 @@ import { DuplicateDocumentError, getDocumentErrorText, getErrorMessage } from ".
 import { logger } from "../logger.js";
 import { ingestPdf } from "../rag/ingest.js";
 import { documentsButton } from "../bot/buttons.js";
+import { wakeEnrichment } from "../bot/enrichmentWorker.js";
 
 /** Tells the user the file is already there; offers the list when it is ready. */
 async function sendDuplicateNotice(
@@ -122,6 +123,7 @@ export async function handleDocument(
       throw error;
     }
 
+    wakeEnrichment();
     await sendMessage(chatId, fileProcessedText(result.ocrPages), { inline: documentsButton() });
 
     return true;

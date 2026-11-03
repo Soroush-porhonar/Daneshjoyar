@@ -1,3 +1,4 @@
+import { config } from "../config.js";
 import { pool } from "../db/pool.js";
 import { openPdf } from "./pdf.js";
 import type { TextChunk } from "./chunk.js";
@@ -119,10 +120,12 @@ export async function ingestPdf(
       await client.query(
         `
     UPDATE documents
-    SET status = 'completed'
+    SET status = 'completed',
+        -- Usable now; enriched in the background (src/bot/enrichmentWorker.ts).
+        enrichment = CASE WHEN $2 THEN 'pending' END
     WHERE id = $1
   `,
-        [documentId],
+        [documentId, config.enrichment.enabled],
       );
 
       await client.query("COMMIT");

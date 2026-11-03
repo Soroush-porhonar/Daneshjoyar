@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ContextChunk, DocumentChunk, RetrievedChunk } from "../src/rag/retrieve.js";
 
 vi.mock("../src/db/documents.js", () => ({ listCompletedDocuments: vi.fn() }));
+vi.mock("../src/db/enrichment.js", () => ({ getSectionSummaries: vi.fn() }));
 vi.mock("../src/rag/retrieve.js", () => ({
   retrieveContext: vi.fn(),
   getDocumentChunks: vi.fn(),
@@ -11,6 +12,7 @@ vi.mock("../src/llm/ollamaClient.js", () => ({ chat: vi.fn() }));
 
 const { answerFromDocuments, pickDocument, prefetchCandidates } = await import("../src/rag/answer.js");
 const { listCompletedDocuments } = await import("../src/db/documents.js");
+const { getSectionSummaries } = await import("../src/db/enrichment.js");
 const { getDocumentChunks, rankedCandidates, retrieveContext } = await import(
   "../src/rag/retrieve.js"
 );
@@ -33,6 +35,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(listCompletedDocuments).mockResolvedValue([{ id: 1, filename: "notes.pdf" }]);
   vi.mocked(rankedCandidates).mockResolvedValue([]);
+  vi.mocked(getSectionSummaries).mockResolvedValue([]);
   vi.mocked(chat).mockResolvedValue("پاسخ مدل");
 });
 
@@ -152,6 +155,29 @@ describe("answerFromDocuments", () => {
     expect(answer).toContain(messages.sourceLineText("notes.pdf", 5));
   });
 
+  it("summarises an enriched document from its stored section summaries in one call", async () => {
+    const chunks: DocumentChunk[] = [1, 2, 3].map((page) => ({
+      documentId: 1,
+      filename: "notes.pdf",
+      pageNumber: page,
+      chunkIndex: page - 1,
+      content: `متن صفحه ${page}`,
+    }));
+    vi.mocked(getDocumentChunks).mockResolvedValue(chunks);
+    vi.mocked(getSectionSummaries).mockResolvedValue([
+      { sectionIndex: 0, pageStart: 1, pageEnd: 2, summary: "تعریف سیستم خبره (صفحه PDF 2)" },
+      { sectionIndex: 1, pageStart: 3, pageEnd: 3, summary: "خصوصیات" },
+    ]);
+    vi.mocked(chat).mockResolvedValue("پاسخ نهایی");
+
+    const answer = await answerFromDocuments(8, "خلاصه کن", "broad");
+
+    expect(chat).toHaveBeenCalledTimes(1);
+    expect(prompt(0)).toContain("تعریف سیستم خبره");
+    expect(answer).toContain(messages.sourceLineText("notes.pdf", 2));
+    expect(answer).not.toContain(messages.sourceLineText("notes.pdf", 3));
+  });
+
   it("cites only the pages the batch summaries drew on in broad mode", async () => {
     const chunks: DocumentChunk[] = [1, 2, 3].map((page) => ({
       documentId: 1,
@@ -217,6 +243,16 @@ describe("pickDocument (which document a summary is about)", () => {
 
   it("takes the document the question names", () => {
     expect(pickDocument(documents, "datastructure_chapter1 رو خلاصه کن", [hit(2, 5)])).toBe(documents[2]);
+  });
+
+  it("takes the document whose title or topic the question names (enriched documents)", () => {
+    const enriched = [
+      { ...documents[0]!, title: "هوش مصنوعی و سیستم‌های خبره", topics: ["سیستم خبره", "پایگاه دانش"] },
+      documents[1]!,
+      documents[2]!,
+    ];
+
+    expect(pickDocument(enriched, "سیستم خبره رو خلاصه کن", [hit(2, 5)])).toBe(enriched[0]);
   });
 
   it("otherwise takes the document most of the clearly matching hits come from", () => {

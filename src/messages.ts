@@ -102,9 +102,25 @@ export const documentNameButton = (name: string, status: DocumentStatus): string
   return `${icon} ${name}`;
 };
 
-/** Popup when a document's name is tapped (names on buttons are shortened). */
-export const documentInfoText = (filename: string, status: DocumentStatus): string =>
-  `${filename}\nوضعیت: ${DOCUMENT_STATUS_TEXT[status]}`;
+/** Bale (like Telegram) shows at most 200 characters in a button's popup. */
+const POPUP_MAX = 200;
+
+/**
+ * Popup when a document's name is tapped (names on buttons are shortened):
+ * its full name and status, and once enriched its title and main topics.
+ */
+export const documentInfoText = (
+  filename: string,
+  status: DocumentStatus,
+  title?: string | null,
+  topics?: string[] | null,
+): string => {
+  const text =
+    `${filename}\nوضعیت: ${DOCUMENT_STATUS_TEXT[status]}` +
+    (title ? `\nموضوع: ${title}` : "") +
+    (topics && topics.length > 0 ? `\nمباحث: ${topics.join("، ")}` : "");
+  return text.length > POPUP_MAX ? `${text.slice(0, POPUP_MAX - 1)}…` : text;
+};
 
 export const DOCUMENTS_LIST_TEXT =
   `📚 **جزوه‌های تو**\n\n` +

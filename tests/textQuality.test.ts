@@ -5,6 +5,7 @@ import {
   hasReversedWords,
   isDegenerateOcr,
   normalizeText,
+  repairReversedWords,
   reverseLineWords,
   reverseWordLetters,
 } from "../src/rag/textQuality.js";
@@ -139,5 +140,36 @@ describe("reversed word order", () => {
 
   it("restores reading order and moves punctuation to the end", () => {
     expect(reverseLineWords(reversed[0]!)).toBe(normal[0]);
+  });
+});
+
+describe("repairReversedWords", () => {
+  const counts = new Map([
+    ["در", 838],
+    ["رد", 20],
+    ["به", 660],
+    ["برای", 218],
+    ["یک", 212],
+    ["کی", 8],
+    ["کرد", 61],
+    ["درک", 7],
+  ]);
+
+  it("flips only the words whose reversed spelling is much more common", () => {
+    expect(repairReversedWords("کی سیستم خبره یارب لح مسائل هب کار میرود", counts)).toBe(
+      "یک سیستم خبره برای لح مسائل به کار میرود",
+    );
+  });
+
+  it("leaves correct words alone, including real words whose reverse is only somewhat more common", () => {
+    expect(repairReversedWords("در این درک کرد", counts)).toBe("در این درک کرد");
+  });
+
+  it("does not touch English, digits or single letters", () => {
+    expect(repairReversedWords("rule هب 29119 و", counts)).toBe("rule به 29119 و");
+  });
+
+  it("uses the shipped word list by default", () => {
+    expect(repairReversedWords("هب")).toBe("به");
   });
 });

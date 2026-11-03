@@ -22,6 +22,7 @@ import type { NewAnswerLog } from "../db/answerLogs.js";
 import { feedbackButtons } from "../bot/feedback.js";
 import { needsRewrite, rewriteQuestion } from "../rag/rewrite.js";
 import { resolveRoute, routeMessage } from "../rag/router.js";
+import { startForegroundWork } from "../llm/priority.js";
 
 interface Session {
   userId: number;
@@ -68,10 +69,13 @@ async function answerQuestion(
   signal?: AbortSignal,
 ): Promise<Reply> {
   const noticeId = await sendMessage(chatId, THINKING_NOTICE_TEXT, { inline: cancelButton() });
+  // Background enrichment pauses until this answer is done (one GPU).
+  const finished = startForegroundWork();
 
   try {
     return await composeAnswer(session, text, signal);
   } finally {
+    finished();
     if (noticeId !== undefined) {
       try {
         await removeButtons(chatId, noticeId);
@@ -88,6 +92,9 @@ async function composeAnswer(
   text: string,
   signal?: AbortSignal,
 ): Promise<Reply> {
+  // File names only: listing enriched documents' titles and topics did not
+  // change a route on 33 messages (100% either way) but cost 2 mode decisions
+  // (route + mode 97% -> 91%, npm run eval:router -- --with-search).
   const documentNames = await listCompletedFilenames(userId);
   const history = await getRecentMessages(
     conversationId,

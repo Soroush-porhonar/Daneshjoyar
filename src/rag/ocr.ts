@@ -1,13 +1,15 @@
 import { config } from "../config.js";
 import { chat } from "../llm/ollamaClient.js";
-import { OCR_PROMPT } from "../llm/prompts/ocr.js";
+import { OCR_PROMPT, OCR_PROMPT_FA } from "../llm/prompts/ocr.js";
 import { logger } from "../logger.js";
 import type { PageText, PdfHandle } from "./pdf.js";
 import {
   assessPage,
   hasReversedWords,
   isDegenerateOcr,
+  mostlyReversed,
   normalizeText,
+  repairReversedWords,
   reverseWordLetters,
 } from "./textQuality.js";
 
@@ -24,15 +26,28 @@ export interface ExtractionResult {
   ocrPages: number;
 }
 
-/** Reads one page image with the vision model; returns "" if the output is unusable. */
-export async function ocrPage(
+export interface OcrSettings {
+  imageWidth: number;
+  prompt: "en" | "fa";
+  repair: "page" | "word" | "both";
+}
+
+const defaultSettings = (): OcrSettings => ({
+  imageWidth: config.ocr.imageWidth,
+  prompt: config.ocr.prompt,
+  repair: config.ocr.repair,
+});
+
+/** The vision model's raw transcription of one page (eval:ocr compares settings with it). */
+export async function readPageImage(
   pdf: PdfHandle,
   pageNumber: number,
+  settings: Pick<OcrSettings, "imageWidth" | "prompt"> = defaultSettings(),
   signal?: AbortSignal,
 ): Promise<string> {
-  const png = await pdf.renderPage(pageNumber, config.ocr.imageWidth);
+  const png = await pdf.renderPage(pageNumber, settings.imageWidth);
 
-  const text = await chat({
+  return chat({
     think: false,
     options: { temperature: 0, num_predict: 2048 },
     timeoutMs: config.ocr.timeoutMs,
@@ -40,12 +55,19 @@ export async function ocrPage(
     messages: [
       {
         role: "user",
-        content: OCR_PROMPT,
+        content: settings.prompt === "fa" ? OCR_PROMPT_FA : OCR_PROMPT,
         images: [Buffer.from(png).toString("base64")],
       },
     ],
   });
+}
 
+/** Normalises a transcription and repairs reversed words; "" if the output is unusable. */
+export function cleanOcrText(
+  text: string,
+  pageNumber: number,
+  repair: OcrSettings["repair"] = config.ocr.repair,
+): string {
   if (isDegenerateOcr(text)) {
     logger.warn(`[OCR] Page ${pageNumber}: unusable output, keeping text layer`);
     return "";
@@ -53,12 +75,32 @@ export async function ocrPage(
 
   const normalized = normalizeText(text);
 
+  if (repair === "word") return repairReversedWords(normalized);
+
+  if (repair === "both") {
+    // Flip the page only if it is mostly reversed (judged on all known
+    // words), then fix the words the model reversed one by one.
+    const flip = mostlyReversed(normalized);
+    if (flip) logger.info(`[OCR] Page ${pageNumber}: Persian words came out reversed, fixing`);
+    return repairReversedWords(flip ? reverseWordLetters(normalized) : normalized);
+  }
+
   if (hasReversedWords(normalized)) {
     logger.info(`[OCR] Page ${pageNumber}: Persian words came out reversed, fixing`);
     return reverseWordLetters(normalized);
   }
 
   return normalized;
+}
+
+/** Reads one page image with the vision model; returns "" if the output is unusable. */
+export async function ocrPage(
+  pdf: PdfHandle,
+  pageNumber: number,
+  signal?: AbortSignal,
+): Promise<string> {
+  const settings = defaultSettings();
+  return cleanOcrText(await readPageImage(pdf, pageNumber, settings, signal), pageNumber, settings.repair);
 }
 
 /**

@@ -65,3 +65,12 @@ describe("user-facing messages", () => {
     expect(messages.DOCUMENTS_LIST_TEXT).not.toContain("شناسه");
   });
 });
+
+describe("document popup", () => {
+  it("shows an enriched document's title and topics, within Bale's 200-character popup limit", () => {
+    const text = messages.documentInfoText("a.pdf", "completed", "سیستم‌های خبره", Array(40).fill("مبحث طولانی"));
+
+    expect(text).toContain("موضوع: سیستم‌های خبره");
+    expect(text.length).toBeLessThanOrEqual(200);
+  });
+});

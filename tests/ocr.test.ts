@@ -11,7 +11,7 @@ vi.mock("../src/config.js", async (importOriginal) => {
 
 const { config } = await import("../src/config.js");
 const ocrSettings = config.ocr as { maxPages: number };
-const { extractPages } = await import("../src/rag/ocr.js");
+const { cleanOcrText, extractPages } = await import("../src/rag/ocr.js");
 const { chat } = await import("../src/llm/ollamaClient.js");
 const { logger } = await import("../src/logger.js");
 
@@ -120,5 +120,23 @@ describe("extractPages", () => {
     await extractPages(fakePdf(pages), progress);
 
     expect(progress.mock.calls.map(([p]) => p.ocrDone)).toEqual([0, 5, 10]);
+  });
+});
+
+describe("cleanOcrText (repair of reversed words)", () => {
+  beforeEach(() => vi.spyOn(logger, "info").mockImplementation(() => {}));
+
+  it("both: a page written fully reversed is flipped back", () => {
+    expect(cleanOcrText("تسا نیا رد هب زا کی متسیس", 1, "both")).toBe("است این در به از یک سیستم");
+  });
+
+  it("both: on a mostly correct page only the reversed words are fixed", () => {
+    expect(cleanOcrText("کی سیستم خبره یارب حل مسائل هب کار میرود", 1, "both")).toBe(
+      "یک سیستم خبره برای حل مسائل به کار میرود",
+    );
+  });
+
+  it("page: a mostly correct page is left as it is (what the word repair adds)", () => {
+    expect(cleanOcrText("کی سیستم خبره یارب حل مسائل", 1, "page")).toBe("کی سیستم خبره یارب حل مسائل");
   });
 });
