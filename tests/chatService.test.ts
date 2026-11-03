@@ -13,7 +13,7 @@ vi.mock("../src/db/messages.js", () => ({
   getRecentMessages: vi.fn(),
 }));
 vi.mock("../src/db/documents.js", () => ({
-  listCompletedDocuments: vi.fn(),
+  listCompletedFilenames: vi.fn(),
   listDocuments: vi.fn(),
   findDocumentFilename: vi.fn(),
   deleteDocument: vi.fn(),
@@ -40,7 +40,7 @@ const { removeButtons, sendMessage } = await import("../src/bale.js");
 const { findOrCreateUser } = await import("../src/db/users.js");
 const { findOrCreateConversation } = await import("../src/db/conversations.js");
 const { saveMessage, getRecentMessages } = await import("../src/db/messages.js");
-const { listCompletedDocuments } = await import("../src/db/documents.js");
+const { listCompletedFilenames } = await import("../src/db/documents.js");
 const { askAI } = await import("../src/llm/generalChat.js");
 const { answerFromDocuments, prefetchCandidates } = await import("../src/rag/answer.js");
 const { createAnswerLog, getLastAnswerHits } = await import("../src/db/answerLogs.js");
@@ -67,7 +67,7 @@ beforeEach(() => {
   vi.mocked(findOrCreateConversation).mockResolvedValue(11);
   // The current message is saved first, so it is the last history entry.
   vi.mocked(getRecentMessages).mockResolvedValue([...earlier, current]);
-  vi.mocked(listCompletedDocuments).mockResolvedValue([{ id: 5, filename: "Algorithm.pdf" }]);
+  vi.mocked(listCompletedFilenames).mockResolvedValue(["Algorithm.pdf"]);
   // Like the real one: only follow-ups are rewritten.
   vi.mocked(rewriteQuestion).mockImplementation(async (text, previous) =>
     needsRewrite(text, previous) ? `بازنویسی: ${text}` : text,
@@ -289,7 +289,7 @@ describe("handleMessage", () => {
   });
 
   it("skips the router when the user has no documents", async () => {
-    vi.mocked(listCompletedDocuments).mockResolvedValue([]);
+    vi.mocked(listCompletedFilenames).mockResolvedValue([]);
 
     await handleMessage(CHAT_ID, "سلام");
 

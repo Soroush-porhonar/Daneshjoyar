@@ -624,6 +624,7 @@ describe("enrichment (background, after upload)", () => {
 
 describe("question index (enriched documents)", () => {
   const rag = config.rag as { questionIndex: boolean };
+  const { questionIndex } = config.rag;
   const questionAbout = (axisIndex: number) => ({ question: `سؤال #${axisIndex}`, embedding: axis(axisIndex) });
 
   /** Gives every chunk of a document one stored question on the given axes. */
@@ -654,7 +655,7 @@ describe("question index (enriched documents)", () => {
 
       expect(candidates.map((chunk) => chunk.chunkIndex)).toEqual([1]);
     } finally {
-      rag.questionIndex = false;
+      rag.questionIndex = questionIndex;
     }
   });
 
@@ -668,7 +669,7 @@ describe("question index (enriched documents)", () => {
 
       await expect(searchCandidates(alice, "#7", 10)).resolves.toEqual([]);
     } finally {
-      rag.questionIndex = false;
+      rag.questionIndex = questionIndex;
     }
   });
 });

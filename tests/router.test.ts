@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { config } from "../src/config.js";
 import { parseClassification, resolveRoute } from "../src/rag/router.js";
-import { describeDocument } from "../src/llm/prompts/router.js";
 
 describe("parseClassification", () => {
   it("accepts a valid document route", () => {
@@ -44,17 +43,5 @@ describe("resolveRoute", () => {
     const broad = { route: "document" as const, retrievalMode: "broad" as const };
 
     expect(resolveRoute(broad, weak)).toBe(broad);
-  });
-});
-
-describe("describeDocument (what the router sees)", () => {
-  it("shows an enriched document's title and topics instead of a meaningless file name", () => {
-    expect(
-      describeDocument({ filename: "CamScanner 05-18.pdf", title: "سیستم‌های خبره", topics: ["تعریف", "خصوصیات"] }),
-    ).toBe("سیستم‌های خبره (فایل CamScanner 05-18.pdf؛ مباحث: تعریف، خصوصیات)");
-  });
-
-  it("falls back to the file name before enrichment", () => {
-    expect(describeDocument({ filename: "notes.pdf", title: null, topics: null })).toBe("notes.pdf");
   });
 });

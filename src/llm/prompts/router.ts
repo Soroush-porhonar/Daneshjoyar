@@ -1,17 +1,3 @@
-/**
- * How a document is listed for the router: its title and topics once it is
- * enriched (a file name like "CamScanner 05-18.pdf" says nothing), else the name.
- */
-export function describeDocument(document: {
-  filename: string;
-  title?: string | null;
-  topics?: string[] | null;
-}): string {
-  if (!document.title) return document.filename;
-  const topics = (document.topics ?? []).slice(0, 8).join("، ");
-  return `${document.title} (فایل ${document.filename}${topics ? `؛ مباحث: ${topics}` : ""})`;
-}
-
 export function buildRouterSystemPrompt(documentNames: string[]): string {
   return `
 تو دسته‌بند پیام‌های یک دستیار تحصیلی هستی.

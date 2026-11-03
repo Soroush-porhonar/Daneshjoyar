@@ -98,12 +98,25 @@ export const config = {
     rrfK: 60,
     /**
      * Enriched documents (src/rag/enrich.ts): search chunks by their embedding
-     * with the document title and a context sentence in front (CHUNK_CONTEXT),
-     * and also by the questions each chunk answers, fused with RRF
-     * (QUESTION_INDEX). Off until measured with npm run eval.
+     * with the document title and a context sentence in front, and let the
+     * reranker read the same text (CHUNK_CONTEXT). Measured on 93 questions
+     * over 8 enriched documents (npm run eval, all-documents search): rerank
+     * hit@1 85% -> 82%, hit@3 95% -> 91% (a dozen questions slipped from
+     * rank 1 to 2 on the long notes), although fewer top-3 chunks came from
+     * the wrong document (8.6% -> 5.4%). With the reranker reading the plain
+     * chunk instead: no gain (hit@1 84%, in context 96% -> 94%). So it is off.
      */
     chunkContext: process.env.CHUNK_CONTEXT === "true",
-    questionIndex: process.env.QUESTION_INDEX === "true",
+    /**
+     * Also search the questions each enriched chunk answers, fused with the
+     * chunk search by RRF (QUESTION_INDEX=false to switch off). Same 93
+     * questions: no question got worse, 4 improved (3 on the scanned handout,
+     * whose OCR text is noisy but whose generated questions are clean),
+     * hit@10 before reranking 96% -> 99%; answers (npm run eval:answers)
+     * 43 -> 44 of 54 passed, judged faithful 52 -> 53. Within the bootstrap
+     * noise, but never worse; the extra search takes ~10 ms (1,375 questions).
+     */
+    questionIndex: process.env.QUESTION_INDEX !== "false",
     /** Summary requests: max characters of stored section summaries in the one synthesis call. */
     storedSummaryChars: 16_000,
     /** Slide decks: give the model the hit's whole section (no measured effect at the current context cap). */

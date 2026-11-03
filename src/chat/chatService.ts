@@ -9,8 +9,7 @@ import {
 } from "../messages.js";
 import { config } from "../config.js";
 import { findOrCreateConversation } from "../db/conversations.js";
-import { listCompletedDocuments } from "../db/documents.js";
-import { describeDocument } from "../llm/prompts/router.js";
+import { listCompletedFilenames } from "../db/documents.js";
 import { getRecentMessages, saveMessage } from "../db/messages.js";
 import { findOrCreateUser } from "../db/users.js";
 import { logDatabaseError } from "../errors.js";
@@ -93,8 +92,10 @@ async function composeAnswer(
   text: string,
   signal?: AbortSignal,
 ): Promise<Reply> {
-  // Titles and topics of enriched documents tell the router what the notes cover.
-  const documentNames = (await listCompletedDocuments(userId)).map(describeDocument);
+  // File names only: listing enriched documents' titles and topics did not
+  // change a route on 33 messages (100% either way) but cost 2 mode decisions
+  // (route + mode 97% -> 91%, npm run eval:router -- --with-search).
+  const documentNames = await listCompletedFilenames(userId);
   const history = await getRecentMessages(
     conversationId,
     config.rag.historyLimit,
