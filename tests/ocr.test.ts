@@ -3,6 +3,10 @@ import type { PageText, PdfHandle } from "../src/rag/pdf.js";
 
 // The vision model is replaced by a fake that "reads" a page image.
 vi.mock("../src/llm/ollamaClient.js", () => ({ chat: vi.fn() }));
+// The rendered page goes to the model as it is, unless a test cuts it into strips.
+vi.mock("../src/rag/pageImage.js", () => ({
+  preparePageImages: vi.fn(async (png: Uint8Array) => [Buffer.from(png)]),
+}));
 // A copy of the OCR settings that tests may change (e.g. set a page cap).
 vi.mock("../src/config.js", async (importOriginal) => {
   const { config } = await importOriginal<typeof import("../src/config.js")>();
@@ -11,8 +15,10 @@ vi.mock("../src/config.js", async (importOriginal) => {
 
 const { config } = await import("../src/config.js");
 const ocrSettings = config.ocr as { maxPages: number };
-const { cleanOcrText, extractPages } = await import("../src/rag/ocr.js");
+const { cleanOcrText, extractPages, readPageImage } = await import("../src/rag/ocr.js");
 const { chat } = await import("../src/llm/ollamaClient.js");
+const { preparePageImages } = await import("../src/rag/pageImage.js");
+const { OCR_PROMPT, OCR_STRIP_PROMPT } = await import("../src/llm/prompts/ocr.js");
 const { logger } = await import("../src/logger.js");
 
 const GOOD_TEXT = "این یک صفحه سالم با متن کامل فارسی است که نیازی به خواندن دوباره ندارد.";
@@ -69,6 +75,45 @@ describe("extractPages", () => {
     const request = vi.mocked(chat).mock.calls[0]![0];
     expect(request.messages[0]!.images).toEqual([Buffer.from([1, 2, 3]).toString("base64")]);
     expect(request.options?.temperature).toBe(0);
+  });
+
+  it("reads a page cut into strips one strip at a time, in order, as one page", async () => {
+    const strips = [Buffer.from([1]), Buffer.from([2]), Buffer.from([3])];
+    vi.mocked(preparePageImages).mockResolvedValueOnce(strips);
+    vi.mocked(chat)
+      .mockResolvedValueOnce("خط اول صفحه")
+      .mockResolvedValueOnce("خط دوم صفحه")
+      .mockResolvedValueOnce("خط سوم صفحه");
+
+    const result = await extractPages(fakePdf([imagePage(1)]));
+
+    expect(chat).toHaveBeenCalledTimes(3);
+    expect(vi.mocked(chat).mock.calls.map(([request]) => request.messages[0]!.images)).toEqual(
+      strips.map((strip) => [strip.toString("base64")]),
+    );
+    expect(vi.mocked(chat).mock.calls[0]![0].messages[0]!.content).toBe(OCR_STRIP_PROMPT);
+    expect(result.pages[0]!.text).toBe("خط اول صفحه\nخط دوم صفحه\nخط سوم صفحه");
+  });
+
+  it("uses the whole-page prompt for a page read in one image", async () => {
+    const read = await readPageImage(fakePdf([imagePage(1)]), 1);
+
+    expect(read.strips).toBe(1);
+    expect(chat).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(chat).mock.calls[0]![0].messages[0]!.content).toBe(OCR_PROMPT);
+  });
+
+  it("stops reading strips once the request is cancelled", async () => {
+    const controller = new AbortController();
+    vi.mocked(preparePageImages).mockResolvedValueOnce([Buffer.from([1]), Buffer.from([2])]);
+    vi.mocked(chat).mockImplementation(async ({ signal }) => {
+      if (signal?.aborted) throw new DOMException("aborted", "AbortError");
+      controller.abort();
+      return "خط اول";
+    });
+
+    await expect(readPageImage(fakePdf([imagePage(1)]), 1, undefined, controller.signal)).rejects.toThrow("aborted");
+    expect(chat).toHaveBeenCalledTimes(2);
   });
 
   it("keeps the text layer when the model output is a repetition loop", async () => {

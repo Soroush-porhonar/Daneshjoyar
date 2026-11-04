@@ -145,11 +145,23 @@ export const config = {
     /** Measured on the GPU (RX 6800S): ~44 s per page; used for the time estimate. */
     secondsPerPage: 45,
     /**
-     * Page image width sent to the vision model (OCR_IMAGE_WIDTH). Measured on
-     * the AMD GPU: 1400 px took 1 min 50 s per page (1000 px: ~50 s), and the
-     * next 1400 px request crashed the GPU driver (Vulkan "device lost").
+     * Width a page is rendered at for OCR (OCR_RENDER_WIDTH; OCR_IMAGE_WIDTH
+     * is the old name). Phone scans hold more: the CamScanner handout embeds
+     * ~2,350 px per page. Sent as one image, 1400 px took 1 min 50 s per page
+     * (1000 px: ~50 s) and the next request crashed the GPU driver (Vulkan
+     * "device lost"): the vision encoder attends over all patches at once
+     * (cost grows with their square) and Ollama reserves its memory for
+     * 1472 x 1472 px. So bigger pages are read in strips (tilePixels).
      */
-    imageWidth: Number(process.env.OCR_IMAGE_WIDTH ?? 1000),
+    renderWidth: Number(process.env.OCR_RENDER_WIDTH ?? process.env.OCR_IMAGE_WIDTH ?? 1000),
+    /**
+     * Most pixels in one image sent to the vision model (OCR_TILE_PIXELS);
+     * taller pages are cut into horizontal strips between text lines.
+     * Default: a 1000 px A4 page (1000 x 1414), the size measured as safe.
+     */
+    tilePixels: Number(process.env.OCR_TILE_PIXELS ?? 1000 * 1414),
+    /** Crop a page's empty margins before reading it (OCR_CROP=true). */
+    crop: process.env.OCR_CROP === "true",
     /**
      * Prompt language (OCR_PROMPT=fa|en). Measured on 3 scanned pages against
      * hand-written reference text (npm run eval:ocr -- --ref): English 18.6%

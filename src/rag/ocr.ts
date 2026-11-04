@@ -1,7 +1,8 @@
 import { config } from "../config.js";
 import { chat } from "../llm/ollamaClient.js";
-import { OCR_PROMPT, OCR_PROMPT_FA } from "../llm/prompts/ocr.js";
+import { OCR_PROMPT, OCR_PROMPT_FA, OCR_STRIP_PROMPT, OCR_STRIP_PROMPT_FA } from "../llm/prompts/ocr.js";
 import { logger } from "../logger.js";
+import { preparePageImages, type PageImageSettings } from "./pageImage.js";
 import type { PageText, PdfHandle } from "./pdf.js";
 import {
   assessPage,
@@ -26,40 +27,59 @@ export interface ExtractionResult {
   ocrPages: number;
 }
 
-export interface OcrSettings {
-  imageWidth: number;
+export interface OcrSettings extends PageImageSettings {
+  renderWidth: number;
   prompt: "en" | "fa";
   repair: "page" | "word" | "both";
 }
 
 const defaultSettings = (): OcrSettings => ({
-  imageWidth: config.ocr.imageWidth,
+  renderWidth: config.ocr.renderWidth,
+  tilePixels: config.ocr.tilePixels,
+  crop: config.ocr.crop,
   prompt: config.ocr.prompt,
   repair: config.ocr.repair,
 });
 
-/** The vision model's raw transcription of one page (eval:ocr compares settings with it). */
+/** A page's raw transcription and how many images (strips) it was read in. */
+export interface PageRead {
+  text: string;
+  strips: number;
+}
+
+/**
+ * The vision model's raw transcription of one page (eval:ocr compares
+ * settings with it): rendered, optionally cropped, and read strip by strip
+ * when it is too big for one image.
+ */
 export async function readPageImage(
   pdf: PdfHandle,
   pageNumber: number,
-  settings: Pick<OcrSettings, "imageWidth" | "prompt"> = defaultSettings(),
+  settings: Omit<OcrSettings, "repair"> = defaultSettings(),
   signal?: AbortSignal,
-): Promise<string> {
-  const png = await pdf.renderPage(pageNumber, settings.imageWidth);
+): Promise<PageRead> {
+  const images = await preparePageImages(await pdf.renderPage(pageNumber, settings.renderWidth), settings);
+  const strips = images.length > 1;
+  const prompt =
+    settings.prompt === "fa"
+      ? strips ? OCR_STRIP_PROMPT_FA : OCR_PROMPT_FA
+      : strips ? OCR_STRIP_PROMPT : OCR_PROMPT;
+  const parts: string[] = [];
 
-  return chat({
-    think: false,
-    options: { temperature: 0, num_predict: 2048 },
-    timeoutMs: config.ocr.timeoutMs,
-    signal,
-    messages: [
-      {
-        role: "user",
-        content: settings.prompt === "fa" ? OCR_PROMPT_FA : OCR_PROMPT,
-        images: [Buffer.from(png).toString("base64")],
-      },
-    ],
-  });
+  // One at a time: there is one GPU.
+  for (const image of images) {
+    parts.push(
+      await chat({
+        think: false,
+        options: { temperature: 0, num_predict: 2048 },
+        timeoutMs: config.ocr.timeoutMs,
+        signal,
+        messages: [{ role: "user", content: prompt, images: [image.toString("base64")] }],
+      }),
+    );
+  }
+
+  return { text: parts.join("\n"), strips: images.length };
 }
 
 /** Normalises a transcription and repairs reversed words; "" if the output is unusable. */
@@ -100,7 +120,8 @@ export async function ocrPage(
   signal?: AbortSignal,
 ): Promise<string> {
   const settings = defaultSettings();
-  return cleanOcrText(await readPageImage(pdf, pageNumber, settings, signal), pageNumber, settings.repair);
+  const { text } = await readPageImage(pdf, pageNumber, settings, signal);
+  return cleanOcrText(text, pageNumber, settings.repair);
 }
 
 /**
