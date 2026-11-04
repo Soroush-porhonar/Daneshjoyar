@@ -7,9 +7,11 @@ import {
   NO_DOCUMENT_CONTENT_TEXT,
   NO_RELEVANT_CONTENT_TEXT,
   SOURCES_HEADING,
+  documentDisplayName,
   summaryHeaderText,
   sourceLineText,
 } from "../messages.js";
+import { isPhotoFilename } from "./documentKind.js";
 import { chat } from "../llm/ollamaClient.js";
 import {
   BROAD_EXTRACTION_SYSTEM_PROMPT,
@@ -26,6 +28,7 @@ import { normalizeText } from "./textQuality.js";
 
 interface SourceChunk {
   filename: string;
+  documentTitle?: string | null;
   pageNumber: number | null;
   pageEnd?: number | null;
   content: string;
@@ -54,9 +57,14 @@ function generate(
   });
 }
 
-/** The source line a chunk is cited as; chunks on the same page share it. */
-const sourceLine = (chunk: SourceChunk): string | null =>
-  chunk.pageNumber == null ? null : sourceLineText(chunk.filename, chunk.pageNumber, chunk.pageEnd);
+/**
+ * The source line a chunk is cited as; chunks on the same page share it. A
+ * photo is one page, cited by its name alone.
+ */
+const sourceLine = (chunk: SourceChunk): string | null => {
+  if (isPhotoFilename(chunk.filename)) return documentDisplayName(chunk.filename, chunk.documentTitle);
+  return chunk.pageNumber == null ? null : sourceLineText(chunk.filename, chunk.pageNumber, chunk.pageEnd);
+};
 
 /** Numbers the distinct sources (pages) in reading order: source line -> 1, 2, ... */
 export function numberSources(chunks: SourceChunk[]): Map<string, number> {
@@ -237,7 +245,7 @@ async function answerBroadQuestion(
   const cited = chunks.filter((chunk) => chunk.pageNumber != null && mentioned.has(chunk.pageNumber));
 
   // Say which document was summarised: it was picked, not chosen by the student.
-  return `${summaryHeaderText(document.filename)}\n\n${appendSources(answer, cited.length > 0 ? cited : chunks)}`;
+  return `${summaryHeaderText(documentDisplayName(document.filename, document.title))}\n\n${appendSources(answer, cited.length > 0 ? cited : chunks)}`;
 }
 
 async function answerFocusedQuestion(

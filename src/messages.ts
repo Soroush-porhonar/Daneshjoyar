@@ -9,6 +9,7 @@
  * - Buttons do the common actions; typed commands keep working.
  */
 import type { DocumentStatus } from "./db/documents.js";
+import { isPhotoFilename } from "./rag/documentKind.js";
 
 /** Left-to-right mark (invisible). */
 const LRM = "‎";
@@ -83,6 +84,14 @@ export const ABOUT_TEXT = `🎓 **دانشجویار** | دستیار هوشمن
 یادگیری بهتر، قدم‌به‌قدم! 🌱`;
 
 // --- Documents ---------------------------------------------------------------
+
+/**
+ * How a document is named to the student. A photo's file name says nothing
+ * ("capture_6791184992758507927.jpg"), so once enriched it is named by its
+ * generated title; a PDF keeps its file name, which the student chose.
+ */
+export const documentDisplayName = (filename: string, title?: string | null): string =>
+  isPhotoFilename(filename) && title ? `عکس «${title}»` : filename;
 
 export const DOCUMENT_STATUS_TEXT: Record<DocumentStatus, string> = {
   pending: "در انتظار پردازش",

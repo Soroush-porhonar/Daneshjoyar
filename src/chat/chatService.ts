@@ -1,4 +1,5 @@
 import { removeButtons, sendMessage } from "../bale.js";
+import { plainMath } from "../rag/plainMath.js";
 import type { Markup } from "../bale.js";
 import { cancelButton } from "../bot/buttons.js";
 import { parseCommand } from "../bot/commands/index.js";
@@ -73,7 +74,9 @@ async function answerQuestion(
   const finished = startForegroundWork();
 
   try {
-    return await composeAnswer(session, text, signal);
+    const reply = await composeAnswer(session, text, signal);
+    // Bale shows LaTeX as raw text; formulas go out as Unicode.
+    return { ...reply, answer: plainMath(reply.answer) };
   } finally {
     finished();
     if (noticeId !== undefined) {

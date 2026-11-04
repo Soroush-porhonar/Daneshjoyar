@@ -14,6 +14,10 @@ function allMessages(): [string, string][] {
       for (const status of ["pending", "processing", "completed", "failed"]) {
         samples.push([`${name}(${status})`, fn("جزوه.pdf", status)]);
       }
+    } else if (name === "documentDisplayName") {
+      // Takes a file name and an enrichment title.
+      samples.push([`${name}(photo)`, messages.documentDisplayName("photo-1.jpg", "معیارهای ارزیابی")]);
+      samples.push([`${name}(pdf)`, messages.documentDisplayName("جزوه.pdf", "عنوان")]);
     } else if (typeof value === "function") {
       const fn = value as (...args: unknown[]) => string;
       samples.push([name, fn("جزوه.pdf", 2, 3)]);
@@ -63,6 +67,16 @@ describe("user-facing messages", () => {
   it("the documents list explains the buttons; the buttons show the documents", () => {
     expect(messages.DOCUMENTS_LIST_TEXT).toContain(messages.DELETE_BUTTON);
     expect(messages.DOCUMENTS_LIST_TEXT).not.toContain("شناسه");
+  });
+});
+
+describe("document names", () => {
+  it("names an enriched photo by its title, and a PDF or a photo not yet enriched by its file", () => {
+    expect(messages.documentDisplayName("capture_679.jpg", "معیارهای ارزیابی رگرسیون")).toBe(
+      "عکس «معیارهای ارزیابی رگرسیون»",
+    );
+    expect(messages.documentDisplayName("capture_679.jpg", null)).toBe("capture_679.jpg");
+    expect(messages.documentDisplayName("جزوه.pdf", "عنوان")).toBe("جزوه.pdf");
   });
 });
 
