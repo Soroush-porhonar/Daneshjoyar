@@ -158,6 +158,8 @@ export const config = {
      * 1200 px 11.4% (44 s), 1400 px 4.0% (40 s, 2 strips), 1800 px 4.8%
      * (67 s, 2-3 strips). Below 1400 px the reads were also erratic (7-70%
      * per page, lines left out); from 1400 px every page was 1.4-10%.
+     * The handout re-read at 1400 px (39 s/page): its 7 eval questions all
+     * found the right page first (before 5), its answers passed 8/8 (before 4/8).
      */
     renderWidth: Number(process.env.OCR_RENDER_WIDTH ?? process.env.OCR_IMAGE_WIDTH ?? 1400),
     /**
