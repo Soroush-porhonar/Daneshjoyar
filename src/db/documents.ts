@@ -105,9 +105,18 @@ export async function listCompletedDocuments(userId: number): Promise<CompletedD
   return result.rows;
 }
 
+/**
+ * Names of the user's ready documents, for the router. A photo's name says
+ * nothing about it ("capture_6791184992758507927.jpg", measured: a question on
+ * one was routed to chat), so once enriched it comes with its generated title.
+ */
 export async function listCompletedFilenames(userId: number): Promise<string[]> {
   const result = await pool.query<{ filename: string }>(
-    `SELECT DISTINCT filename
+    `SELECT DISTINCT
+       CASE WHEN filename ~* '\\.(jpe?g|png|webp)$' AND title IS NOT NULL
+            THEN filename || ' (' || title || ')'
+            ELSE filename
+       END AS filename
      FROM documents
      WHERE user_id = $1
        AND status = 'completed'`,

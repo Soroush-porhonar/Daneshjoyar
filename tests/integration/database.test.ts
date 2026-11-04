@@ -141,6 +141,20 @@ describe("documents", () => {
     expect(await listCompletedFilenames(alice)).toEqual(["ready.pdf"]);
   });
 
+  it("names an enriched photo by its title too (its file name says nothing), a PDF by its name only", async () => {
+    const alice = await addUser("alice");
+    const photo = await addDocument(alice, "capture_123.jpg", [1]);
+    const pdf = await addDocument(alice, "notes.pdf", [2]);
+    await addDocument(alice, "photo-2026-11-04.png", [3]);
+    await pool.query(`UPDATE documents SET title = 'معیارهای ارزیابی رگرسیون' WHERE id = ANY($1)`, [[photo, pdf]]);
+
+    expect((await listCompletedFilenames(alice)).sort()).toEqual([
+      "capture_123.jpg (معیارهای ارزیابی رگرسیون)",
+      "notes.pdf",
+      "photo-2026-11-04.png",
+    ]);
+  });
+
   it("lists the user's ready documents newest first, for picking what to summarise", async () => {
     const alice = await addUser("alice");
     const bob = await addUser("bob");

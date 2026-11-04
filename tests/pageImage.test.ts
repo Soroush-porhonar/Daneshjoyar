@@ -1,6 +1,6 @@
 import { createCanvas, loadImage } from "@napi-rs/canvas";
 import { describe, expect, it } from "vitest";
-import { inkBounds, preparePageImages, rowInk, stripCuts, textSpan } from "../src/rag/pageImage.js";
+import { flattenLighting, inkBounds, preparePageImages, rowInk, stripCuts, textSpan } from "../src/rag/pageImage.js";
 
 /** A white grayscale image with black rectangles (left, top, width, height). */
 function grayPage(width: number, height: number, inked: [number, number, number, number][]): Uint8Array {
@@ -34,6 +34,51 @@ const textBlock = (left: number, top: number, right: number, lines: number): [nu
       12,
     ]),
   );
+
+describe("flattenLighting", () => {
+  /** Text on paper that darkens from 200 (left) to 90 (right), as in a phone photo lit from one side. */
+  function unevenPhoto(width: number, height: number, text: [number, number, number, number][]): Uint8Array {
+    const gray = new Uint8Array(width * height);
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) gray[y * width + x] = Math.round(200 - (110 * x) / width);
+    }
+    for (const [left, top, w, h] of text) {
+      for (let y = top; y < top + h; y++) {
+        for (let x = left; x < left + w; x++) gray[y * width + x] = Math.round(gray[y * width + x]! * 0.4);
+      }
+    }
+    return gray;
+  }
+
+  it("makes paper white and keeps ink dark, however the page is lit", () => {
+    const flat = flattenLighting(unevenPhoto(400, 600, textBlock(40, 100, 380, 5)), 400, 600);
+
+    // Well above the ink level (160); a block takes its paper from its brightest neighbour.
+    expect(flat[50 * 400 + 30]).toBeGreaterThan(210); // paper, bright side
+    expect(flat[50 * 400 + 370]).toBeGreaterThan(210); // paper, dark side
+    expect(flat[105 * 400 + 45]).toBeLessThan(110); // ink, bright side
+    expect(flat[105 * 400 + 353]).toBeLessThan(110); // ink, dark side
+  });
+
+  it("changes nothing on white paper", () => {
+    const gray = grayPage(400, 600, textBlock(60, 100, 350, 5));
+
+    expect(flattenLighting(gray, 400, 600)).toEqual(gray);
+  });
+
+  it("a dim photo is cropped to all of its text, not to the brightest part", async () => {
+    // Without flattening, most of this paper is darker than the ink level.
+    const text = textBlock(40, 100, 380, 5);
+    const gray = flattenLighting(unevenPhoto(400, 600, text), 400, 600);
+
+    const box = inkBounds(gray, 400, 600);
+
+    expect(box.left).toBeLessThanOrEqual(40);
+    expect(box.left + box.width).toBeGreaterThanOrEqual(40 + 13 * 24 + 16);
+    // Unflattened, the darker right half is all "ink": no text-like lines, so the box is wrong.
+    expect(inkBounds(unevenPhoto(400, 600, text), 400, 600)).not.toEqual(box);
+  });
+});
 
 describe("inkBounds", () => {
   // Five lines of text from (60, 100) to about (340, 272) on a 400 x 600 page.
