@@ -1,4 +1,5 @@
 import { pool } from "./pool.js";
+import { PHOTO_FILENAME_PATTERN } from "../rag/documentKind.js";
 
 export type DocumentStatus = "pending" | "processing" | "completed" | "failed";
 
@@ -113,14 +114,14 @@ export async function listCompletedDocuments(userId: number): Promise<CompletedD
 export async function listCompletedFilenames(userId: number): Promise<string[]> {
   const result = await pool.query<{ filename: string }>(
     `SELECT DISTINCT
-       CASE WHEN filename ~* '\\.(jpe?g|png|webp)$' AND title IS NOT NULL
+       CASE WHEN filename ~* $2 AND title IS NOT NULL
             THEN filename || ' (' || title || ')'
             ELSE filename
        END AS filename
      FROM documents
      WHERE user_id = $1
        AND status = 'completed'`,
-    [userId],
+    [userId, PHOTO_FILENAME_PATTERN],
   );
 
   return result.rows.map((row) => row.filename);

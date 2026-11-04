@@ -1,5 +1,5 @@
-import path from "node:path";
 import { config } from "../config.js";
+import type { DocumentKind } from "./documentKind.js";
 import { pool } from "../db/pool.js";
 import { openPdf } from "./pdf.js";
 import { openImage } from "./image.js";
@@ -23,21 +23,6 @@ export interface IngestResult {
 /** PostgreSQL error code for a unique-index violation. */
 const UNIQUE_VIOLATION = "23505";
 
-/** What an uploaded file is: a PDF, or a photo of a page (JPEG, PNG, WebP). */
-export type DocumentKind = "pdf" | "image";
-
-/** Image formats the decoder reads (src/rag/image.ts); HEIC, for one, it does not. */
-const IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"];
-const IMAGE_EXTENSIONS = [".jpg", ".jpeg", ".png", ".webp"];
-
-/** A PDF, a photo, or (null) a file that can't be read, judged by its name or MIME type. */
-export function documentKind(filename = "", mimeType = ""): DocumentKind | null {
-  const extension = path.extname(filename).toLowerCase();
-
-  if (extension === ".pdf" || mimeType === "application/pdf") return "pdf";
-  if (IMAGE_EXTENSIONS.includes(extension) || IMAGE_TYPES.includes(mimeType)) return "image";
-  return null;
-}
 
 /** Reads, chunks and embeds a PDF or a photo, and stores it as one of the user's documents. */
 export async function ingestDocument(

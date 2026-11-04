@@ -6,7 +6,8 @@
 import { basename } from "node:path";
 import { findOrCreateUser } from "../src/db/users.js";
 import { pool } from "../src/db/pool.js";
-import { documentKind, ingestDocument } from "../src/rag/ingest.js";
+import { documentKind } from "../src/rag/documentKind.js";
+import { ingestDocument } from "../src/rag/ingest.js";
 
 const [chatId, ...files] = process.argv.slice(2);
 

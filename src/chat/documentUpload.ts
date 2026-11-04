@@ -17,7 +17,8 @@ import { findDuplicateDocument } from "../db/documents.js";
 import { findOrCreateUser } from "../db/users.js";
 import { DuplicateDocumentError, getDocumentErrorText, getErrorMessage } from "../errors.js";
 import { logger } from "../logger.js";
-import { documentKind, ingestDocument } from "../rag/ingest.js";
+import { documentKind } from "../rag/documentKind.js";
+import { ingestDocument } from "../rag/ingest.js";
 import { documentsButton } from "../bot/buttons.js";
 import { wakeEnrichment } from "../bot/enrichmentWorker.js";
 

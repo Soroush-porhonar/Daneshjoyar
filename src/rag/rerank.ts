@@ -6,6 +6,7 @@
 import { config } from "../config.js";
 import { logger } from "../logger.js";
 import { contextualText, withTitle } from "./chunk.js";
+import { isPhotoFilename } from "./documentKind.js";
 
 interface RerankResponse {
   results?: { index: number; relevance_score: number }[];
@@ -16,11 +17,15 @@ interface RerankableChunk {
   sectionTitle?: string | null;
   context?: string | null;
   documentTitle?: string | null;
+  filename?: string;
 }
 
-/** What the reranker reads: the same text the chunk was searched by (slide title, and context when enriched). */
+/**
+ * What the reranker reads: the same text the chunk was searched by (slide
+ * title, and context when enriched; photos always with it, see retrieve.ts).
+ */
 function rerankText(chunk: RerankableChunk): string {
-  if (config.rag.chunkContext && chunk.context) {
+  if ((config.rag.chunkContext || isPhotoFilename(chunk.filename)) && chunk.context) {
     return contextualText(chunk.documentTitle, chunk.sectionTitle, chunk.context, chunk.content);
   }
   return config.rag.chunking.titleInEmbedding ? withTitle(chunk.sectionTitle, chunk.content) : chunk.content;

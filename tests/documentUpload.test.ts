@@ -3,11 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("../src/bale.js", () => ({ sendMessage: vi.fn(), downloadBaleDocument: vi.fn() }));
 vi.mock("../src/db/users.js", () => ({ findOrCreateUser: vi.fn() }));
 vi.mock("../src/db/documents.js", () => ({ findDuplicateDocument: vi.fn() }));
-// The real file-kind check, a fake ingestion.
-vi.mock("../src/rag/ingest.js", async (importOriginal) => ({
-  documentKind: (await importOriginal<typeof import("../src/rag/ingest.js")>()).documentKind,
-  ingestDocument: vi.fn(),
-}));
+vi.mock("../src/rag/ingest.js", () => ({ ingestDocument: vi.fn() }));
 vi.mock("node:fs/promises", async (importOriginal) => ({
   ...(await importOriginal<typeof import("node:fs/promises")>()),
   stat: vi.fn(async () => ({ size: 4321 })),
@@ -18,7 +14,8 @@ const { handleDocument, handlePhoto, photoFilename } = await import("../src/chat
 const { sendMessage, downloadBaleDocument } = await import("../src/bale.js");
 const { findOrCreateUser } = await import("../src/db/users.js");
 const { findDuplicateDocument } = await import("../src/db/documents.js");
-const { documentKind, ingestDocument } = await import("../src/rag/ingest.js");
+const { ingestDocument } = await import("../src/rag/ingest.js");
+const { documentKind } = await import("../src/rag/documentKind.js");
 const { unlink } = await import("node:fs/promises");
 const { DuplicateDocumentError } = await import("../src/errors.js");
 const messages = await import("../src/messages.js");

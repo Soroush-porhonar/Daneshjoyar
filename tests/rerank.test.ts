@@ -13,6 +13,8 @@ vi.mock("../src/config.js", async (importOriginal) => {
 });
 
 const { rerankChunks } = await import("../src/rag/rerank.js");
+const { config } = await import("../src/config.js");
+const ragSettings = config.rag as { chunkContext: boolean };
 const { logger } = await import("../src/logger.js");
 
 const fetchMock = vi.fn();
@@ -79,6 +81,26 @@ describe("rerankChunks", () => {
 
     const body = JSON.parse(fetchMock.mock.calls[0]![1].body as string);
     expect(body.documents).toEqual(["شی‌گرایی\nدرباره انواع تجرید\nسه نوع دارد", "متن ساده"]);
+  });
+
+  it("with context search off, still reads a photo with its context (a PDF without)", async () => {
+    ragSettings.chunkContext = false;
+    reply({ results: [0, 1].map((index) => ({ index, relevance_score: 0 })) });
+
+    try {
+      await rerankChunks("سؤال", [
+        { content: "supervised / unsupervised", context: "انواع یادگیری ماشین", documentTitle: "یادگیری ماشین", filename: "capture_1.jpg" },
+        { content: "سه نوع دارد", context: "درباره انواع تجرید", documentTitle: "شی‌گرایی", filename: "notes.pdf" },
+      ]);
+    } finally {
+      ragSettings.chunkContext = true;
+    }
+
+    const body = JSON.parse(fetchMock.mock.calls[0]![1].body as string);
+    expect(body.documents).toEqual([
+      "یادگیری ماشین\nانواع یادگیری ماشین\nsupervised / unsupervised",
+      "سه نوع دارد",
+    ]);
   });
 
   it("keeps the search order when the service is down", async () => {
