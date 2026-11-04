@@ -145,11 +145,35 @@ export const config = {
     /** Measured on the GPU (RX 6800S): ~44 s per page; used for the time estimate. */
     secondsPerPage: 45,
     /**
-     * Page image width sent to the vision model (OCR_IMAGE_WIDTH). Measured on
-     * the AMD GPU: 1400 px took 1 min 50 s per page (1000 px: ~50 s), and the
-     * next 1400 px request crashed the GPU driver (Vulkan "device lost").
+     * Width a page is rendered at for OCR (OCR_RENDER_WIDTH; OCR_IMAGE_WIDTH
+     * is the old name). Phone scans hold more: the CamScanner handout embeds
+     * ~2,350 px per page. Sent as one image, 1400 px took 1 min 50 s per page
+     * (1000 px: ~50 s) and the next request crashed the GPU driver (Vulkan
+     * "device lost"): the vision encoder attends over all patches at once
+     * (cost grows with their square) and Ollama reserves its memory for
+     * 1472 x 1472 px. So bigger pages are read in strips (tilePixels).
+     * Measured on 5 scanned pages with hand-typed reference text (npm run
+     * eval:ocr -- --ref, English prompt, repair "both"): one 1000 px image
+     * 37.0% character errors at 49 s/page; cropped and read in strips,
+     * 1200 px 11.4% (44 s), 1400 px 4.0% (40 s, 2 strips), 1800 px 4.8%
+     * (67 s, 2-3 strips). Below 1400 px the reads were also erratic (7-70%
+     * per page, lines left out); from 1400 px every page was 1.4-10%.
+     * The handout re-read at 1400 px (39 s/page): its 7 eval questions all
+     * found the right page first (before 5), its answers passed 8/8 (before 4/8).
      */
-    imageWidth: Number(process.env.OCR_IMAGE_WIDTH ?? 1000),
+    renderWidth: Number(process.env.OCR_RENDER_WIDTH ?? process.env.OCR_IMAGE_WIDTH ?? 1400),
+    /**
+     * Most pixels in one image sent to the vision model (OCR_TILE_PIXELS);
+     * taller pages are cut into horizontal strips between text lines.
+     * Default: about a 1000 px A4 page, the size measured as safe.
+     */
+    tilePixels: Number(process.env.OCR_TILE_PIXELS ?? 1000 * 1414),
+    /**
+     * Crop a page's empty margins before reading it (OCR_CROP=false to switch
+     * off): the text gets more of each strip's pixels. Same pages at 1400 px:
+     * 4.0% errors at 40 s/page cropped, 3.5% at 72 s/page uncropped.
+     */
+    crop: process.env.OCR_CROP !== "false",
     /**
      * Prompt language (OCR_PROMPT=fa|en). Measured on 3 scanned pages against
      * hand-written reference text (npm run eval:ocr -- --ref): English 18.6%

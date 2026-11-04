@@ -19,7 +19,7 @@ Built with TypeScript, Node.js, PostgreSQL, pgvector, Ollama, and Qwen 3.5 9B.
 - **PDF Management:** Upload, process, list, and delete study documents; no document has to be selected.
 - **Document-Grounded Q&A:** Answer questions using passages retrieved from all of the student's PDFs at once, with inline numbered citations ([1], [2]) and a sources list of only the pages the answer cites; refusals list no sources.
 - **Scanned & Broken PDFs:** Pages with no text layer, junk text, or severely broken Persian letters are read by a local vision model (hybrid OCR, no page limit), with a time estimate and progress updates in the chat.
-- **Intelligent Query Routing:** Classify messages and choose between document-based answers and general chat; when the notes clearly match a message (reranker score), they win even if the router said chat. Summary requests pick the document by name, by where the best hits come from, or the newest upload, and name it in the answer.
+- **Intelligent Query Routing:** Classify messages and choose between document-based answers and general chat; when the notes clearly match a message (reranker score), they win even if the router said chat. Summary requests pick the document by name, by its generated title or topics, by where the best hits come from, or the newest upload, and name it in the answer.
 - **Adaptive Retrieval:** Focused, multi-part, or broad strategies; hits are expanded with neighbouring chunks for context.
 - **Follow-Up Understanding:** Short follow-ups ("explain more") are rewritten into standalone questions using the conversation, and the pages of the previous answer compete with the new search results.
 - **Long-Document Summarization:** Enriched documents are summarised in one model call from section summaries stored at upload (20–45 s, instead of 2–30 minutes); others are summarised batch by batch (batches sized to the context window), then combined.
@@ -38,20 +38,20 @@ Built with TypeScript, Node.js, PostgreSQL, pgvector, Ollama, and Qwen 3.5 9B.
 | Vector search      | pgvector (cosine distance, relevance threshold)                                  |
 | Embeddings         | BGE-M3 (1024-d, batched)                                                         |
 | LLM inference      | Ollama, Qwen 3.5 9B (text + vision), explicit context window and per-task sampling |
-| Document pipeline  | PDF text extraction, Persian text normalization, page-aware chunking, hybrid OCR |
-| Retrieval          | Vector search + cross-encoder reranking (bge-reranker-v2-m3 on llama.cpp, CPU), neighbour expansion, adaptive modes, LLM query rewriting |
+| Document pipeline  | PDF text extraction, Persian text normalization, page-aware chunking, hybrid OCR with reversed-word repair, background enrichment (titles, topics, section summaries, generated questions) |
+| Retrieval          | Vector search over chunks and their generated questions (fused with RRF) + cross-encoder reranking (bge-reranker-v2-m3 on llama.cpp, CPU), neighbour expansion, adaptive modes, LLM query rewriting |
 | Conversation state | Persistent message history; follow-ups re-rank the previous answer's chunks        |
 | Testing            | Vitest unit tests with mocks, DB integration tests, coverage, GitHub Actions CI  |
 | Evaluation         | Retrieval, router, end-to-end answer, OCR and latency harnesses                  |
-| Deployment         | Docker Compose (PostgreSQL + pgvector)                                           |
+| Deployment         | Docker Compose (bot, PostgreSQL + pgvector, reranker, nightly backup); Ollama on the host GPU |
 
 ## Architecture & Implementation
 
 1. **Document ingestion:** Receive PDFs through Bale, extract text per page, normalize Persian text (Unicode NFKC, tabs, Arabic/Persian letter variants), and detect unreadable pages.
-2. **Hybrid OCR:** Only empty, junk or severely broken pages are rendered to images and transcribed by the local vision model; its habit of writing Persian words with reversed letters is detected and repaired; every chunk records whether it came from the text layer or OCR.
+2. **Hybrid OCR:** Only empty, junk or severely broken pages are rendered to images and transcribed by the local vision model, at 1400 px, cropped to the text and cut into strips between text lines so each image stays small enough for the vision encoder; its habit of writing Persian words with reversed letters is detected and repaired; every chunk records whether it came from the text layer or OCR.
 3. **Structure-aware chunking:** Detects slide decks vs running text, strips repeated headers and printed page numbers, repairs PDFs that store words in reverse order, sends junk text layers to OCR, and stores slide titles and sections as chunk metadata. Cross-page, semantic (embedding-based topic boundaries) and section-expansion variants are implemented behind switches and were measured against per-page chunking.
 4. **Vector storage:** Page-tagged chunks and embeddings are stored in PostgreSQL with pgvector.
-5. **Enrichment (background):** Per section a stored summary, per document a title, summary and topics (JSON-schema output), per chunk a context sentence and 2–3 questions it answers, embedded into a question index. One document at a time, yielding the GPU to answers; about 10 s per chunk on the test machine.
+5. **Enrichment (background):** Per section a stored summary, per document a title, summary and topics (JSON-schema output), per chunk a context sentence (stored; searching by it is off, see below) and 2–3 questions it answers, embedded into a question index. One document at a time, yielding the GPU to answers; about 10 s per chunk on the test machine.
 6. **Message classification:** An LLM router with a JSON schema picks document retrieval or general conversation, plus the retrieval mode.
 7. **Retrieval:** Rewrite follow-ups, search every chunk of the student's documents by similarity (and the questions stored for enriched chunks), rerank, add neighbouring chunks from the same document, and cite only the pages the answer uses.
 8. **Answer generation:** Grounded prompts with low temperature and an explicit context window; summaries use the stored section summaries, or a map-reduce over the document before it is enriched.
@@ -66,13 +66,13 @@ Built with TypeScript, Node.js, PostgreSQL, pgvector, Ollama, and Qwen 3.5 9B.
 | `npm run eval`         | Retrieval on 100 questions over 8 documents (slides, long notes, a scanned handout), searching all of the student's documents, by type (exact term, paraphrase, multi-page, follow-up, unanswerable): hit@k, MRR, context coverage, share of top chunks from the wrong document, distance and reranker-score calibration, 95% bootstrap intervals, paired diff vs previous run | hit@1 68% → 86% with reranker (95% CI 78–92%), hit@3 96%, answer page in context 96% |
 | `npm run eval:router`  | Router accuracy on 33 labelled messages, with a confusion matrix; `--with-search` adds the early search that can overrule "chat" | route 100%, route + mode 97%                   |
 | `npm run eval:answers` | Full pipeline: cites the right page, cites inline [n], contains key facts, answers in Persian, refuses unanswerable questions; LLM-as-judge faithfulness | 44/54 pass, inline citations 46/46, 7/7 unanswerable refused (no sources listed), judge faithful 53/54 |
-| `npm run eval:ocr`     | OCR character error rate against an automatic answer key (pages with a good text layer) or hand-typed reference pages (`--ref`), per image width, prompt and reversed-word repair | prose 5–7% CER; scanned handout 41.5% → 15.5% with repair |
+| `npm run eval:ocr`     | OCR character error rate against an automatic answer key (pages with a good text layer) or hand-typed reference pages (`--ref`), per render width, strip size, crop, prompt and reversed-word repair | prose 5–7% CER; scanned handout (5 pages) 37.0% → 4.0% with cropped 1400 px strips |
 | `npm run benchmark`    | Time per stage (router, rewrite, retrieval, generation), p50/p95                                     | 10.5 s median, 19.7 s p95; generation 57%, retrieval + rerank 26%, router 16% |
 | `npm run feedback`     | Real usage: every answer is logged (question, rewrite, route, pages used, time) with 👍/👎 buttons in Bale; the report shows satisfaction and speed and turns 👎 answers into draft eval questions | — (collects from real use) |
 
 **Found by measuring:** Ollama's default 4096-token context silently truncated long prompts; default sampling (temperature 1.0) was too random for factual answers; every citation was one page off and page 1 was never indexed; the follow-up rewriter sometimes answered instead of rewriting and once replaced a name ("روسو") with a hallucinated one — fixed with a few-shot prompt (follow-ups reaching the right context: 25% → 75%); unanswerable questions have the same vector distances as answerable ones, so the similarity threshold cannot filter them — grounding in the prompt has to (and does); the vision model writes Persian words with reversed letters (~60% CER on slides) — detected and repaired, now 4–14%. OCR on text layers with split letters (12–43% of words, incl. the COVID PDF) gave no gain on 21 questions while costing ~45 s/page, so only worse pages are OCR'd (a 203-page upload: 63 min → 20 s). Hybrid search (PostgreSQL full-text + vectors, Reciprocal Rank Fusion) added no page that vector search had missed on 86 questions — BGE-M3 already handles exact terms and the cross-encoder reranker fixes the order — so it is built but off by default. Speed: Ollama unloaded the model after 5 idle minutes, costing ~10 s on the next question (now kept loaded); general chat was thinking before answering (49 s → 22 s with thinking off); search now runs while the router decides (context ready 7.7 s → 6.0 s). KV-cache quantization was skipped: Qwen 3.5 is a hybrid model whose KV cache is only 256 MB. A chunking ablation on 65 questions over 6 documents (slides and 200-page notes) showed per-page chunks beat cross-page and semantic chunking on long notes (hit@1 50% vs 21% / 36%), because their pages already hold one subtopic each — so those variants stay off by default. Citations: asked to cite numbered sources inline, Qwen did so in 39/39 answers, so the sources list now shows only cited pages; the eval caught a parser bug ("[1][3]" read as [1]) and refusals that still listed sources. A reranker-score cut-off for unanswerable questions was rejected: their scores overlap with correct chunks (the best cut-off kept 84/85 correct chunks but rejected only 2/6 negatives, which the model refuses anyway). Re-ranking the previous answer's pages for follow-ups gave no measurable gain (5/6 in the top 3 either way). Bootstrap intervals showed that an apparent reranker regression on one document (2 of 11 questions) was noise, and that most changes on a 90-question set are within ±5 points. The 203-page notes restate the course in a summary half, so several eval questions needed a second correct page (checked against the PDF text).
 
-**Enrichment and scanned pages, measured:** On a scanned handout with hand-typed reference text (3 pages), OCR at 1000 px with an English prompt had 41.5% character errors before repair; flipping reversed words page by page gave 18.6%, word by word against a word list from good text layers 20.4%, both together 15.5% (what remains is misread letters). 1400 px was twice as slow and crashed the GPU driver. Upload-time enrichment, each part measured on 100 questions over 8 documents with paired bootstrap intervals: searching the questions each chunk answers made no question worse and fixed 4 (3 on the scanned handout, whose OCR text is noisy but whose generated questions are clean), so it is on; embedding chunks with their document title and a context sentence lowered reranked hit@1 (85% → 82%), so it is off; listing document titles and topics for the router changed no route but cost two retrieval-mode decisions (97% → 91%), so the router still sees file names. Summary requests from stored section summaries: 21–44 s on four documents, against 129 s, 380 s, 31 minutes and one timeout for the map-reduce over the same files. A first version asked for a "comprehensive" summary and got the section summaries restated (11k characters, up to the 120 s timeout); asking for about 600 words fixed it.
+**Enrichment and scanned pages, measured:** On a scanned handout with hand-typed reference text (3 pages), OCR at 1000 px with an English prompt had 41.5% character errors before repair; flipping reversed words page by page gave 18.6%, word by word against a word list from good text layers 20.4%, both together 15.5%. What remained was misread letters: the scan holds ~2,350 px per page, but one 1400 px image was twice as slow and crashed the GPU driver — not for lack of context (a 1400 px page is ~2,700 of 8,192 tokens) but because the vision encoder attends over all of an image's patches at once. So pages are now cropped to their text and read in horizontal strips no bigger than the 1000 px page, cut in the gaps between lines. On 5 pages: one 1000 px image 37.0% character errors at 49 s/page; cropped strips at 1200 px 11.4%, at 1400 px 4.0% (40 s/page, 2 strips), at 1800 px 4.8% (67 s/page) — so 1400 px is the default. With the handout re-read this way (39 s/page), its eval questions found the right page first 7/7 (before 5/7, two at ranks 5–6 and missing from the context) and passed the answer eval 8/8 (before 4/8). Upload-time enrichment, each part measured on 100 questions over 8 documents with paired bootstrap intervals: searching the questions each chunk answers made no question worse and fixed 4 (3 on the scanned handout, whose OCR text is noisy but whose generated questions are clean), so it is on; embedding chunks with their document title and a context sentence lowered reranked hit@1 (85% → 82%), so it is off; listing document titles and topics for the router changed no route but cost two retrieval-mode decisions (97% → 91%), so the router still sees file names. Summary requests from stored section summaries: 21–44 s on four documents, against 129 s, 380 s, 31 minutes and one timeout for the map-reduce over the same files. A first version asked for a "comprehensive" summary and got the section summaries restated (11k characters, up to the 120 s timeout); asking for about 600 words fixed it.
 
 ### Tests (does the code stay correct?)
 
@@ -94,19 +94,19 @@ An actively developed personal project exploring retrieval-augmented generation 
 ```
 src/
   main.ts            entry point: health endpoint + Bale polling
-  config.ts          all env vars and tunables (models, context size, timeouts, chunking, OCR)
+  config.ts          all env vars and tunables (models, context size, timeouts, chunking, OCR, enrichment)
   messages.ts        every user-facing text (Persian)
   logger.ts          leveled logger (LOG_LEVEL=debug|info|warn|error)
   errors.ts          typed errors mapped to user-facing text
   bale.ts            Bale API client (messages, updates, file download)
-  bot/               polling loop, update dispatcher, commands
+  bot/               polling loop, update dispatcher, commands, buttons, enrichment worker, startup recovery
   chat/              message pipeline and PDF upload flow
-  llm/               Ollama client (chat, vision, embeddings) and prompts
-  rag/               router, ingest, OCR, chunking, retrieval, query rewriting, answers
+  llm/               Ollama client (chat, vision, embeddings), prompts, GPU priority for answers
+  rag/               router, ingest, OCR, chunking, enrichment, retrieval, reranking, query rewriting, answers
   db/                one module per table; all SQL lives here
 migrations/          node-pg-migrate schema migrations
-scripts/             evaluation harnesses, benchmark, data reset, local PDF ingestion
-eval/                labelled question sets (results go to eval/results/, not committed)
+scripts/             evaluation harnesses, benchmark, enrichment backfill, OCR word list, data reset, local PDF ingestion
+eval/                labelled question sets and OCR reference pages (results go to eval/results/, not committed)
 tests/               unit tests; tests/integration/ runs against a real database
 ```
 
@@ -114,7 +114,7 @@ tests/               unit tests; tests/integration/ runs against a real database
 
 ```bash
 mkdir -p models && curl -L -o models/bge-reranker-v2-m3-Q8_0.gguf https://huggingface.co/gpustack/bge-reranker-v2-m3-GGUF/resolve/main/bge-reranker-v2-m3-Q8_0.gguf
-docker compose up -d          # PostgreSQL + pgvector, reranker (CPU)
+docker compose up -d          # PostgreSQL + pgvector, reranker (CPU), nightly backup
 npm install
 npm run migrate:up
 ollama pull qwen3.5:9b && ollama pull bge-m3
@@ -125,9 +125,10 @@ npm run feedback              # real-usage report: 👍/👎, answer times, 👎
 npm run eval                  # retrieval evaluation (also: eval:router, eval:answers, eval:ocr, benchmark)
 npm run enrich -- --all       # enrich documents uploaded before enrichment existed (--user <id>, --doc <id>, --force)
 npm run build:words           # rebuild the word list the OCR repair uses, from good text layers in the database
+npm run ingest -- <chatId> <absolute pdf paths>   # ingest PDFs without the bot (e.g. a separate eval user)
 ```
 
-Configure `.env` with `BALE_TOKEN`, `DATABASE_URL`, `LLM_URL`, `LLM_MODEL`, `EMBEDDING_MODEL`, `PORT`, and the Postgres credentials. Optional: `LLM_KEEP_ALIVE` (how long Ollama keeps models in GPU memory, default `30m`; `-1` = always), `ENRICHMENT=false` (don't queue new uploads for enrichment), `QUESTION_INDEX=false`, `CHUNK_CONTEXT=true`, and the OCR settings `OCR_IMAGE_WIDTH`, `OCR_PROMPT=en|fa`, `OCR_REPAIR=page|word|both` (defaults and the measurements behind them are in `src/config.ts`).
+Configure `.env` with `BALE_TOKEN`, `DATABASE_URL`, `LLM_URL`, `LLM_MODEL`, `EMBEDDING_MODEL`, `PORT`, and the Postgres credentials. Optional: `LLM_KEEP_ALIVE` (how long Ollama keeps models in GPU memory, default `30m`; `-1` = always), `ENRICHMENT=false` (don't queue new uploads for enrichment), `QUESTION_INDEX=false`, `CHUNK_CONTEXT=true`, and the OCR settings `OCR_RENDER_WIDTH` (default 1400), `OCR_TILE_PIXELS`, `OCR_CROP=false`, `OCR_PROMPT=en|fa`, `OCR_REPAIR=page|word|both` (defaults and the measurements behind them are in `src/config.ts`).
 
 ## Run with Docker
 

@@ -9,11 +9,12 @@
  *
  * Scanned PDFs have no text layer to compare with; give hand-written reference
  * text instead (<prefix>-p<page>.txt) and compare settings in one run. Each
- * page is read once per width and prompt; the repairs of reversed words
- * (none, page, word, both) are scored on the same output. Raw outputs are saved.
+ * page is read once per render width, strip size, crop and prompt; the repairs
+ * of reversed words (none, page, word, both) are scored on the same output.
+ * Raw outputs are saved.
  *
  *   npm run eval:ocr -- uploads/x.pdf --pages 1,2,5 --ref eval/ocr-reference/camscanner \
- *     --widths 1000,1400,1800 --prompts en,fa
+ *     --widths 1000,1800 --tile-pixels 1414000 --crop off,on --prompts en,fa
  *
  * Metrics (lower CER / higher recall is better):
  *   CER         - character error rate: edit distance / reference length
@@ -83,41 +84,59 @@ if (refIndex >= 0) {
     const index = args.indexOf(`--${name}`);
     return (index >= 0 ? args[index + 1]! : fallback).split(",");
   };
-  const widths = list("widths", String(config.ocr.imageWidth)).map(Number);
+  const widths = list("widths", String(config.ocr.renderWidth)).map(Number);
+  const tiles = list("tile-pixels", String(config.ocr.tilePixels)).map(Number);
+  const crops = list("crop", config.ocr.crop ? "on" : "off").map((value) => value === "on");
   const prompts = list("prompts", config.ocr.prompt) as ("en" | "fa")[];
+  const settings = widths.flatMap((renderWidth) =>
+    tiles.flatMap((tilePixels) =>
+      crops.flatMap((crop) => prompts.map((prompt) => ({ renderWidth, tilePixels, crop, prompt }))),
+    ),
+  );
+  const label = (s: (typeof settings)[number]) =>
+    `w${s.renderWidth} t${(s.tilePixels / 1e6).toFixed(2)}M ${s.crop ? "crop" : "full"} ${s.prompt}`;
   const repairs = {
     none: (text: string) => normalizeText(text),
     page: (text: string, page: number) => cleanOcrText(text, page, "page"),
     word: (text: string, page: number) => cleanOcrText(text, page, "word"),
     both: (text: string, page: number) => cleanOcrText(text, page, "both"),
   };
-  const raw: { page: number; width: number; prompt: string; seconds: number; text: string }[] = [];
-  const totals = new Map<string, { errors: number; chars: number; recall: number; seconds: number; n: number }>();
+  const raw: { page: number; variant: string; strips: number; seconds: number; text: string }[] = [];
+  const totals = new Map<
+    string,
+    { errors: number; chars: number; recall: number; seconds: number; strips: number; n: number }
+  >();
 
   try {
     for (const page of chosen ?? [1]) {
       const reference = await readFile(`${prefix}-p${page}.txt`, "utf-8");
 
-      for (const width of widths) {
-        for (const prompt of prompts) {
-          console.log(`... page ${page}, width ${width}, prompt ${prompt}`);
-          const start = performance.now();
-          const text = await readPageImage(pdf, page, { imageWidth: width, prompt });
-          const seconds = (performance.now() - start) / 1000;
-          raw.push({ page, width, prompt, seconds, text });
+      for (const setting of settings) {
+        console.log(`... page ${page}, ${label(setting)}`);
+        const start = performance.now();
+        const { text, strips } = await readPageImage(pdf, page, setting);
+        const seconds = (performance.now() - start) / 1000;
+        raw.push({ page, variant: label(setting), strips, seconds, text });
 
-          for (const [repair, apply] of Object.entries(repairs)) {
-            const read = apply(text, page);
-            const variant = `w${width} ${prompt} ${repair}`;
-            const total = totals.get(variant) ?? { errors: 0, chars: 0, recall: 0, seconds: 0, n: 0 };
-            total.errors += editDistance(clean(read), clean(reference));
-            total.chars += clean(reference).length;
-            total.recall += recall(read, reference);
-            total.seconds += seconds;
-            total.n++;
-            totals.set(variant, total);
-            rows.push({ page, variant, CER: pct(cer(read, reference)), "word recall": pct(recall(read, reference)), s: Math.round(seconds) });
-          }
+        for (const [repair, apply] of Object.entries(repairs)) {
+          const read = apply(text, page);
+          const variant = `${label(setting)} ${repair}`;
+          const total = totals.get(variant) ?? { errors: 0, chars: 0, recall: 0, seconds: 0, strips: 0, n: 0 };
+          total.errors += editDistance(clean(read), clean(reference));
+          total.chars += clean(reference).length;
+          total.recall += recall(read, reference);
+          total.seconds += seconds;
+          total.strips += strips;
+          total.n++;
+          totals.set(variant, total);
+          rows.push({
+            page,
+            variant,
+            strips,
+            CER: pct(cer(read, reference)),
+            "word recall": pct(recall(read, reference)),
+            s: Math.round(seconds),
+          });
         }
       }
     }
@@ -134,6 +153,7 @@ if (refIndex >= 0) {
         variant,
         CER: pct(t.errors / t.chars),
         "word recall": pct(t.recall / t.n),
+        "strips/page": (t.strips / t.n).toFixed(1),
         "s/page": Math.round(t.seconds / t.n),
       })),
   );
@@ -182,4 +202,6 @@ try {
 }
 
 console.table(rows);
-console.log(`model=${config.llm.model} imageWidth=${config.ocr.imageWidth}`);
+console.log(
+  `model=${config.llm.model} renderWidth=${config.ocr.renderWidth} tilePixels=${config.ocr.tilePixels} crop=${config.ocr.crop}`,
+);
