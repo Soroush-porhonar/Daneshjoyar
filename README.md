@@ -19,7 +19,7 @@ Built with TypeScript, Node.js, PostgreSQL, pgvector, Ollama, and Qwen 3.5 9B.
 - **PDF Management:** Upload, process, list, and delete study documents; no document has to be selected.
 - **Document-Grounded Q&A:** Answer questions using passages retrieved from all of the student's PDFs at once, with inline numbered citations ([1], [2]) and a sources list of only the pages the answer cites; refusals list no sources.
 - **Scanned & Broken PDFs:** Pages with no text layer, junk text, or severely broken Persian letters are read by a local vision model (hybrid OCR, no page limit), with a time estimate and progress updates in the chat.
-- **Intelligent Query Routing:** Classify messages and choose between document-based answers and general chat; when the notes clearly match a message (reranker score), they win even if the router said chat. Summary requests pick the document by name, by where the best hits come from, or the newest upload, and name it in the answer.
+- **Intelligent Query Routing:** Classify messages and choose between document-based answers and general chat; when the notes clearly match a message (reranker score), they win even if the router said chat. Summary requests pick the document by name, by its generated title or topics, by where the best hits come from, or the newest upload, and name it in the answer.
 - **Adaptive Retrieval:** Focused, multi-part, or broad strategies; hits are expanded with neighbouring chunks for context.
 - **Follow-Up Understanding:** Short follow-ups ("explain more") are rewritten into standalone questions using the conversation, and the pages of the previous answer compete with the new search results.
 - **Long-Document Summarization:** Enriched documents are summarised in one model call from section summaries stored at upload (20–45 s, instead of 2–30 minutes); others are summarised batch by batch (batches sized to the context window), then combined.
@@ -38,12 +38,12 @@ Built with TypeScript, Node.js, PostgreSQL, pgvector, Ollama, and Qwen 3.5 9B.
 | Vector search      | pgvector (cosine distance, relevance threshold)                                  |
 | Embeddings         | BGE-M3 (1024-d, batched)                                                         |
 | LLM inference      | Ollama, Qwen 3.5 9B (text + vision), explicit context window and per-task sampling |
-| Document pipeline  | PDF text extraction, Persian text normalization, page-aware chunking, hybrid OCR |
-| Retrieval          | Vector search + cross-encoder reranking (bge-reranker-v2-m3 on llama.cpp, CPU), neighbour expansion, adaptive modes, LLM query rewriting |
+| Document pipeline  | PDF text extraction, Persian text normalization, page-aware chunking, hybrid OCR with reversed-word repair, background enrichment (titles, topics, section summaries, generated questions) |
+| Retrieval          | Vector search over chunks and their generated questions (fused with RRF) + cross-encoder reranking (bge-reranker-v2-m3 on llama.cpp, CPU), neighbour expansion, adaptive modes, LLM query rewriting |
 | Conversation state | Persistent message history; follow-ups re-rank the previous answer's chunks        |
 | Testing            | Vitest unit tests with mocks, DB integration tests, coverage, GitHub Actions CI  |
 | Evaluation         | Retrieval, router, end-to-end answer, OCR and latency harnesses                  |
-| Deployment         | Docker Compose (PostgreSQL + pgvector)                                           |
+| Deployment         | Docker Compose (bot, PostgreSQL + pgvector, reranker, nightly backup); Ollama on the host GPU |
 
 ## Architecture & Implementation
 
@@ -51,7 +51,7 @@ Built with TypeScript, Node.js, PostgreSQL, pgvector, Ollama, and Qwen 3.5 9B.
 2. **Hybrid OCR:** Only empty, junk or severely broken pages are rendered to images and transcribed by the local vision model; its habit of writing Persian words with reversed letters is detected and repaired; every chunk records whether it came from the text layer or OCR.
 3. **Structure-aware chunking:** Detects slide decks vs running text, strips repeated headers and printed page numbers, repairs PDFs that store words in reverse order, sends junk text layers to OCR, and stores slide titles and sections as chunk metadata. Cross-page, semantic (embedding-based topic boundaries) and section-expansion variants are implemented behind switches and were measured against per-page chunking.
 4. **Vector storage:** Page-tagged chunks and embeddings are stored in PostgreSQL with pgvector.
-5. **Enrichment (background):** Per section a stored summary, per document a title, summary and topics (JSON-schema output), per chunk a context sentence and 2–3 questions it answers, embedded into a question index. One document at a time, yielding the GPU to answers; about 10 s per chunk on the test machine.
+5. **Enrichment (background):** Per section a stored summary, per document a title, summary and topics (JSON-schema output), per chunk a context sentence (stored; searching by it is off, see below) and 2–3 questions it answers, embedded into a question index. One document at a time, yielding the GPU to answers; about 10 s per chunk on the test machine.
 6. **Message classification:** An LLM router with a JSON schema picks document retrieval or general conversation, plus the retrieval mode.
 7. **Retrieval:** Rewrite follow-ups, search every chunk of the student's documents by similarity (and the questions stored for enriched chunks), rerank, add neighbouring chunks from the same document, and cite only the pages the answer uses.
 8. **Answer generation:** Grounded prompts with low temperature and an explicit context window; summaries use the stored section summaries, or a map-reduce over the document before it is enriched.
@@ -94,19 +94,19 @@ An actively developed personal project exploring retrieval-augmented generation 
 ```
 src/
   main.ts            entry point: health endpoint + Bale polling
-  config.ts          all env vars and tunables (models, context size, timeouts, chunking, OCR)
+  config.ts          all env vars and tunables (models, context size, timeouts, chunking, OCR, enrichment)
   messages.ts        every user-facing text (Persian)
   logger.ts          leveled logger (LOG_LEVEL=debug|info|warn|error)
   errors.ts          typed errors mapped to user-facing text
   bale.ts            Bale API client (messages, updates, file download)
-  bot/               polling loop, update dispatcher, commands
+  bot/               polling loop, update dispatcher, commands, buttons, enrichment worker, startup recovery
   chat/              message pipeline and PDF upload flow
-  llm/               Ollama client (chat, vision, embeddings) and prompts
-  rag/               router, ingest, OCR, chunking, retrieval, query rewriting, answers
+  llm/               Ollama client (chat, vision, embeddings), prompts, GPU priority for answers
+  rag/               router, ingest, OCR, chunking, enrichment, retrieval, reranking, query rewriting, answers
   db/                one module per table; all SQL lives here
 migrations/          node-pg-migrate schema migrations
-scripts/             evaluation harnesses, benchmark, data reset, local PDF ingestion
-eval/                labelled question sets (results go to eval/results/, not committed)
+scripts/             evaluation harnesses, benchmark, enrichment backfill, OCR word list, data reset, local PDF ingestion
+eval/                labelled question sets and OCR reference pages (results go to eval/results/, not committed)
 tests/               unit tests; tests/integration/ runs against a real database
 ```
 
@@ -114,7 +114,7 @@ tests/               unit tests; tests/integration/ runs against a real database
 
 ```bash
 mkdir -p models && curl -L -o models/bge-reranker-v2-m3-Q8_0.gguf https://huggingface.co/gpustack/bge-reranker-v2-m3-GGUF/resolve/main/bge-reranker-v2-m3-Q8_0.gguf
-docker compose up -d          # PostgreSQL + pgvector, reranker (CPU)
+docker compose up -d          # PostgreSQL + pgvector, reranker (CPU), nightly backup
 npm install
 npm run migrate:up
 ollama pull qwen3.5:9b && ollama pull bge-m3
@@ -125,6 +125,7 @@ npm run feedback              # real-usage report: 👍/👎, answer times, 👎
 npm run eval                  # retrieval evaluation (also: eval:router, eval:answers, eval:ocr, benchmark)
 npm run enrich -- --all       # enrich documents uploaded before enrichment existed (--user <id>, --doc <id>, --force)
 npm run build:words           # rebuild the word list the OCR repair uses, from good text layers in the database
+npm run ingest -- <chatId> <absolute pdf paths>   # ingest PDFs without the bot (e.g. a separate eval user)
 ```
 
 Configure `.env` with `BALE_TOKEN`, `DATABASE_URL`, `LLM_URL`, `LLM_MODEL`, `EMBEDDING_MODEL`, `PORT`, and the Postgres credentials. Optional: `LLM_KEEP_ALIVE` (how long Ollama keeps models in GPU memory, default `30m`; `-1` = always), `ENRICHMENT=false` (don't queue new uploads for enrichment), `QUESTION_INDEX=false`, `CHUNK_CONTEXT=true`, and the OCR settings `OCR_IMAGE_WIDTH`, `OCR_PROMPT=en|fa`, `OCR_REPAIR=page|word|both` (defaults and the measurements behind them are in `src/config.ts`).
