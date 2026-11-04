@@ -1,6 +1,8 @@
+import path from "node:path";
 import { config } from "../config.js";
 import { pool } from "../db/pool.js";
 import { openPdf } from "./pdf.js";
+import { openImage } from "./image.js";
 import type { TextChunk } from "./chunk.js";
 import { chunkDocument } from "./semanticChunk.js";
 import { extractPages } from "./ocr.js";
@@ -21,7 +23,24 @@ export interface IngestResult {
 /** PostgreSQL error code for a unique-index violation. */
 const UNIQUE_VIOLATION = "23505";
 
-export async function ingestPdf(
+/** What an uploaded file is: a PDF, or a photo of a page (JPEG, PNG, WebP). */
+export type DocumentKind = "pdf" | "image";
+
+/** Image formats the decoder reads (src/rag/image.ts); HEIC, for one, it does not. */
+const IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"];
+const IMAGE_EXTENSIONS = [".jpg", ".jpeg", ".png", ".webp"];
+
+/** A PDF, a photo, or (null) a file that can't be read, judged by its name or MIME type. */
+export function documentKind(filename = "", mimeType = ""): DocumentKind | null {
+  const extension = path.extname(filename).toLowerCase();
+
+  if (extension === ".pdf" || mimeType === "application/pdf") return "pdf";
+  if (IMAGE_EXTENSIONS.includes(extension) || IMAGE_TYPES.includes(mimeType)) return "image";
+  return null;
+}
+
+/** Reads, chunks and embeds a PDF or a photo, and stores it as one of the user's documents. */
+export async function ingestDocument(
   userId: number,
   filename: string,
   filePath: string,
@@ -31,6 +50,7 @@ export async function ingestPdf(
    * file (name and size) twice. Null for scripts that re-ingest on purpose.
    */
   fileSize: number | null = null,
+  kind: DocumentKind = "pdf",
 ): Promise<IngestResult> {
   let documentResult;
 
@@ -60,7 +80,7 @@ export async function ingestPdf(
   const documentId = document.id;
 
   try {
-    const pdf = await openPdf(filePath);
+    const pdf = kind === "image" ? await openImage(filePath) : await openPdf(filePath);
     let extraction;
 
     try {
@@ -72,7 +92,7 @@ export async function ingestPdf(
     const chunks = await chunkDocument(extraction.pages);
 
     if (chunks.length === 0) {
-      throw new PdfExtractError("The PDF contains no usable text");
+      throw new PdfExtractError(`The ${kind} contains no usable text`);
     }
 
     // Generate embeddings before opening the transaction.

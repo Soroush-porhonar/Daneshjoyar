@@ -43,6 +43,14 @@ export interface BaleDocument {
   file_size?: number;
 }
 
+/** One size of a photo; Bale sends several, from a thumbnail up to the largest it keeps. */
+export interface BalePhotoSize {
+  file_id: string;
+  width: number;
+  height: number;
+  file_size?: number;
+}
+
 export interface BaleUpdate {
   update_id: number;
   message?: {
@@ -51,6 +59,16 @@ export interface BaleUpdate {
     };
     text?: string;
     document?: BaleDocument;
+    photo?: BalePhotoSize[];
+    /** Content the bot does not read; only checked for presence, to say so. */
+    sticker?: unknown;
+    voice?: unknown;
+    audio?: unknown;
+    video?: unknown;
+    video_note?: unknown;
+    animation?: unknown;
+    contact?: unknown;
+    location?: unknown;
   };
   /** A press on an inline keyboard button. */
   callback_query?: {

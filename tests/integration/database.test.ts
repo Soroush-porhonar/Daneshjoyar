@@ -47,7 +47,7 @@ const {
   saveEnrichment,
   setEnrichmentStatus,
 } = await import("../../src/db/enrichment.js");
-const { ingestPdf } = await import("../../src/rag/ingest.js");
+const { ingestDocument } = await import("../../src/rag/ingest.js");
 const { config } = await import("../../src/config.js");
 const { DuplicateDocumentError } = await import("../../src/errors.js");
 const { openPdf } = await import("../../src/rag/pdf.js");
@@ -254,7 +254,7 @@ describe("retrieval", () => {
   });
 });
 
-describe("ingestPdf", () => {
+describe("ingestDocument", () => {
   const page = (pageNumber: number, marker: string) => ({
     pageNumber,
     method: "text" as const,
@@ -269,7 +269,7 @@ describe("ingestPdf", () => {
       close: vi.fn(async () => {}),
     });
 
-    const result = await ingestPdf(alice, "notes.pdf", "ignored.pdf");
+    const result = await ingestDocument(alice, "notes.pdf", "ignored.pdf");
 
     expect(result).toMatchObject({ pageCount: 2, ocrPages: 0 });
     expect(await listCompletedFilenames(alice)).toEqual(["notes.pdf"]);
@@ -296,7 +296,7 @@ describe("ingestPdf", () => {
     });
     vi.mocked(generateEmbeddings).mockRejectedValueOnce(new Error("ollama down"));
 
-    await expect(ingestPdf(alice, "notes.pdf", "ignored.pdf")).rejects.toThrow("ollama down");
+    await expect(ingestDocument(alice, "notes.pdf", "ignored.pdf")).rejects.toThrow("ollama down");
 
     const documents = await pool.query<{ status: string }>("SELECT status FROM documents");
     expect(documents.rows).toEqual([{ status: "failed" }]);
@@ -321,7 +321,7 @@ describe("duplicate uploads (same user, same name and size)", () => {
   it("finds the user's existing copy, but not another user's or a different size", async () => {
     const alice = await addUser("alice");
     const bob = await addUser("bob");
-    const { documentId } = await ingestPdf(alice, "notes.pdf", "x.pdf", undefined, 1234);
+    const { documentId } = await ingestDocument(alice, "notes.pdf", "x.pdf", undefined, 1234);
 
     expect(await findDuplicateDocument(alice, "notes.pdf", 1234)).toEqual({ id: documentId, status: "completed" });
     expect(await findDuplicateDocument(bob, "notes.pdf", 1234)).toBeNull();
@@ -330,9 +330,9 @@ describe("duplicate uploads (same user, same name and size)", () => {
 
   it("the database refuses a second copy, even if the check was skipped", async () => {
     const alice = await addUser("alice");
-    await ingestPdf(alice, "notes.pdf", "x.pdf", undefined, 1234);
+    await ingestDocument(alice, "notes.pdf", "x.pdf", undefined, 1234);
 
-    await expect(ingestPdf(alice, "notes.pdf", "x.pdf", undefined, 1234)).rejects.toBeInstanceOf(
+    await expect(ingestDocument(alice, "notes.pdf", "x.pdf", undefined, 1234)).rejects.toBeInstanceOf(
       DuplicateDocumentError,
     );
   });
@@ -340,17 +340,17 @@ describe("duplicate uploads (same user, same name and size)", () => {
   it("a failed upload does not block sending the file again", async () => {
     const alice = await addUser("alice");
     vi.mocked(generateEmbeddings).mockRejectedValueOnce(new Error("ollama down"));
-    await expect(ingestPdf(alice, "notes.pdf", "x.pdf", undefined, 1234)).rejects.toThrow();
+    await expect(ingestDocument(alice, "notes.pdf", "x.pdf", undefined, 1234)).rejects.toThrow();
 
     expect(await findDuplicateDocument(alice, "notes.pdf", 1234)).toBeNull();
-    await expect(ingestPdf(alice, "notes.pdf", "x.pdf", undefined, 1234)).resolves.toBeTruthy();
+    await expect(ingestDocument(alice, "notes.pdf", "x.pdf", undefined, 1234)).resolves.toBeTruthy();
   });
 
   it("scripts that re-ingest on purpose (no size) are not blocked", async () => {
     const alice = await addUser("alice");
-    await ingestPdf(alice, "notes.pdf", "x.pdf");
+    await ingestDocument(alice, "notes.pdf", "x.pdf");
 
-    await expect(ingestPdf(alice, "notes.pdf", "x.pdf")).resolves.toBeTruthy();
+    await expect(ingestDocument(alice, "notes.pdf", "x.pdf")).resolves.toBeTruthy();
   });
 });
 
@@ -615,7 +615,7 @@ describe("enrichment (background, after upload)", () => {
       close: vi.fn(async () => {}),
     });
 
-    const { documentId } = await ingestPdf(alice, "notes.pdf", "x.pdf");
+    const { documentId } = await ingestDocument(alice, "notes.pdf", "x.pdf");
 
     const row = await pool.query("SELECT enrichment FROM documents WHERE id = $1", [documentId]);
     expect(row.rows[0].enrichment).toBe("pending");

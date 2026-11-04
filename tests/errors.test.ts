@@ -9,7 +9,7 @@ import {
   AI_UNAVAILABLE_TEXT,
   FILE_PROCESSING_FAILED_TEXT,
   FILE_TIMEOUT_TEXT,
-  PDF_UNREADABLE_TEXT,
+  FILE_UNREADABLE_TEXT,
 } from "../src/messages.js";
 import {
   clearPendingDeletion,
@@ -24,7 +24,7 @@ describe("getDocumentErrorText", () => {
     ["a cancellation", new DOMException("stop", "AbortError"), FILE_TIMEOUT_TEXT],
     ["an Ollama failure", new OllamaError("500"), AI_UNAVAILABLE_TEXT],
     ["Ollama not running", new Error("connect ECONNREFUSED 127.0.0.1:11434"), AI_UNAVAILABLE_TEXT],
-    ["an unreadable PDF", new PdfExtractError("bad pdf"), PDF_UNREADABLE_TEXT],
+    ["an unreadable PDF", new PdfExtractError("bad pdf"), FILE_UNREADABLE_TEXT],
     ["anything else", new Error("disk full"), FILE_PROCESSING_FAILED_TEXT],
     ["a non-Error value", "weird", FILE_PROCESSING_FAILED_TEXT],
   ])("maps %s to the right message", (_name, error, expected) => {

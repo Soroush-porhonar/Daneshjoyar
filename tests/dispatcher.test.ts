@@ -8,16 +8,16 @@ vi.mock("../src/db/updates.js", () => ({
 }));
 vi.mock("../src/bale.js", () => ({ sendMessage: vi.fn() }));
 vi.mock("../src/chat/chatService.js", () => ({ handleMessage: vi.fn() }));
-vi.mock("../src/chat/documentUpload.js", () => ({ handleDocument: vi.fn() }));
+vi.mock("../src/chat/documentUpload.js", () => ({ handleDocument: vi.fn(), handlePhoto: vi.fn() }));
 vi.mock("../src/bot/feedback.js", () => ({ handleFeedback: vi.fn() }));
 
 const { dispatchUpdate } = await import("../src/bot/dispatcher.js");
 const { isUpdateProcessed, markUpdateProcessed } = await import("../src/db/updates.js");
 const { sendMessage } = await import("../src/bale.js");
 const { handleMessage } = await import("../src/chat/chatService.js");
-const { handleDocument } = await import("../src/chat/documentUpload.js");
+const { handleDocument, handlePhoto } = await import("../src/chat/documentUpload.js");
 const { logger } = await import("../src/logger.js");
-const { NO_REQUEST_TO_CANCEL_TEXT, REQUEST_CANCELLED_TEXT } = await import(
+const { NO_REQUEST_TO_CANCEL_TEXT, REQUEST_CANCELLED_TEXT, UNSUPPORTED_MESSAGE_TEXT } = await import(
   "../src/messages.js"
 );
 
@@ -35,6 +35,7 @@ beforeEach(() => {
   vi.mocked(isUpdateProcessed).mockResolvedValue(false);
   vi.mocked(handleMessage).mockResolvedValue(true);
   vi.mocked(handleDocument).mockResolvedValue(true);
+  vi.mocked(handlePhoto).mockResolvedValue(true);
 });
 
 describe("dispatchUpdate", () => {
@@ -99,11 +100,29 @@ describe("dispatchUpdate", () => {
     expect(handleMessage).not.toHaveBeenCalled();
   });
 
-  it("acknowledges updates it does not handle (stickers, edits)", async () => {
+  it("sends photos to the photo handler", async () => {
+    const photo = [{ file_id: "p1", width: 905, height: 1280 }];
+
+    await dispatchUpdate({ update_id: 13, message: { chat: { id: 9 }, photo } });
+    await flush();
+
+    expect(handlePhoto).toHaveBeenCalledWith(9, photo);
+    expect(markUpdateProcessed).toHaveBeenCalledWith(13);
+  });
+
+  it.each(["sticker", "voice", "video", "location"])("answers a %s with what the bot can read", async (field) => {
+    await dispatchUpdate({ update_id: 14, message: { chat: { id: 7 }, [field]: {} } });
+
+    expect(sendMessage).toHaveBeenCalledWith(7, UNSUPPORTED_MESSAGE_TEXT);
+    expect(markUpdateProcessed).toHaveBeenCalledWith(14);
+  });
+
+  it("acknowledges updates with nothing to answer (edits, service messages) silently", async () => {
     await dispatchUpdate({ update_id: 6, message: { chat: { id: 7 } } });
 
     expect(markUpdateProcessed).toHaveBeenCalledWith(6);
     expect(handleMessage).not.toHaveBeenCalled();
+    expect(sendMessage).not.toHaveBeenCalled();
   });
 
   it("/cancel without a running request says there is nothing to cancel", async () => {

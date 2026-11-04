@@ -1,22 +1,23 @@
 import path from "node:path";
 import { stat, unlink } from "node:fs/promises";
 import { downloadBaleDocument, sendMessage } from "../bale.js";
-import type { BaleDocument } from "../bale.js";
+import type { BaleDocument, BalePhotoSize } from "../bale.js";
 import {
   duplicateDocumentText,
   fileProcessedText,
   FILE_RECEIVED_TEXT,
   FILE_TOO_LARGE_TEXT,
-  NOT_A_PDF_TEXT,
   ocrProgressText,
   ocrStartedText,
+  PHOTO_RECEIVED_TEXT,
+  UNSUPPORTED_FILE_TEXT,
 } from "../messages.js";
 import { config } from "../config.js";
 import { findDuplicateDocument } from "../db/documents.js";
 import { findOrCreateUser } from "../db/users.js";
 import { DuplicateDocumentError, getDocumentErrorText, getErrorMessage } from "../errors.js";
 import { logger } from "../logger.js";
-import { ingestPdf } from "../rag/ingest.js";
+import { documentKind, ingestDocument } from "../rag/ingest.js";
 import { documentsButton } from "../bot/buttons.js";
 import { wakeEnrichment } from "../bot/enrichmentWorker.js";
 
@@ -33,15 +34,53 @@ async function sendDuplicateNotice(
   );
 }
 
-function isPdf(document: BaleDocument, filename: string): boolean {
-  return (
-    filename.toLowerCase().endsWith(".pdf") ||
-    document.mime_type === "application/pdf"
+/** A name for a photo, which has none: its upload time in Iran, e.g. photo-2026-11-04-15-30-12.jpg. */
+export function photoFilename(now: Date): string {
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Asia/Tehran",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hourCycle: "h23",
+    })
+      .formatToParts(now)
+      .map((part) => [part.type, part.value]),
   );
+  return `photo-${parts.year}-${parts.month}-${parts.day}-${parts.hour}-${parts.minute}-${parts.second}.jpg`;
 }
 
 /**
- * Downloads and ingests an uploaded PDF.
+ * A photo sent as a photo (not as a file): Bale offers it in several sizes,
+ * compressed; the largest is read like an uploaded image file.
+ * Returns false when the update should be retried.
+ */
+export async function handlePhoto(
+  chatId: number,
+  sizes: BalePhotoSize[],
+  now = new Date(),
+): Promise<boolean> {
+  const largest = sizes.reduce((best, size) =>
+    size.width * size.height > best.width * best.height ? size : best,
+  );
+  logger.info(
+    `[Upload] Photo from chat ${chatId}: ${largest.width}x${largest.height}` +
+      (largest.file_size === undefined ? "" : `, ${Math.round(largest.file_size / 1024)} KB`),
+  );
+
+  return handleDocument(chatId, {
+    file_id: largest.file_id,
+    file_name: photoFilename(now),
+    mime_type: "image/jpeg",
+    ...(largest.file_size === undefined ? {} : { file_size: largest.file_size }),
+  });
+}
+
+/**
+ * Downloads and ingests an uploaded PDF or image file.
  * Returns false when the update should be retried.
  */
 export async function handleDocument(
@@ -49,12 +88,17 @@ export async function handleDocument(
   document: BaleDocument,
 ): Promise<boolean> {
   try {
-    const filename = document.file_name ?? "document.pdf";
+    const kind = documentKind(document.file_name, document.mime_type);
 
-    if (!isPdf(document, filename)) {
-      await sendMessage(chatId, NOT_A_PDF_TEXT);
+    if (!kind) {
+      logger.info(
+        `[Upload] Unsupported file from chat ${chatId}: ${document.file_name} (${document.mime_type})`,
+      );
+      await sendMessage(chatId, UNSUPPORTED_FILE_TEXT);
       return true;
     }
+
+    const filename = document.file_name ?? (kind === "image" ? "photo.jpg" : "document.pdf");
 
     if (
       document.file_size !== undefined &&
@@ -77,9 +121,9 @@ export async function handleDocument(
       }
     }
 
-    await sendMessage(chatId, FILE_RECEIVED_TEXT);
+    await sendMessage(chatId, kind === "image" ? PHOTO_RECEIVED_TEXT : FILE_RECEIVED_TEXT);
 
-    const downloaded = await downloadBaleDocument(document);
+    const downloaded = await downloadBaleDocument({ ...document, file_name: filename });
     const fileSize = document.file_size ?? (await stat(downloaded.filePath)).size;
 
     // Without a size from Bale, check now that the file is here.
@@ -95,11 +139,12 @@ export async function handleDocument(
     let result;
 
     try {
-      result = await ingestPdf(
+      result = await ingestDocument(
         user.id,
         downloaded.filename,
         downloaded.filePath,
-        async ({ ocrDone, ocrTotal, skipped }) => {
+        // A photo is one page, and PHOTO_RECEIVED_TEXT already gave the time.
+        kind === "image" ? undefined : async ({ ocrDone, ocrTotal, skipped }) => {
           await sendMessage(
             chatId,
             ocrDone === 0
@@ -112,6 +157,7 @@ export async function handleDocument(
           );
         },
         fileSize,
+        kind,
       );
     } catch (error: unknown) {
       // The same file sent twice in quick succession: the database caught it.
@@ -124,11 +170,14 @@ export async function handleDocument(
     }
 
     wakeEnrichment();
-    await sendMessage(chatId, fileProcessedText(result.ocrPages), { inline: documentsButton() });
+    // A photo is always read by OCR: no need to say so.
+    await sendMessage(chatId, fileProcessedText(kind === "image" ? 0 : result.ocrPages), {
+      inline: documentsButton(),
+    });
 
     return true;
   } catch (error: unknown) {
-    logger.error("Failed to process PDF document:", {
+    logger.error("Failed to process uploaded document:", {
       chatId,
       errorMessage: getErrorMessage(error),
       error,
