@@ -1,6 +1,6 @@
 import { createCanvas, loadImage } from "@napi-rs/canvas";
 import { describe, expect, it } from "vitest";
-import { inkBounds, preparePageImages, rowInk, stripCuts } from "../src/rag/pageImage.js";
+import { inkBounds, preparePageImages, rowInk, stripCuts, textSpan } from "../src/rag/pageImage.js";
 
 /** A white grayscale image with black rectangles (left, top, width, height). */
 function grayPage(width: number, height: number, inked: [number, number, number, number][]): Uint8Array {
@@ -24,36 +24,71 @@ async function pngPage(width: number, height: number, lines: [number, number][])
   return canvas.encode("png");
 }
 
+/** Lines of word-like marks: `lines` lines every 40 px from `top`, words 16 px wide with 8 px gaps. */
+const textBlock = (left: number, top: number, right: number, lines: number): [number, number, number, number][] =>
+  Array.from({ length: lines }).flatMap((_, line) =>
+    Array.from({ length: Math.floor((right - left) / 24) }, (_, word): [number, number, number, number] => [
+      left + word * 24,
+      top + line * 40,
+      16,
+      12,
+    ]),
+  );
+
 describe("inkBounds", () => {
+  // Five lines of text from (60, 100) to about (340, 272) on a 400 x 600 page.
+  const text = textBlock(60, 100, 350, 5);
+  const [textRight, textBottom] = [60 + 11 * 24 + 16, 100 + 4 * 40 + 12];
+
   it("finds the text box, with a small margin", () => {
-    const gray = grayPage(200, 300, [[40, 50, 120, 10], [40, 200, 120, 10]]);
+    const box = inkBounds(grayPage(400, 600, text), 400, 600);
 
-    const box = inkBounds(gray, 200, 300);
-
-    expect(box.left).toBeLessThanOrEqual(40);
-    expect(box.left).toBeGreaterThan(30);
-    expect(box.top).toBeLessThanOrEqual(50);
-    expect(box.top).toBeGreaterThan(40);
-    expect(box.left + box.width).toBeGreaterThanOrEqual(160);
-    expect(box.top + box.height).toBeGreaterThanOrEqual(210);
-    expect(box.top + box.height).toBeLessThan(220);
+    expect(box.left).toBeLessThanOrEqual(60);
+    expect(box.left).toBeGreaterThan(50);
+    expect(box.top).toBeLessThanOrEqual(100);
+    expect(box.top).toBeGreaterThan(90);
+    expect(box.left + box.width).toBeGreaterThanOrEqual(textRight);
+    expect(box.top + box.height).toBeGreaterThanOrEqual(textBottom);
+    expect(box.top + box.height).toBeLessThan(textBottom + 10);
   });
 
-  it("ignores specks of dust and a dark scan border", () => {
-    const gray = grayPage(200, 300, [
-      [40, 100, 120, 10], // text
-      [5, 5, 1, 1], // a speck
-      [0, 0, 200, 4], // a dark band along the top edge
+  it("ignores a speck, a broken shadow along the edge and a logo in a corner", () => {
+    const gray = grayPage(400, 600, [
+      ...text,
+      [20, 20, 1, 1], // a speck of dust
+      // A dark shadow along the left edge, broken into pieces.
+      [0, 0, 8, 140],
+      [0, 150, 8, 200],
+      [0, 360, 8, 240],
+      // A scanner app's logo in the bottom-right corner: a small block of "letters".
+      ...textBlock(300, 570, 396, 1).map(([x, y, w]): [number, number, number, number] => [x, y, w - 8, 8]),
     ]);
 
-    const box = inkBounds(gray, 200, 300);
+    const box = inkBounds(gray, 400, 600);
 
+    expect(box.left).toBeGreaterThan(50);
     expect(box.top).toBeGreaterThan(90);
-    expect(box.left).toBeGreaterThan(30);
+    expect(box.top + box.height).toBeLessThan(textBottom + 10);
+    expect(box.left + box.width).toBeLessThan(textRight + 10);
   });
 
   it("keeps the full page when there is no text-like ink", () => {
     expect(inkBounds(new Uint8Array(100 * 100).fill(255), 100, 100)).toEqual({ left: 0, top: 0, width: 100, height: 100 });
+  });
+});
+
+describe("textSpan", () => {
+  const lines = (on: [number, number][]) =>
+    Array.from({ length: 100 }, (_, i) => on.some(([from, to]) => i >= from && i <= to));
+
+  it("drops a small block that a wide gap separates from the text", () => {
+    expect(textSpan(lines([[10, 60], [90, 91]]), 100)).toEqual([10, 60]);
+    expect(textSpan(lines([[2, 3], [20, 70]]), 100)).toEqual([20, 70]);
+  });
+
+  it("keeps blocks close to the text, and large separate blocks", () => {
+    expect(textSpan(lines([[10, 60], [64, 65]]), 100)).toEqual([10, 65]);
+    expect(textSpan(lines([[10, 40], [70, 90]]), 100)).toEqual([10, 90]);
   });
 });
 
@@ -120,12 +155,12 @@ describe("preparePageImages", () => {
   });
 
   it("crops the empty margins", async () => {
-    const png = await pngPage(200, 300, [[100, 20], [140, 20]]);
+    const png = await pngPage(200, 300, [[100, 12], [130, 12], [160, 12], [190, 12]]);
 
     const [image] = await preparePageImages(png, { crop: true, tilePixels: 200 * 300 });
     const cropped = await loadImage(image!);
 
-    expect(cropped.height).toBeLessThan(80);
+    expect(cropped.height).toBeLessThan(110);
     expect(cropped.width).toBeLessThan(180);
   });
 });

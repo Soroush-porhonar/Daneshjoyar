@@ -2,10 +2,16 @@ import { createCanvas, loadImage, type Image } from "@napi-rs/canvas";
 
 /** A pixel darker than this (0 = black, 255 = white) counts as ink. */
 const INK_LEVEL = 160;
-/** A row or column with less ink than this share of the page holds only specks... */
-const MIN_INK_SHARE = 0.003;
-/** ...and one dark almost from edge to edge is a scan border or shadow (text has gaps). */
-const MAX_INK_SHARE = 0.9;
+/** Shorter dark stretches are scan noise, not ink. */
+const MIN_RUN = 2;
+/** A row or column is text when it crosses at least this many separate dark runs... */
+const MIN_RUNS = 3;
+/** ...and, for a column, at most this share of it is dark. */
+const MAX_COLUMN_INK = 0.5;
+/** Text farther than this share of the page from the rest is a separate block... */
+const SEPARATE_GAP = 0.06;
+/** ...and a separate block at an edge smaller than this share is not part of the text. */
+const SMALL_BLOCK = 0.04;
 /** Margin kept around the text, as a share of the text box. */
 const PADDING = 0.02;
 /** Strips are cut within this share of a strip's height around the ideal cut. */
@@ -46,47 +52,83 @@ export function rowInk(gray: Uint8Array, imageWidth: number, box: Box): number[]
   });
 }
 
-/** Ink pixels in each column of `box`. */
-function columnInk(gray: Uint8Array, imageWidth: number, box: Box): number[] {
-  const ink = new Array<number>(box.width).fill(0);
+/**
+ * Whether one line of pixels (`step` 1 = a row, imageWidth = a column) looks
+ * like text: it crosses several separate dark runs of at least MIN_RUN
+ * pixels, and at most `maxInk` of it is dark.
+ */
+function isTextLine(gray: Uint8Array, start: number, step: number, length: number, maxInk: number): boolean {
+  let runs = 0;
+  let run = 0;
+  let ink = 0;
 
-  for (let y = 0; y < box.height; y++) {
-    const start = (box.top + y) * imageWidth + box.left;
-    for (let x = 0; x < box.width; x++) if (gray[start + x]! < INK_LEVEL) ink[x]!++;
+  for (let i = 0; i < length; i++) {
+    if (gray[start + i * step]! < INK_LEVEL) {
+      ink++;
+      if (++run === MIN_RUN) runs++;
+    } else {
+      run = 0;
+    }
   }
 
-  return ink;
-}
-
-/** A row or column needs at least this many ink pixels to count, whatever its length. */
-const MIN_INK_PIXELS = 3;
-
-/** First and last index whose ink share is text-like (not specks, not a border); null if none. */
-function textSpan(ink: number[], length: number): [first: number, last: number] | null {
-  const isText = (count: number) =>
-    count >= Math.max(MIN_INK_PIXELS, length * MIN_INK_SHARE) && count / length <= MAX_INK_SHARE;
-  const first = ink.findIndex(isText);
-  if (first < 0) return null;
-  return [first, ink.findLastIndex(isText)];
+  return runs >= MIN_RUNS && ink <= length * maxInk;
 }
 
 /**
- * The box around the text of a page, with a small margin. Specks of dust and
- * the dark borders or shadows of phone scans are ignored; a page with no
- * text-like ink keeps its full size. Columns are counted over the text rows
- * only (and rows again over the text columns), so a dark band along one
- * edge does not stretch the box in the other direction.
+ * For each row, or each column, of `box`: does it look like text? Only
+ * columns may not be mostly dark (a shadow along the edge broken into
+ * pieces): a row along a line of Persian text is dense where letters join.
+ */
+function textLines(gray: Uint8Array, imageWidth: number, box: Box, along: "rows" | "columns"): boolean[] {
+  return along === "rows"
+    ? Array.from({ length: box.height }, (_, y) =>
+        isTextLine(gray, (box.top + y) * imageWidth + box.left, 1, box.width, 1),
+      )
+    : Array.from({ length: box.width }, (_, x) =>
+        isTextLine(gray, box.top * imageWidth + box.left + x, imageWidth, box.height, MAX_COLUMN_INK),
+      );
+}
+
+/**
+ * First and last text line, leaving out small blocks at either end that a
+ * wide gap separates from the rest (a scanner app's logo in a corner, a mark
+ * in the margin); null if there is no text.
+ */
+export function textSpan(lines: boolean[], pageLength: number): [first: number, last: number] | null {
+  const blocks: [number, number][] = [];
+
+  lines.forEach((isText, i) => {
+    if (!isText) return;
+    const last = blocks.at(-1);
+    if (last && i - last[1] <= pageLength * SEPARATE_GAP) last[1] = i;
+    else blocks.push([i, i]);
+  });
+
+  const small = ([first, last]: [number, number]) => last - first + 1 < pageLength * SMALL_BLOCK;
+  while (blocks.length > 1 && small(blocks.at(-1)!)) blocks.pop();
+  while (blocks.length > 1 && small(blocks[0]!)) blocks.shift();
+
+  return blocks.length > 0 ? [blocks[0]![0], blocks.at(-1)![1]] : null;
+}
+
+/**
+ * The box around the text of a page, with a small margin. A row or column
+ * belongs to the text when it crosses several separate dark runs (letters,
+ * or lines of text): a speck of dust, the gray edge of the paper or a scan
+ * shadow is one long or mostly dark run, and a logo in a corner is a small
+ * separate block (textSpan). A page with no text-like ink keeps its full size. Columns are counted over the
+ * text rows only (and rows again over the text columns), so a dark band
+ * along one edge does not stretch the box in the other direction.
  */
 export function inkBounds(gray: Uint8Array, width: number, height: number): Box {
   let box: Box = { left: 0, top: 0, width, height };
 
   for (let pass = 0; pass < 2; pass++) {
-    // Shares of the whole page: a border spans it, a bold heading does not.
-    const rows = textSpan(rowInk(gray, width, box), width);
+    const rows = textSpan(textLines(gray, width, box, "rows"), height);
     if (!rows) return { left: 0, top: 0, width, height };
     box = { ...box, top: box.top + rows[0], height: rows[1] - rows[0] + 1 };
 
-    const columns = textSpan(columnInk(gray, width, box), height);
+    const columns = textSpan(textLines(gray, width, box, "columns"), width);
     if (!columns) return { left: 0, top: 0, width, height };
     box = { ...box, left: box.left + columns[0], width: columns[1] - columns[0] + 1 };
   }
