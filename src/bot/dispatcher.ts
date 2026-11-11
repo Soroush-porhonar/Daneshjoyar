@@ -1,12 +1,28 @@
 import { sendMessage } from "../bale.js";
 import type { BaleUpdate } from "../bale.js";
 import { handleMessage } from "../chat/chatService.js";
-import { handleDocument } from "../chat/documentUpload.js";
+import { handleDocument, handlePhoto } from "../chat/documentUpload.js";
 import { isUpdateProcessed, markUpdateProcessed } from "../db/updates.js";
 import { logger } from "../logger.js";
 import { cancelRequest, finishRequest, startRequest } from "./cancellation.js";
 import { handleCallback } from "./callbacks.js";
-import { NO_REQUEST_TO_CANCEL_TEXT, REQUEST_CANCELLED_TEXT } from "../messages.js";
+import {
+  NO_REQUEST_TO_CANCEL_TEXT,
+  REQUEST_CANCELLED_TEXT,
+  UNSUPPORTED_MESSAGE_TEXT,
+} from "../messages.js";
+
+/** Message content the bot can't read; it says so instead of staying silent. */
+const UNSUPPORTED_CONTENT = [
+  "sticker",
+  "voice",
+  "audio",
+  "video",
+  "video_note",
+  "animation",
+  "contact",
+  "location",
+] as const;
 
 /**
  * Runs slow work (LLM calls, PDF ingestion) without blocking the polling loop,
@@ -57,6 +73,12 @@ export async function dispatchUpdate(update: BaleUpdate): Promise<void> {
     return;
   }
 
+  if (message?.photo && message.photo.length > 0) {
+    const { chat, photo } = message;
+    runInBackground(update.update_id, () => handlePhoto(chat.id, photo));
+    return;
+  }
+
   if (message?.text) {
     const chatId = message.chat.id;
     const text = message.text.trim();
@@ -82,6 +104,10 @@ export async function dispatchUpdate(update: BaleUpdate): Promise<void> {
     return;
   }
 
-  // Nothing we handle (stickers, edits, ...): acknowledge so it isn't replayed.
+  if (message && UNSUPPORTED_CONTENT.some((field) => message[field] !== undefined)) {
+    await sendMessage(message.chat.id, UNSUPPORTED_MESSAGE_TEXT);
+  }
+
+  // Nothing else to do (edits, service messages, ...): acknowledge so it isn't replayed.
   await markUpdateProcessed(update.update_id);
 }

@@ -5,11 +5,20 @@ import { generateEmbedding } from "./embeddings.js";
 import { rerankChunks } from "./rerank.js";
 import { PERSIAN_STOPWORDS } from "./stopwords.js";
 import { normalizeText } from "./textQuality.js";
+import { PHOTO_FILENAME_PATTERN } from "./documentKind.js";
 
-/** Which embedding a chunk is searched by: with its context (enriched documents) or alone. */
+/**
+ * Which embedding a chunk is searched by: with its context (enriched
+ * documents) or alone. Photos always use their context once enriched: a
+ * photo is one short chunk, often in English while the question is Persian
+ * (measured: «انواع مدل های ماشین لرنینگ» missed the top 6 on an English
+ * note that never says "machine learning"; by its context it ranked first,
+ * reranker -2.6 against -7.7 for the next hit).
+ */
 const CHUNK_EMBEDDING = config.rag.chunkContext
   ? "COALESCE(dc.context_embedding, dc.embedding)"
-  : "dc.embedding";
+  : `CASE WHEN d.filename ~* '${PHOTO_FILENAME_PATTERN}'
+       THEN COALESCE(dc.context_embedding, dc.embedding) ELSE dc.embedding END`;
 
 export interface RetrievedChunk {
   documentId: number;
@@ -39,6 +48,8 @@ export interface ContextChunk {
   pageEnd?: number | null;
   chunkIndex: number;
   sectionIndex?: number | null;
+  /** From enrichment; names a photo in the sources list. */
+  documentTitle?: string | null;
   content: string;
   /** True for a direct search hit, false for a neighbour added for context. */
   isHit: boolean;
@@ -49,6 +60,7 @@ export type ContextMode = "focused" | "multi_part";
 export interface DocumentChunk {
   documentId: number;
   filename: string;
+  documentTitle?: string | null;
   pageNumber: number | null;
   pageEnd?: number | null;
   chunkIndex: number;
@@ -67,6 +79,7 @@ export async function getDocumentChunks(
     `SELECT
        d.id AS "documentId",
        d.filename,
+       d.title AS "documentTitle",
        dc.page_number AS "pageNumber",
        dc.page_end AS "pageEnd",
        dc.chunk_index AS "chunkIndex",
@@ -410,6 +423,7 @@ async function getNeighbours(
        dc.page_end AS "pageEnd",
        dc.chunk_index AS "chunkIndex",
        dc.section_index AS "sectionIndex",
+       d.title AS "documentTitle",
        dc.content,
        false AS "isHit"
      FROM document_chunks dc

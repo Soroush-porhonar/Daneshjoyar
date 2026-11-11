@@ -3,7 +3,7 @@ import {
   AI_UNAVAILABLE_TEXT,
   FILE_PROCESSING_FAILED_TEXT,
   FILE_TIMEOUT_TEXT,
-  PDF_UNREADABLE_TEXT,
+  FILE_UNREADABLE_TEXT,
 } from "./messages.js";
 
 /** The Ollama service failed, was unreachable, or returned bad data. */
@@ -15,7 +15,7 @@ export class OllamaTimeoutError extends OllamaError {
   override name = "OllamaTimeoutError";
 }
 
-/** The PDF could not be read or contained no usable text. */
+/** The PDF or image could not be read or contained no usable text. */
 export class PdfExtractError extends Error {
   override name = "PdfExtractError";
 }
@@ -51,7 +51,7 @@ export function getDocumentErrorText(error: unknown): string {
   }
 
   if (error instanceof PdfExtractError) {
-    return PDF_UNREADABLE_TEXT;
+    return FILE_UNREADABLE_TEXT;
   }
 
   return FILE_PROCESSING_FAILED_TEXT;

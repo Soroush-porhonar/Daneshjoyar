@@ -9,6 +9,7 @@
  * - Buttons do the common actions; typed commands keep working.
  */
 import type { DocumentStatus } from "./db/documents.js";
+import { isPhotoFilename } from "./rag/documentKind.js";
 
 /** Left-to-right mark (invisible). */
 const LRM = "‎";
@@ -34,10 +35,10 @@ export const MAIN_MENU: string[][] = [
 
 export const START_TEXT = `سلام! 👋 به دانشجویار خوش اومدی.
 
-🎓 من دستیار هوشمند مطالعه‌ات هستم. جزوه‌هات رو به‌صورت PDF برام بفرست تا بتونی درباره‌شون ازم سؤال بپرسی.
+🎓 من دستیار هوشمند مطالعه‌ات هستم. جزوه‌هات رو به‌صورت PDF یا عکس برام بفرست تا بتونی درباره‌شون ازم سؤال بپرسی.
 
 📌 **برای شروع:**
-۱. فایل PDF جزوه‌ات رو بفرست.
+۱. فایل PDF جزوه‌ات یا عکس یک صفحه‌ش رو بفرست.
 ۲. صبر کن تا پردازش فایل تموم بشه.
 ۳. سؤالت رو بپرس تا بر اساس جزوه جوابت رو بدم.
 
@@ -52,7 +53,8 @@ export const HELP_TEXT = `📚 **راهنمای دانشجویار**
 **چطور ازم استفاده کنی؟**
 
 📄 **۱. فرستادن جزوه**
-یک فایل PDF بفرست. اگه فایل اسکن‌شده باشه، پردازشش چند دقیقه طول می‌کشه.
+یک فایل PDF یا عکس یک صفحه از جزوه‌ات رو بفرست. خوندن صفحه‌های اسکن‌شده و عکس‌ها برای هر صفحه حدود یک دقیقه طول می‌کشه.
+هر عکس یک جزوه جدا می‌شه؛ برای چند صفحه بهتره PDF بفرستی. اگه متن عکسی درست خونده نشد، عکس رو به‌صورت فایل بفرست تا کیفیتش کم نشه.
 
 💬 **۲. پرسیدن سؤال**
 سؤالت رو بپرس؛ خودم توی همه جزوه‌هات می‌گردم و جواب رو با اسم فایل و شماره صفحه بهت می‌دم. لازم نیست جزوه‌ای رو انتخاب کنی. زیر هر جواب با 👍 یا 👎 بگو مفید بود یا نه.
@@ -71,7 +73,7 @@ export const ABOUT_TEXT = `🎓 **دانشجویار** | دستیار هوشمن
 دانشجویار یک دستیار مطالعه در پیام‌رسان بله است که با کمک هوش مصنوعی، مرور و فهمیدن مطالب درسی رو راحت‌تر می‌کنه.
 
 ✨ **امکانات فعلی:**
-📄 دریافت و پردازش فایل‌های PDF (حتی اسکن‌شده)
+📄 دریافت و پردازش فایل‌های PDF (حتی اسکن‌شده) و عکس صفحه‌های جزوه
 💬 جواب دادن به سؤال‌های درسی از روی همه جزوه‌هات
 📚 دیدن جزوه‌ها
 🗑️ حذف جزوه‌های ذخیره‌شده
@@ -83,6 +85,14 @@ export const ABOUT_TEXT = `🎓 **دانشجویار** | دستیار هوشمن
 
 // --- Documents ---------------------------------------------------------------
 
+/**
+ * How a document is named to the student. A photo's file name says nothing
+ * ("capture_6791184992758507927.jpg"), so once enriched it is named by its
+ * generated title; a PDF keeps its file name, which the student chose.
+ */
+export const documentDisplayName = (filename: string, title?: string | null): string =>
+  isPhotoFilename(filename) && title ? `عکس «${title}»` : filename;
+
 export const DOCUMENT_STATUS_TEXT: Record<DocumentStatus, string> = {
   pending: "در انتظار پردازش",
   processing: "در حال پردازش",
@@ -91,7 +101,7 @@ export const DOCUMENT_STATUS_TEXT: Record<DocumentStatus, string> = {
 };
 
 export const NO_DOCUMENTS_TEXT =
-  "هنوز هیچ جزوه‌ای نفرستادی.\n\nبرای شروع، یک فایل PDF برام بفرست. 📄";
+  "هنوز هیچ جزوه‌ای نفرستادی.\n\nبرای شروع، یک فایل PDF یا عکس جزوه‌ات رو برام بفرست. 📄";
 
 /** Button label under each document in the list. */
 export const DELETE_BUTTON = "🗑️ حذف";
@@ -159,10 +169,15 @@ export const NO_PENDING_DELETE_TO_CANCEL_TEXT =
 
 export const DELETE_CANCELLED_TEXT = "حذف لغو شد. جزوه‌ات سر جاشه. 👍";
 
-// --- Uploading a PDF -----------------------------------------------------------
+// --- Uploading a PDF or a photo ---------------------------------------------------
 
-export const NOT_A_PDF_TEXT =
-  "فقط فایل PDF قبول می‌کنم. لطفاً جزوه‌ات رو با فرمت PDF بفرست.";
+/** A file that is neither a PDF nor a photo (JPEG, PNG, WebP). */
+export const UNSUPPORTED_FILE_TEXT =
+  "📎 این نوع فایل رو نمی‌تونم بخونم. جزوه‌ات رو به‌صورت فایل PDF یا عکس بفرست.";
+
+/** A sticker, voice message, video, location, ... */
+export const UNSUPPORTED_MESSAGE_TEXT =
+  "فعلاً فقط پیام متنی، فایل PDF و عکس رو می‌فهمم. سؤالت رو بنویس، یا جزوه‌ات رو به‌صورت PDF یا عکس بفرست.";
 
 export const FILE_TOO_LARGE_TEXT =
   "حجم فایل بیشتر از ۲۰ مگابایته. لطفاً فایل کوچک‌تری بفرست.";
@@ -176,6 +191,9 @@ export const duplicateDocumentText = (filename: string, stillProcessing: boolean
 
 export const FILE_RECEIVED_TEXT =
   "📥 فایلت رسید. دارم پردازشش می‌کنم، یه کم صبر کن...";
+
+export const PHOTO_RECEIVED_TEXT =
+  "📥 عکست رسید. دارم متنش رو می‌خونم؛ حدود یک دقیقه طول می‌کشه...";
 
 export const ocrStartedText = (
   total: number,
@@ -261,8 +279,8 @@ export const FILE_TIMEOUT_TEXT =
 export const AI_UNAVAILABLE_TEXT =
   "سرویس هوش مصنوعی الان در دسترس نیست. لطفاً کمی بعد دوباره امتحان کن.";
 
-export const PDF_UNREADABLE_TEXT =
-  "نتونستم فایل PDF رو بخونم. مطمئن شو فایل سالمه و دوباره بفرستش.";
+export const FILE_UNREADABLE_TEXT =
+  "نتونستم متن این فایل رو بخونم. مطمئن شو فایل سالمه و متنش واضحه، بعد دوباره بفرستش.";
 
 export const FILE_PROCESSING_FAILED_TEXT =
   "پردازش فایل با خطا مواجه شد. لطفاً کمی بعد دوباره امتحان کن.";

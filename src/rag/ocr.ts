@@ -3,6 +3,7 @@ import { chat } from "../llm/ollamaClient.js";
 import { OCR_PROMPT, OCR_PROMPT_FA, OCR_STRIP_PROMPT, OCR_STRIP_PROMPT_FA } from "../llm/prompts/ocr.js";
 import { logger } from "../logger.js";
 import { preparePageImages, type PageImageSettings } from "./pageImage.js";
+import { plainMath } from "./plainMath.js";
 import type { PageText, PdfHandle } from "./pdf.js";
 import {
   assessPage,
@@ -93,7 +94,8 @@ export function cleanOcrText(
     return "";
   }
 
-  const normalized = normalizeText(text);
+  // The Persian prompt writes formulas in LaTeX ($\frac{1}{n}$); store them as plain text.
+  const normalized = normalizeText(plainMath(text));
 
   if (repair === "word") return repairReversedWords(normalized);
 

@@ -18,7 +18,7 @@ const ocrSettings = config.ocr as { maxPages: number };
 const { cleanOcrText, extractPages, readPageImage } = await import("../src/rag/ocr.js");
 const { chat } = await import("../src/llm/ollamaClient.js");
 const { preparePageImages } = await import("../src/rag/pageImage.js");
-const { OCR_PROMPT, OCR_STRIP_PROMPT } = await import("../src/llm/prompts/ocr.js");
+const { OCR_PROMPT_FA, OCR_STRIP_PROMPT_FA } = await import("../src/llm/prompts/ocr.js");
 const { logger } = await import("../src/logger.js");
 
 const GOOD_TEXT = "این یک صفحه سالم با متن کامل فارسی است که نیازی به خواندن دوباره ندارد.";
@@ -91,7 +91,7 @@ describe("extractPages", () => {
     expect(vi.mocked(chat).mock.calls.map(([request]) => request.messages[0]!.images)).toEqual(
       strips.map((strip) => [strip.toString("base64")]),
     );
-    expect(vi.mocked(chat).mock.calls[0]![0].messages[0]!.content).toBe(OCR_STRIP_PROMPT);
+    expect(vi.mocked(chat).mock.calls[0]![0].messages[0]!.content).toBe(OCR_STRIP_PROMPT_FA);
     expect(result.pages[0]!.text).toBe("خط اول صفحه\nخط دوم صفحه\nخط سوم صفحه");
   });
 
@@ -100,7 +100,7 @@ describe("extractPages", () => {
 
     expect(read.strips).toBe(1);
     expect(chat).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(chat).mock.calls[0]![0].messages[0]!.content).toBe(OCR_PROMPT);
+    expect(vi.mocked(chat).mock.calls[0]![0].messages[0]!.content).toBe(OCR_PROMPT_FA);
   });
 
   it("stops reading strips once the request is cancelled", async () => {
@@ -183,5 +183,9 @@ describe("cleanOcrText (repair of reversed words)", () => {
 
   it("page: a mostly correct page is left as it is (what the word repair adds)", () => {
     expect(cleanOcrText("کی سیستم خبره یارب حل مسائل", 1, "page")).toBe("کی سیستم خبره یارب حل مسائل");
+  });
+
+  it("stores formulas the model wrote in LaTeX as plain text", () => {
+    expect(cleanOcrText("MAPE : $\\frac{100}{N} \\sum |y_i|$ میانگین", 1, "both")).toBe("MAPE : 100/N Σ |yi| میانگین");
   });
 });

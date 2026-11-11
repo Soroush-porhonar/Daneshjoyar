@@ -16,6 +16,10 @@ const SMALL_BLOCK = 0.04;
 const PADDING = 0.02;
 /** Strips are cut within this share of a strip's height around the ideal cut. */
 const CUT_WINDOW = 0.15;
+/** Paper brightness is estimated in square blocks of this many pixels... */
+const PAPER_BLOCK = 32;
+/** ...as this share of the block's pixels being darker (the rest is ink). */
+const PAPER_PERCENTILE = 0.9;
 
 export interface Box {
   left: number;
@@ -40,6 +44,71 @@ export function grayscale(rgba: Uint8ClampedArray): Uint8Array {
   }
 
   return gray;
+}
+
+/**
+ * Grayscale as if the paper were white everywhere: each pixel divided by the
+ * brightness of the paper around it. A phone photo's paper is gray and
+ * unevenly lit (measured: 53-175 across one photo, against ~255 on a
+ * scanner app's whitened page), so a fixed ink level took most of a photo
+ * for ink and cropped away the text: two handwritten notebook photos lost
+ * ~60% of their width and OCR read 76 and 123 characters; flattened, the
+ * whole text was kept and read (336 and 279 characters). On white paper
+ * nothing changes: the 5 scanned reference pages still read 4.0% CER.
+ *
+ * The paper around a pixel is the brightest of its block and the 8 blocks
+ * around it, each block's brightness being a high percentile of its pixels:
+ * a block full of ink (a bold heading) takes its paper from a neighbour.
+ */
+export function flattenLighting(gray: Uint8Array, width: number, height: number): Uint8Array {
+  const columns = Math.ceil(width / PAPER_BLOCK);
+  const rows = Math.ceil(height / PAPER_BLOCK);
+  const blocks = new Uint8Array(columns * rows);
+  const histogram = new Uint32Array(256);
+
+  for (let by = 0; by < rows; by++) {
+    for (let bx = 0; bx < columns; bx++) {
+      histogram.fill(0);
+      const x1 = Math.min(width, (bx + 1) * PAPER_BLOCK);
+      const y1 = Math.min(height, (by + 1) * PAPER_BLOCK);
+      for (let y = by * PAPER_BLOCK; y < y1; y++) {
+        for (let x = bx * PAPER_BLOCK; x < x1; x++) histogram[gray[y * width + x]!]!++;
+      }
+
+      const count = (x1 - bx * PAPER_BLOCK) * (y1 - by * PAPER_BLOCK);
+      let level = 0;
+      for (let seen = 0; level < 255; level++) {
+        seen += histogram[level]!;
+        if (seen >= count * PAPER_PERCENTILE) break;
+      }
+      blocks[by * columns + bx] = level;
+    }
+  }
+
+  const paper = new Uint8Array(columns * rows);
+  for (let by = 0; by < rows; by++) {
+    for (let bx = 0; bx < columns; bx++) {
+      let brightest = 0;
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          const y = by + dy;
+          const x = bx + dx;
+          if (y >= 0 && y < rows && x >= 0 && x < columns) brightest = Math.max(brightest, blocks[y * columns + x]!);
+        }
+      }
+      paper[by * columns + bx] = brightest;
+    }
+  }
+
+  const flat = new Uint8Array(gray.length);
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const background = Math.max(1, paper[Math.floor(y / PAPER_BLOCK) * columns + Math.floor(x / PAPER_BLOCK)]!);
+      flat[y * width + x] = Math.min(255, Math.round((gray[y * width + x]! * 255) / background));
+    }
+  }
+
+  return flat;
 }
 
 /** Ink pixels in each row of `box`. */
@@ -196,7 +265,7 @@ export async function preparePageImages(png: Uint8Array, settings: PageImageSett
   const canvas = createCanvas(width, height);
   const context = canvas.getContext("2d");
   context.drawImage(image, 0, 0);
-  const gray = grayscale(context.getImageData(0, 0, width, height).data);
+  const gray = flattenLighting(grayscale(context.getImageData(0, 0, width, height).data), width, height);
 
   const box = settings.crop ? inkBounds(gray, width, height) : { left: 0, top: 0, width, height };
   const maxRows = Math.max(1, Math.floor(settings.tilePixels / box.width));

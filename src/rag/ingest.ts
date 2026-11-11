@@ -1,6 +1,8 @@
 import { config } from "../config.js";
+import type { DocumentKind } from "./documentKind.js";
 import { pool } from "../db/pool.js";
 import { openPdf } from "./pdf.js";
+import { openImage } from "./image.js";
 import type { TextChunk } from "./chunk.js";
 import { chunkDocument } from "./semanticChunk.js";
 import { extractPages } from "./ocr.js";
@@ -21,7 +23,9 @@ export interface IngestResult {
 /** PostgreSQL error code for a unique-index violation. */
 const UNIQUE_VIOLATION = "23505";
 
-export async function ingestPdf(
+
+/** Reads, chunks and embeds a PDF or a photo, and stores it as one of the user's documents. */
+export async function ingestDocument(
   userId: number,
   filename: string,
   filePath: string,
@@ -31,6 +35,7 @@ export async function ingestPdf(
    * file (name and size) twice. Null for scripts that re-ingest on purpose.
    */
   fileSize: number | null = null,
+  kind: DocumentKind = "pdf",
 ): Promise<IngestResult> {
   let documentResult;
 
@@ -60,7 +65,7 @@ export async function ingestPdf(
   const documentId = document.id;
 
   try {
-    const pdf = await openPdf(filePath);
+    const pdf = kind === "image" ? await openImage(filePath) : await openPdf(filePath);
     let extraction;
 
     try {
@@ -72,7 +77,7 @@ export async function ingestPdf(
     const chunks = await chunkDocument(extraction.pages);
 
     if (chunks.length === 0) {
-      throw new PdfExtractError("The PDF contains no usable text");
+      throw new PdfExtractError(`The ${kind} contains no usable text`);
     }
 
     // Generate embeddings before opening the transaction.

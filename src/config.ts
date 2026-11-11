@@ -175,11 +175,15 @@ export const config = {
      */
     crop: process.env.OCR_CROP !== "false",
     /**
-     * Prompt language (OCR_PROMPT=fa|en). Measured on 3 scanned pages against
-     * hand-written reference text (npm run eval:ocr -- --ref): English 18.6%
-     * character errors, Persian 22.8%.
+     * Prompt language (OCR_PROMPT=fa|en). At 1000 px on 3 scanned pages
+     * (npm run eval:ocr -- --ref) English was better: 18.6% character errors
+     * against 22.8%. At today's 1400 px cropped strips, on 5 pages, Persian is
+     * 3.2% against 4.0% (36 s/page either way), and on a photo of handwritten
+     * notes only the Persian prompt read the small Persian notes beside the
+     * English text («واریانس خطا»); the English prompt left them out. Its
+     * formulas come out in LaTeX, which cleanOcrText turns into plain text.
      */
-    prompt: process.env.OCR_PROMPT === "fa" ? ("fa" as const) : ("en" as const),
+    prompt: process.env.OCR_PROMPT === "en" ? ("en" as const) : ("fa" as const),
     /**
      * Repair of words the model wrote reversed (OCR_REPAIR):
      * - "page": flip every word when reversed common words dominate the page,

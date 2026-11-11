@@ -15,6 +15,7 @@ import {
   DELETE_CANCEL_BUTTON,
   DELETE_CONFIRM_BUTTON,
   MENU_DOCUMENTS,
+  documentDisplayName,
   documentNameButton,
 } from "../messages.js";
 
@@ -39,7 +40,7 @@ export function documentButtons(documents: DocumentSummary[]): InlineButton[][] 
   return documents.flatMap((document) => [
     [
       {
-        text: documentNameButton(shortName(document.filename), document.status),
+        text: documentNameButton(shortName(documentDisplayName(document.filename, document.title)), document.status),
         callback_data: `info:${document.id}`,
       },
     ],

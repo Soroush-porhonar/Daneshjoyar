@@ -32,6 +32,16 @@ describe("sources", () => {
     ).toEqual(["notes.pdf — صفحه 3"]);
   });
 
+  it("cites an enriched photo by its title, with no page (a photo has one)", () => {
+    const photo = { filename: "capture_679.jpg", documentTitle: "معیارهای ارزیابی رگرسیون", pageNumber: 1, content: "x" };
+
+    expect(buildSourceList([photo, chunk(2), { ...photo, documentTitle: null, filename: "photo-2.jpg" }])).toEqual([
+      "عکس «معیارهای ارزیابی رگرسیون»",
+      "notes.pdf — صفحه 2",
+      "photo-2.jpg",
+    ]);
+  });
+
   it("returns the answer unchanged when there are no sources", () => {
     expect(appendSources("answer", [chunk(null)])).toBe("answer");
   });

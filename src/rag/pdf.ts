@@ -9,7 +9,10 @@ export interface PageText {
   method: ExtractionMethod;
 }
 
-/** An opened PDF: its text layer plus the ability to render pages to images. */
+/**
+ * An opened PDF: its text layer plus the ability to render pages to images.
+ * A photo is opened as a one-page handle with no text layer (src/rag/image.ts).
+ */
 export interface PdfHandle {
   pages: PageText[];
   /** Renders a page (1-based) to PNG bytes. */
