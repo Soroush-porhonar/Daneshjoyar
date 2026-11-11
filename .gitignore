@@ -60,3 +60,6 @@ CLAUDE.md
 .claude/
 # Nightly database dumps (compose "backup" service)
 backups/
+
+
+docs/
