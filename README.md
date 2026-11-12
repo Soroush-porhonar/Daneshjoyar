@@ -18,13 +18,13 @@
 
 | Area | Result |
 | --- | --- |
-| Retrieval — 93 questions, 8 documents, all-documents search | hit@1 **69% → 88%** with reranking (95% CI 82–95), hit@3 **98%**, answer page in context **98%** |
-| End-to-end answers — 54 questions | **50 pass**, inline citations 46/47, unanswerable questions refused 7/7 |
-| Router — 33 labelled messages | route **100%**, route + retrieval mode 94% |
+| Retrieval — 179 answerable questions, 8 documents, all-documents search | hit@1 **68% → 85%** with reranking (95% CI 80–91), hit@3 **96%**, answer page in context **97%**; held-out questions 82% hit@1 |
+| End-to-end answers — 112 questions | **102 pass**, expected page in context 82/82, citations on topic 96%, unanswerable questions refused 25/30 (near-miss 18/23) |
+| Router — 62 labelled messages, 24 sent by students | route **84%** (real messages 67%), route + retrieval mode 81% |
 | OCR — scanned handout vs hand-typed reference | character error rate **37.0% → 4.0%** |
-| Latency | 10.7 s median, 22.4 s p95 (generation 59%, retrieval + rerank 25%, router 16%) |
+| Latency | 14.1 s median, 19.1 s p95 (retrieval + CPU rerank 6.7 s, generation 5.2 s at ~35 tokens/s, router 1.9 s); follow-ups +1.7 s for the rewrite |
 | Whole-document summary | 21–44 s from stored section summaries vs 129 s – 31 min map-reduce |
-| Tests | 519 unit, 38 integration (real Postgres), CI |
+| Tests | 610 unit, 39 integration (real Postgres), CI |
 
 ## Features
 
@@ -92,12 +92,15 @@ flowchart LR
 
 | Harness | Measures |
 | --- | --- |
-| `npm run eval` | hit@k, MRR, context coverage, wrong-document share, distance and reranker-score calibration; per type (exact term, paraphrase, multi-page, follow-up, unanswerable); 95% bootstrap CIs and paired diffs against the previous run |
-| `npm run eval:router` | route and mode accuracy, confusion matrix; `--with-search` adds the early-search override |
-| `npm run eval:answers` | cited page, inline citations, key facts, language, refusals; LLM-as-judge as a weak signal |
+| `npm run eval` | hit@k, MRR, context coverage, wrong-document share, distance and reranker-score calibration; per type (exact term, paraphrase, multi-page, follow-up, standalone question after history, unanswerable), per tag (English, Latin-script Persian, typos, Arabic letters, tables, formulas) and a held-out row; every part of multi-concept questions in context; 95% bootstrap CIs and paired diffs against the previous run |
+| `npm run eval:router` | route and mode accuracy per kind of message, confusion matrix, rewrite-rule check; includes messages students really sent, with their history; `--with-search` adds the early-search override |
+| `npm run eval:answers` | cited page, expected page in context, wrong refusals, inline citations, key facts (accepted forms, formula-tolerant), language, refusals incl. near-miss questions; `--rescore` re-checks a saved run without the model |
+| `npm run eval:citations` | hand-labelled citation pairs: how well a judge separates supported from unsupported claims |
 | `npm run eval:ocr` | CER against text layers or hand-typed reference pages, per width / strip / crop / prompt / repair |
-| `npm run benchmark` | per-stage latency, p50 / p95 |
-| `npm run feedback` | real-usage report from 👍/👎 logs; 👎 answers become draft eval questions |
+| `npm run benchmark` | per-stage latency p50 / p95, output tokens and tokens per second, follow-up and after-history samples; `--concurrency N` measures the queue |
+| `npm run feedback` | real-usage report per week (chat share, rewrite share, refusals, time, 👍 share); 👎 answers become draft eval questions and router cases |
+
+Runs are saved to `eval/results/`; the retrieval, router, answer and benchmark harnesses also compare each run with the previous one.
 
 **Negative results (implemented, off by default):**
 
@@ -113,8 +116,8 @@ flowchart LR
 
 ## Testing
 
-- **Unit (Vitest, 519):** pure logic (chunking, normalisation, page quality, word repair, context merging, citations) and mocked flows (update retry, cancel, OCR loop, enrichment priority, Ollama timeouts).
-- **Integration (38, real Postgres + pgvector):** per-user isolation in search, deletion and the question index — verified by breaking the SQL filter and watching the tests fail; cascade deletes; atomic ingestion and enrichment.
+- **Unit (Vitest, 610):** pure logic (chunking, normalisation, page quality, word repair, context merging, citations) and mocked flows (update retry, cancel, OCR loop, enrichment priority, Ollama timeouts).
+- **Integration (39, real Postgres + pgvector):** per-user isolation in search, deletion and the question index — verified by breaking the SQL filter and watching the tests fail; cascade deletes; atomic ingestion and enrichment.
 - **CI:** type check (src, tests, scripts), coverage and integration tests on every push.
 
 ## Getting started
