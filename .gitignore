@@ -40,6 +40,8 @@ storage/
 # Coverage and test output
 coverage/
 eval/results/
+# Draft eval cases from real 👎 answers (npm run feedback): students' own words
+eval/feedback-*.json
 
 # IDEs and editors
 .vscode/
