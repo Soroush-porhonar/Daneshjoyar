@@ -1,6 +1,7 @@
 /** Shared by the eval scripts. */
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { config } from "../src/config.js";
+import { pool } from "../src/db/pool.js";
 import { SOURCES_HEADING } from "../src/messages.js";
 import { rankedCandidates, relevantHits } from "../src/rag/retrieve.js";
 import type { ChunkRef } from "../src/rag/retrieve.js";
@@ -111,4 +112,24 @@ export function citedPages(answer: string, filename: string): number[] {
     const last = Number(match[3] ?? match[2]);
     return Array.from({ length: last - first + 1 }, (_, i) => first + i);
   });
+}
+
+/**
+ * Whose documents an eval uses: `--user <id>` when given, otherwise the user that
+ * owns the most of the eval's files. ("The user with the most documents" broke
+ * once someone uploaded more files than the eval set has.)
+ */
+export async function evalUser(args: string[], filenames: Iterable<string>): Promise<number> {
+  const index = args.indexOf("--user");
+  if (index >= 0) return Number(args[index + 1]);
+
+  const result = await pool.query<{ user_id: number }>(
+    `SELECT user_id FROM documents
+     WHERE status = 'completed' AND filename = ANY($1)
+     GROUP BY user_id ORDER BY count(DISTINCT filename) DESC, max(id) DESC LIMIT 1`,
+    [[...new Set(filenames)]],
+  );
+  const user = result.rows[0]?.user_id;
+  if (user === undefined) throw new Error("No user owns any of the eval documents");
+  return user;
 }

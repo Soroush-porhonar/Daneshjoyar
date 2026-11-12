@@ -42,7 +42,7 @@ import { retrieveContext } from "../src/rag/retrieve.js";
 import { needsRewrite, rewriteQuestion } from "../src/rag/rewrite.js";
 import type { HistoryMessage } from "../src/rag/rewrite.js";
 import { routeMessage } from "../src/rag/router.js";
-import { previousResult, saveResult } from "./evalHelpers.js";
+import { evalUser, previousResult, saveResult } from "./evalHelpers.js";
 import { percentile } from "./usageStats.js";
 
 interface EvalQuestion {
@@ -121,9 +121,11 @@ const samples: Sample[] = [
     .map((q) => ({ sample: "+ history" as const, core: false, q, history: GREETING })),
 ];
 
+const evalUserId = await evalUser(process.argv.slice(2), all.map((q) => q.filename));
 const documents = await pool.query<{ filename: string; id: number; user_id: number }>(
   `SELECT DISTINCT ON (filename) filename, id, user_id FROM documents
-   WHERE status = 'completed' ORDER BY filename, id DESC`,
+   WHERE status = 'completed' AND user_id = $1 ORDER BY filename, id DESC`,
+  [evalUserId],
 );
 const byName = new Map(documents.rows.map((row) => [row.filename, row]));
 

@@ -26,7 +26,7 @@
  */
 import { readFile } from "node:fs/promises";
 import { performance } from "node:perf_hooks";
-import { previousResult, saveResult, scoreRoute } from "./evalHelpers.js";
+import { evalUser, previousResult, saveResult, scoreRoute } from "./evalHelpers.js";
 import type { RouterCase } from "./evalHelpers.js";
 import { config } from "../src/config.js";
 import { pool } from "../src/db/pool.js";
@@ -64,16 +64,10 @@ const onlyIndex = args.indexOf("--only");
 const only = onlyIndex >= 0 ? args[onlyIndex + 1] : undefined;
 const withSearch = args.includes("--with-search");
 const save = !args.includes("--no-save");
-const userIndex = args.indexOf("--user");
-
-/** Whose documents the early search uses: --user, or the user with the most documents. */
+/** Whose documents the early search uses: --user, or the owner of the retrieval eval's documents. */
 async function searchUser(): Promise<number> {
-  if (userIndex >= 0) return Number(args[userIndex + 1]);
-  const result = await pool.query<{ user_id: number }>(
-    `SELECT user_id FROM documents WHERE status = 'completed'
-     GROUP BY user_id ORDER BY count(*) DESC LIMIT 1`,
-  );
-  return result.rows[0]!.user_id;
+  const questions = JSON.parse(await readFile("eval/questions.json", "utf-8")) as { filename: string }[];
+  return evalUser(args, questions.map((q) => q.filename));
 }
 
 const userId = withSearch ? await searchUser() : null;

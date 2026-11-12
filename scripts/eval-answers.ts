@@ -48,7 +48,7 @@ import { coversPage, scoreAnswer } from "./answerChecks.js";
 import type { AnswerQuestion, AnswerScore } from "./answerChecks.js";
 import { CITATION_SUPPORT_SCORE, checkCitations, isSupported, numberedSources } from "./citationCheck.js";
 import type { CitationCheck, NumberedSource } from "./citationCheck.js";
-import { RESULTS_DIR, previousHits, previousResult, saveResult } from "./evalHelpers.js";
+import { RESULTS_DIR, evalUser, previousHits, previousResult, saveResult } from "./evalHelpers.js";
 import { answerFromDocuments, formatChunks, isRefusal, numberSources } from "../src/rag/answer.js";
 import type { AnswerTrace } from "../src/rag/answer.js";
 import { rankedCandidates } from "../src/rag/retrieve.js";
@@ -107,8 +107,6 @@ const rescoreFile = rescore && !args[rescoreIndex + 1]?.startsWith("--") ? args[
  * --user 42: use that user's copies of the eval documents (the distractor run: the
  * eval PDFs ingested with many other documents under a separate user).
  */
-const evalUserIndex = args.indexOf("--user");
-const evalUser = evalUserIndex >= 0 ? Number(args[evalUserIndex + 1]) : null;
 
 /** --doc "name.pdf=12": use that document version instead of the newest one. */
 const pinned = new Map(
@@ -120,11 +118,12 @@ const pinned = new Map(
     }),
 );
 
-const questions = (
-  JSON.parse(await readFile("eval/questions.json", "utf-8")) as EvalQuestion[]
-).filter(
+const allQuestions = JSON.parse(await readFile("eval/questions.json", "utf-8")) as EvalQuestion[];
+const questions = allQuestions.filter(
   (q) => (q.mustInclude || q.type === "negative") && (!only || q.id.includes(only)),
 );
+/** Whose copies of the eval documents are used (--user 42 for the distractor run). */
+const evalUserId = await evalUser(args, allQuestions.map((q) => q.filename));
 
 const nearMissIds = new Set(questions.filter((q) => q.tags?.includes("near_miss")).map((q) => q.id));
 
@@ -170,7 +169,7 @@ async function findDocument(filename: string) {
        AND ($2::integer IS NULL OR id = $2)
        AND ($3::integer IS NULL OR user_id = $3)
      ORDER BY id DESC LIMIT 1`,
-    [filename, pinned.get(filename) ?? null, evalUser],
+    [filename, pinned.get(filename) ?? null, evalUserId],
   );
   return found.rows[0];
 }

@@ -37,7 +37,7 @@
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { performance } from "node:perf_hooks";
 import { bootstrapInterval, pairedInterval } from "./bootstrap.js";
-import { previousHits } from "./evalHelpers.js";
+import { evalUser, previousHits } from "./evalHelpers.js";
 import { config } from "../src/config.js";
 import { pool } from "../src/db/pool.js";
 import {
@@ -121,8 +121,6 @@ const threshold = config.rag.maxCosineDistance;
  * --user 42: use that user's copies of the eval documents (the distractor run: the
  * eval PDFs ingested with many other documents under a separate user).
  */
-const evalUserIndex = args.indexOf("--user");
-const evalUser = evalUserIndex >= 0 ? Number(args[evalUserIndex + 1]) : null;
 
 /** --doc "name.pdf=12": use that document version instead of the newest one (before/after comparisons). */
 const pinned = new Map(
@@ -134,9 +132,11 @@ const pinned = new Map(
     }),
 );
 
-const questions = (
-  JSON.parse(await readFile("eval/questions.json", "utf-8")) as EvalQuestion[]
-).filter((q) => !only || q.id.includes(only));
+const allQuestions = JSON.parse(await readFile("eval/questions.json", "utf-8")) as EvalQuestion[];
+const questions = allQuestions.filter((q) => !only || q.id.includes(only));
+/** Whose copies of the eval documents are searched (--user 42 for the distractor run). */
+const evalUserId = await evalUser(args, allQuestions.map((q) => q.filename));
+console.log(`Eval user: ${evalUserId}`);
 
 async function findDocument(filename: string) {
   const found = await pool.query<{ id: number; user_id: number }>(
@@ -145,7 +145,7 @@ async function findDocument(filename: string) {
        AND ($2::integer IS NULL OR id = $2)
        AND ($3::integer IS NULL OR user_id = $3)
      ORDER BY id DESC LIMIT 1`,
-    [filename, pinned.get(filename) ?? null, evalUser],
+    [filename, pinned.get(filename) ?? null, evalUserId],
   );
   return found.rows[0];
 }
