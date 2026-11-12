@@ -52,6 +52,50 @@ describe("chat", () => {
     expect(sentBody().keep_alive).toBe("30m");
   });
 
+  it("reports Ollama's token counts and timings (nanoseconds) in milliseconds", async () => {
+    reply({
+      message: { content: "جواب" },
+      done_reason: "length",
+      prompt_eval_count: 1200,
+      eval_count: 300,
+      total_duration: 9_500_000_000,
+      load_duration: 20_000_000,
+      prompt_eval_duration: 1_400_000_000,
+      eval_duration: 8_000_000_000,
+    });
+    const onStats = vi.fn();
+
+    await chat({ messages, onStats });
+
+    expect(onStats).toHaveBeenCalledExactlyOnceWith({
+      promptTokens: 1200,
+      outputTokens: 300,
+      loadMs: 20,
+      promptEvalMs: 1400,
+      evalMs: 8000,
+      totalMs: 9500,
+      doneReason: "length",
+    });
+    // The callback is not part of the request sent to Ollama.
+    expect(sentBody()).not.toHaveProperty("onStats");
+  });
+
+  it("reports zeros for counters Ollama leaves out", async () => {
+    reply({ message: { content: "ok" } });
+    const onStats = vi.fn();
+
+    await chat({ messages, onStats });
+
+    expect(onStats).toHaveBeenCalledWith({
+      promptTokens: 0,
+      outputTokens: 0,
+      loadMs: 0,
+      promptEvalMs: 0,
+      evalMs: 0,
+      totalMs: 0,
+    });
+  });
+
   it("lets a caller override the context size", async () => {
     reply({ message: { content: "ok" } });
 

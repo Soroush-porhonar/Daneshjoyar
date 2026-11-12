@@ -31,6 +31,55 @@ function rerankText(chunk: RerankableChunk): string {
   return config.rag.chunking.titleInEmbedding ? withTitle(chunk.sectionTitle, chunk.content) : chunk.content;
 }
 
+/** One result per text (any order), validated; throws when the service fails or answers badly. */
+async function requestScores(query: string, texts: string[]): Promise<{ index: number; relevance_score: number }[]> {
+  const response = await fetch(config.reranker.url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    signal: AbortSignal.timeout(config.reranker.timeoutMs),
+    body: JSON.stringify({ query, documents: texts }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Reranker error: ${response.status} ${response.statusText}`);
+  }
+
+  const results = ((await response.json()) as RerankResponse).results;
+
+  if (
+    !results ||
+    results.length !== texts.length ||
+    results.some((r) => !Number.isInteger(r.index) || r.index < 0 || r.index >= texts.length)
+  ) {
+    throw new Error("Reranker returned an invalid response");
+  }
+
+  return results;
+}
+
+/**
+ * The cross-encoder's score of each text against the query, in the order of
+ * `texts` (one text is fine). Used to check a claim against a source (the
+ * evals' citation check). Null when the reranker is off, down, or answers badly.
+ */
+export async function scoreTexts(query: string, texts: string[]): Promise<number[] | null> {
+  if (!config.reranker.enabled || texts.length === 0) return null;
+
+  try {
+    const scores = new Array<number | undefined>(texts.length).fill(undefined);
+    for (const result of await requestScores(query, texts)) scores[result.index] = result.relevance_score;
+
+    if (scores.some((score) => score === undefined)) {
+      throw new Error("Reranker returned an invalid response");
+    }
+
+    return scores as number[];
+  } catch (error: unknown) {
+    logger.warn("[RAG] Scoring texts failed:", error);
+    return null;
+  }
+}
+
 /**
  * Returns the chunks ordered by relevance to the question (best first), each
  * with its `rerankScore`.
@@ -44,26 +93,7 @@ export async function rerankChunks<T extends RerankableChunk>(
   if (!config.reranker.enabled || chunks.length < 2) return chunks;
 
   try {
-    const response = await fetch(config.reranker.url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      signal: AbortSignal.timeout(config.reranker.timeoutMs),
-      body: JSON.stringify({ query: question, documents: chunks.map(rerankText) }),
-    });
-
-    if (!response.ok) {
-      throw new Error(`Reranker error: ${response.status} ${response.statusText}`);
-    }
-
-    const results = ((await response.json()) as RerankResponse).results;
-
-    if (
-      !results ||
-      results.length !== chunks.length ||
-      results.some((r) => !Number.isInteger(r.index) || r.index < 0 || r.index >= chunks.length)
-    ) {
-      throw new Error("Reranker returned an invalid response");
-    }
+    const results = await requestScores(question, chunks.map(rerankText));
 
     return [...results]
       .sort((a, b) => b.relevance_score - a.relevance_score)

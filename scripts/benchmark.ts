@@ -4,19 +4,46 @@
  *
  *   npm run benchmark
  *   npm run benchmark -- --limit 4
+ *   npm run benchmark -- --concurrency 5    # 5 students asking at the same moment
+ *   npm run benchmark -- --no-save
  *
- * Stages: router (LLM), rewrite (LLM, follow-ups only), retrieval
- * (embedding + SQL), generation (LLM answer = total - retrieval).
+ * Stages: router (LLM), rewrite (LLM, messages after an earlier exchange),
+ * retrieval (embedding + SQL + rerank), generation (LLM answer = total -
+ * retrieval). Generation also reports the answer's output tokens and tokens
+ * per second (from Ollama's own counters).
+ *
+ * Three samples of questions:
+ *   standalone  - a question with no conversation before it
+ *   follow-up   - eval follow-ups with their history (rewritten, like the bot)
+ *   + history   - the standalone questions again, asked after a greeting: the
+ *                 bot treats a short message after any exchange as a follow-up
+ *                 and pays for a rewrite call, as in most real conversations
+ *
+ * "First text" is when the student first sees part of the answer. Answers are
+ * not streamed, so today it equals the total.
+ *
+ * --concurrency N sends N questions through the whole pipeline at once, the
+ * way the bot does (router and early search together, then the answer), and
+ * reports how long each waited and how many failed. Ollama serves one request
+ * at a time, so this measures the queue.
+ *
+ * Runs are saved to eval/results/ (benchmark-*.json, concurrency-*.json) and
+ * compared with the previous one.
  */
 import { readFile } from "node:fs/promises";
 import { performance } from "node:perf_hooks";
+import { config } from "../src/config.js";
 import { pool } from "../src/db/pool.js";
-import { answerFromDocuments } from "../src/rag/answer.js";
+import { OllamaError, OllamaTimeoutError } from "../src/errors.js";
+import { answerFromDocuments, prefetchCandidates } from "../src/rag/answer.js";
+import type { AnswerTrace } from "../src/rag/answer.js";
 import { generateEmbedding } from "../src/rag/embeddings.js";
 import { retrieveContext } from "../src/rag/retrieve.js";
-import { rewriteQuestion } from "../src/rag/rewrite.js";
+import { needsRewrite, rewriteQuestion } from "../src/rag/rewrite.js";
 import type { HistoryMessage } from "../src/rag/rewrite.js";
 import { routeMessage } from "../src/rag/router.js";
+import { previousResult, saveResult } from "./evalHelpers.js";
+import { percentile } from "./usageStats.js";
 
 interface EvalQuestion {
   id: string;
@@ -27,33 +54,72 @@ interface EvalQuestion {
   history?: HistoryMessage[];
 }
 
+interface Sample {
+  sample: "standalone" | "follow-up" | "+ history";
+  /** In the question mix the benchmark has always used; its stage table stays comparable with older runs. */
+  core: boolean;
+  q: EvalQuestion;
+  history: HistoryMessage[];
+}
+
+/** Per question: milliseconds per stage, and the answer call's token counts. */
+interface Timing {
+  id: string;
+  sample: Sample["sample"];
+  core: boolean;
+  router: number;
+  rewrite?: number;
+  embedding: number;
+  retrieval: number;
+  generation: number;
+  total: number;
+  outputTokens?: number;
+  promptTokens?: number;
+  tokensPerSecond?: number;
+}
+
+const STAGES = ["router", "rewrite", "embedding", "retrieval", "generation", "total"] as const;
+
 const args = process.argv.slice(2);
-const limitIndex = args.indexOf("--limit");
-const limit = limitIndex >= 0 ? Number(args[limitIndex + 1]) : 8;
+const flag = (name: string): string | undefined => {
+  const index = args.indexOf(`--${name}`);
+  return index >= 0 ? args[index + 1] : undefined;
+};
+
+const limit = Number(flag("limit") ?? 8);
+const concurrency = flag("concurrency") === undefined ? null : Number(flag("concurrency"));
+const save = !args.includes("--no-save");
+
+/** A greeting exchange: enough history for the bot to treat the next short message as a follow-up. */
+const GREETING: HistoryMessage[] = [
+  { role: "user", content: "سلام" },
+  { role: "assistant", content: "سلام! 👋 چطور می‌تونم کمکت کنم؟" },
+];
+
+const all = JSON.parse(await readFile("eval/questions.json", "utf-8")) as EvalQuestion[];
 
 // A mix of question kinds; broad summaries are left out (minutes per run).
-const questions = (
-  JSON.parse(await readFile("eval/questions.json", "utf-8")) as EvalQuestion[]
-)
+const standalone = all
   .filter((q) => q.mode !== "broad" && q.type !== "negative")
   .filter((_, index) => index % 4 === 0)
   .slice(0, limit);
+const followUps = all
+  .filter((q) => q.type === "follow_up" && q.history && q.mode !== "broad" && !standalone.includes(q))
+  .slice(0, Math.ceil(limit / 2));
 
-const timings: Record<string, number[]> = {
-  router: [],
-  rewrite: [],
-  embedding: [],
-  retrieval: [],
-  generation: [],
-  total: [],
-};
-
-async function time<T>(stage: string, work: () => Promise<T>): Promise<T> {
-  const start = performance.now();
-  const result = await work();
-  timings[stage]!.push(performance.now() - start);
-  return result;
-}
+const samples: Sample[] = [
+  ...standalone.map((q) => ({
+    sample: q.history ? ("follow-up" as const) : ("standalone" as const),
+    core: true,
+    q,
+    history: q.history ?? [],
+  })),
+  ...followUps.map((q) => ({ sample: "follow-up" as const, core: false, q, history: q.history! })),
+  ...standalone
+    .filter((q) => !q.history && needsRewrite(q.question, GREETING))
+    .slice(0, Math.ceil(limit / 2))
+    .map((q) => ({ sample: "+ history" as const, core: false, q, history: GREETING })),
+];
 
 const documents = await pool.query<{ filename: string; id: number; user_id: number }>(
   `SELECT DISTINCT ON (filename) filename, id, user_id FROM documents
@@ -61,59 +127,244 @@ const documents = await pool.query<{ filename: string; id: number; user_id: numb
 );
 const byName = new Map(documents.rows.map((row) => [row.filename, row]));
 
+async function timed<T>(work: () => Promise<T>): Promise<[T, number]> {
+  const start = performance.now();
+  const result = await work();
+  return [result, performance.now() - start];
+}
+
 // Warm-up: the first call loads the models into memory and is not typical.
 await generateEmbedding("گرم کردن");
 await routeMessage("سلام", [], []);
 
-for (const q of questions) {
+const seconds = (ms: number) => `${(ms / 1000).toFixed(1)}s`;
+const settings = { model: config.llm.model, numCtx: config.llm.numCtx, reranker: config.reranker.enabled };
+
+// --- Concurrency: N questions at once, like N students ---------------------------
+
+if (concurrency !== null) {
+  const filenames = documents.rows.map((row) => row.filename);
+  const batch = Array.from({ length: concurrency }, (_, index) => standalone[index % standalone.length]!).filter(
+    (q) => byName.has(q.filename),
+  );
+
+  /** The bot's own order of work for a message that is answered from the notes. */
+  async function answerLikeBot(q: EvalQuestion): Promise<void> {
+    const document = byName.get(q.filename)!;
+    const history = q.history ?? [];
+    const followUp = needsRewrite(q.question, history);
+    const prefetch = followUp ? undefined : prefetchCandidates(document.user_id, q.question);
+
+    await routeMessage(q.question, filenames, history);
+    const question = await rewriteQuestion(q.question, history);
+    const search = followUp ? prefetchCandidates(document.user_id, question) : prefetch;
+    await answerFromDocuments(document.user_id, question, q.mode, search ? { prefetch: search } : {});
+  }
+
+  const failureKind = (error: unknown) =>
+    error instanceof OllamaTimeoutError ? "timeout" : error instanceof OllamaError ? "ollama error" : "other error";
+
+  console.log(`Sending ${batch.length} questions at once...`);
+  const wallStart = performance.now();
+  const results = await Promise.all(
+    batch.map(async (q) => {
+      const start = performance.now();
+      try {
+        await answerLikeBot(q);
+        return { id: q.id, ms: performance.now() - start, failed: "" };
+      } catch (error: unknown) {
+        return { id: q.id, ms: performance.now() - start, failed: failureKind(error) };
+      }
+    }),
+  );
+  const wallMs = performance.now() - wallStart;
+
+  console.table(results.map((r) => ({ id: r.id, waited: seconds(r.ms), result: r.failed || "ok" })));
+
+  const done = results.filter((r) => !r.failed).map((r) => r.ms);
+  const failures = results.filter((r) => r.failed);
+  const kinds = [...new Set(failures.map((r) => r.failed))].map(
+    (kind) => `${failures.filter((r) => r.failed === kind).length} ${kind}`,
+  );
+  const summary = {
+    concurrency: batch.length,
+    answered: done.length,
+    failed: failures.length,
+    p50Ms: Math.round(percentile(done, 0.5)),
+    p95Ms: Math.round(percentile(done, 0.95)),
+    maxMs: Math.round(Math.max(0, ...done)),
+    wallMs: Math.round(wallMs),
+    answersPerMinute: Number(((done.length / wallMs) * 60_000).toFixed(1)),
+  };
+
+  console.log(
+    `${summary.answered}/${batch.length} answered` +
+      (failures.length > 0 ? `, ${kinds.join(", ")}` : "") +
+      `; wait p50 ${seconds(summary.p50Ms)}, p95 ${seconds(summary.p95Ms)}, longest ${seconds(summary.maxMs)}; ` +
+      `${seconds(wallMs)} in all = ${summary.answersPerMinute} answers per minute ` +
+      `(request timeout ${config.llm.timeoutMs / 1000} s, counted from when the request is sent)`,
+  );
+
+  const previous = await previousResult<{ summary: typeof summary }>("concurrency");
+  if (previous) {
+    const old = previous.data.summary;
+    console.log(
+      `Previous run (${previous.file}): ${old.answered}/${old.concurrency} answered, ` +
+        `wait p50 ${seconds(old.p50Ms)}, p95 ${seconds(old.p95Ms)}, ${old.answersPerMinute} answers per minute`,
+    );
+  }
+
+  if (save) console.log(`Saved ${await saveResult("concurrency", { settings, summary, results })}`);
+
+  await pool.end();
+  process.exit(0);
+}
+
+// --- One question at a time: where the time goes ---------------------------------
+
+const timings: Timing[] = [];
+
+for (const { sample, core, q, history } of samples) {
   const document = byName.get(q.filename);
   if (!document) continue;
-  console.log(`... ${q.id}`);
+  console.log(`... ${q.id} (${sample})`);
 
   const totalStart = performance.now();
-  await time("router", () => routeMessage(q.question, [q.filename], q.history ?? []));
-  const question = q.history
-    ? await time("rewrite", () => rewriteQuestion(q.question, q.history!))
-    : q.question;
-  await time("embedding", () => generateEmbedding(question));
+  const [, router] = await timed(() => routeMessage(q.question, [q.filename], history));
+  const [question, rewriteMs] = needsRewrite(q.question, history)
+    ? await timed(() => rewriteQuestion(q.question, history))
+    : [q.question, undefined];
+  const [, embedding] = await timed(() => generateEmbedding(question));
   const mode = q.mode === "multi_part" ? "multi_part" : "focused";
-  const retrievalStart = performance.now();
-  await time("retrieval", () => retrieveContext(document.user_id, question, mode, { documentId: document.id }));
-  const retrievalMs = performance.now() - retrievalStart;
-  const answerStart = performance.now();
-  await answerFromDocuments(document.user_id, question, q.mode, { documentId: document.id });
-  // answerFromDocuments retrieves again; subtract that to get the LLM time.
-  timings.generation!.push(performance.now() - answerStart - retrievalMs);
-  timings.total!.push(performance.now() - totalStart - retrievalMs);
+  const [, retrieval] = await timed(() => retrieveContext(document.user_id, question, mode, { documentId: document.id }));
+
+  const trace: AnswerTrace = {};
+  const [, answerMs] = await timed(() =>
+    answerFromDocuments(document.user_id, question, q.mode, { documentId: document.id, trace }),
+  );
+  const llm = trace.generation;
+
+  timings.push({
+    id: q.id,
+    sample,
+    core,
+    router,
+    ...(rewriteMs === undefined ? {} : { rewrite: rewriteMs }),
+    embedding,
+    retrieval,
+    // answerFromDocuments retrieves again; subtract that to get the LLM time.
+    generation: answerMs - retrieval,
+    total: performance.now() - totalStart - retrieval,
+    ...(llm
+      ? {
+          outputTokens: llm.outputTokens,
+          promptTokens: llm.promptTokens,
+          tokensPerSecond: llm.evalMs > 0 ? llm.outputTokens / (llm.evalMs / 1000) : 0,
+        }
+      : {}),
+  });
 }
 
-function percentile(values: number[], p: number): number {
-  const sorted = [...values].sort((a, b) => a - b);
-  return sorted[Math.min(sorted.length - 1, Math.floor((p / 100) * sorted.length))] ?? 0;
+const values = (group: Timing[], stage: (typeof STAGES)[number]) =>
+  group.map((timing) => timing[stage]).filter((value): value is number => value !== undefined);
+const mean = (list: number[]) => list.reduce((sum, value) => sum + value, 0) / Math.max(list.length, 1);
+
+/** p50 / p95 per stage of a group of questions. */
+function stageTable(group: Timing[]) {
+  const meanTotal = mean(values(group, "total"));
+
+  return Object.fromEntries(
+    STAGES.filter((stage) => values(group, stage).length > 0).map((stage) => {
+      const list = values(group, stage);
+      return [
+        stage,
+        {
+          runs: list.length,
+          p50: seconds(percentile(list, 0.5)),
+          p95: seconds(percentile(list, 0.95)),
+          "share of total": stage === "total" ? "" : `${Math.round(((mean(list) * list.length) / group.length / meanTotal) * 100)}%`,
+        },
+      ];
+    }),
+  );
 }
 
-const seconds = (ms: number) => `${(ms / 1000).toFixed(1)}s`;
-const meanTotal =
-  timings.total!.reduce((sum, ms) => sum + ms, 0) / Math.max(timings.total!.length, 1);
+const coreTimings = timings.filter((timing) => timing.core);
 
+console.log(`\nStages, on the usual mix of ${coreTimings.length} questions (comparable with earlier runs):`);
+console.table(stageTable(coreTimings));
+console.log("(retrieval includes its own embedding call; shares are of the mean total per question)");
+
+const summarize = (group: Timing[]) => {
+  const tokens = group.map((timing) => timing.outputTokens).filter((value): value is number => value !== undefined);
+  const speeds = group.map((timing) => timing.tokensPerSecond).filter((value): value is number => value !== undefined);
+
+  return {
+    questions: group.length,
+    totalP50Ms: Math.round(percentile(values(group, "total"), 0.5)),
+    totalP95Ms: Math.round(percentile(values(group, "total"), 0.95)),
+    // Not streamed: the first text the student sees is the whole answer.
+    firstTextP50Ms: Math.round(percentile(values(group, "total"), 0.5)),
+    rewriteP50Ms: Math.round(percentile(values(group, "rewrite"), 0.5)),
+    generationP50Ms: Math.round(percentile(values(group, "generation"), 0.5)),
+    outputTokensP50: Math.round(percentile(tokens, 0.5)),
+    outputTokensP95: Math.round(percentile(tokens, 0.95)),
+    tokensPerSecond: Number(mean(speeds).toFixed(1)),
+  };
+};
+
+const bySample = Object.fromEntries(
+  [...new Set(timings.map((timing) => timing.sample))].map((sample) => [
+    sample,
+    summarize(timings.filter((timing) => timing.sample === sample)),
+  ]),
+);
+
+console.log("\nBy sample:");
 console.table(
   Object.fromEntries(
-    Object.entries(timings)
-      .filter(([, values]) => values.length > 0)
-      .map(([stage, values]) => {
-        const mean = values.reduce((sum, ms) => sum + ms, 0) / values.length;
-        return [
-          stage,
-          {
-            runs: values.length,
-            p50: seconds(percentile(values, 50)),
-            p95: seconds(percentile(values, 95)),
-            "share of total": stage === "total" ? "" : `${Math.round((mean / meanTotal) * 100)}%`,
-          },
-        ];
-      }),
+    Object.entries(bySample).map(([sample, s]) => [
+      sample,
+      {
+        questions: s.questions,
+        "total p50": seconds(s.totalP50Ms),
+        "total p95": seconds(s.totalP95Ms),
+        "first text p50": seconds(s.firstTextP50Ms),
+        "rewrite p50": s.rewriteP50Ms ? seconds(s.rewriteP50Ms) : "-",
+        "generation p50": seconds(s.generationP50Ms),
+        "output tokens p50 / p95": `${s.outputTokensP50} / ${s.outputTokensP95}`,
+        "tokens/s": s.tokensPerSecond,
+      },
+    ]),
   ),
 );
-console.log("(retrieval includes its own embedding call)");
+console.log("(first text = total: answers are not streamed)");
+
+const stages = Object.fromEntries(
+  STAGES.filter((stage) => values(coreTimings, stage).length > 0).map((stage) => [
+    stage,
+    {
+      runs: values(coreTimings, stage).length,
+      p50Ms: Math.round(percentile(values(coreTimings, stage), 0.5)),
+      p95Ms: Math.round(percentile(values(coreTimings, stage), 0.95)),
+    },
+  ]),
+);
+
+const previous = await previousResult<{ stages: typeof stages }>("benchmark");
+
+if (previous) {
+  console.log(`\nCompared with ${previous.file} (p50 per stage):`);
+  for (const [stage, now] of Object.entries(stages)) {
+    const old = previous.data.stages[stage];
+    if (!old) continue;
+    const change = now.p50Ms - old.p50Ms;
+    console.log(
+      `  ${stage.padEnd(10)} ${seconds(old.p50Ms)} -> ${seconds(now.p50Ms)}  (${change >= 0 ? "+" : ""}${(change / 1000).toFixed(1)}s)`,
+    );
+  }
+}
+
+if (save) console.log(`\nSaved ${await saveResult("benchmark", { settings, limit, stages, bySample, timings })}`);
 
 await pool.end();

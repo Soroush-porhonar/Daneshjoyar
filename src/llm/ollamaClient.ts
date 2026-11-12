@@ -19,6 +19,23 @@ export interface ChatRequest {
   options?: Record<string, unknown>;
   /** Pass false to disable thinking on reasoning models. */
   think?: boolean;
+  /** Called with the request's token counts and timings once the answer is complete. */
+  onStats?: ((stats: ChatStats) => void) | undefined;
+}
+
+/** What Ollama reports about one chat request (its own counters; times in milliseconds). */
+export interface ChatStats {
+  promptTokens: number;
+  outputTokens: number;
+  /** Loading the model into memory; near zero when it was already loaded. */
+  loadMs: number;
+  /** Reading the prompt. */
+  promptEvalMs: number;
+  /** Writing the answer. */
+  evalMs: number;
+  totalMs: number;
+  /** "stop", or "length" when num_predict cut the answer short. */
+  doneReason?: string;
 }
 
 interface OllamaChatResponse {
@@ -26,7 +43,14 @@ interface OllamaChatResponse {
   done_reason?: string;
   eval_count?: number;
   prompt_eval_count?: number;
+  /** Durations are in nanoseconds. */
+  total_duration?: number;
+  load_duration?: number;
+  prompt_eval_duration?: number;
+  eval_duration?: number;
 }
+
+const nanosToMs = (nanos: number | undefined) => (nanos ?? 0) / 1e6;
 
 interface OllamaEmbedResponse {
   embeddings?: number[][];
@@ -95,6 +119,16 @@ export async function chat(request: ChatRequest): Promise<string> {
     doneReason: data.done_reason,
     promptTokens: data.prompt_eval_count,
     tokens: data.eval_count,
+  });
+
+  request.onStats?.({
+    promptTokens: data.prompt_eval_count ?? 0,
+    outputTokens: data.eval_count ?? 0,
+    loadMs: nanosToMs(data.load_duration),
+    promptEvalMs: nanosToMs(data.prompt_eval_duration),
+    evalMs: nanosToMs(data.eval_duration),
+    totalMs: nanosToMs(data.total_duration),
+    ...(data.done_reason === undefined ? {} : { doneReason: data.done_reason }),
   });
 
   const numCtx = Number(request.options?.num_ctx ?? config.llm.numCtx);

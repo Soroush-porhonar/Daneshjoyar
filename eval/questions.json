@@ -715,7 +715,7 @@
     "mode": "focused",
     "question": "وقتی تستر در کار دیگران ایراد پیدا می‌کند چه مشکل روانی ممکن است پیش بیاید؟",
     "expectedPages": [87],
-    "mustInclude": ["نویسنده"],
+    "mustInclude": [["نویسنده", "توسعه‌دهنده", "دولوپر", "برنامه‌نویس"]],
     "filename": "جزوه درس آزمون نرم افزاراستاد زاغری 405.pdf"
   },
   {
@@ -796,7 +796,7 @@
     "mode": "focused",
     "question": "سالانه چند نفر بر اثر آنفولانزا می‌میرند؟",
     "expectedPages": [7],
-    "mustInclude": ["650"],
+    "mustInclude": [["650", "نیم میلیون"]],
     "filename": "4_6023995269647959615.pdf"
   },
   {
@@ -821,7 +821,7 @@
       1
     ],
     "mustInclude": [
-      "استنباط"
+      ["استنباط", "استنتاج"]
     ],
     "filename": "CamScanner 05-18-2025 16.58.pdf"
   },
@@ -897,5 +897,1216 @@
     "question": "شبکه عصبی با الگوریتم پس‌انتشار خطا چطور آموزش داده می‌شود؟",
     "expectedPages": [],
     "filename": "CamScanner 05-18-2025 16.58.pdf"
+  },
+  {
+    "id": "sh-lifo",
+    "type": "standalone_history",
+    "mode": "focused",
+    "question": "LIFO یعنی چی",
+    "expectedPages": [9],
+    "mustInclude": ["آخرین"],
+    "filename": "DataStructure_Chapter1.pdf",
+    "history": [
+      { "role": "user", "content": "سلام" },
+      { "role": "assistant", "content": "سلام! 👋 چطور می‌تونم کمکت کنم؟" }
+    ]
+  },
+  {
+    "id": "sh-hanoi-moves",
+    "type": "standalone_history",
+    "mode": "focused",
+    "question": "برج هانوی با سه تا دیسک چند حرکت میخواد",
+    "expectedPages": [28],
+    "mustInclude": ["7"],
+    "filename": "DataStructure_Chapter1.pdf",
+    "history": [
+      { "role": "user", "content": "تابع فاکتوریل بازگشتی چطور کار می‌کنه؟" },
+      { "role": "assistant", "content": "fact(n) اگر n کوچک‌تر یا مساوی ۱ باشد ۱ برمی‌گرداند و گرنه n*fact(n-1) را حساب می‌کند [1].\n\n**منابع:**\n- [1] DataStructure_Chapter1.pdf — صفحه 6" }
+    ]
+  },
+  {
+    "id": "sh-mst",
+    "type": "standalone_history",
+    "mode": "focused",
+    "question": "MST چیه",
+    "expectedPages": [8],
+    "filename": "Algorithm-Chapter4.pdf",
+    "history": [
+      { "role": "user", "content": "LIFO یعنی چی؟" },
+      { "role": "assistant", "content": "یعنی آخرین عنصری که وارد پشته شده، اولین عنصری است که خارج می‌شود [1].\n\n**منابع:**\n- [1] DataStructure_Chapter1.pdf — صفحه 9" }
+    ]
+  },
+  {
+    "id": "sh-dijkstra",
+    "type": "standalone_history",
+    "mode": "focused",
+    "question": "دایجکسترا چجوری کار میکنه",
+    "expectedPages": [22],
+    "filename": "Algorithm-Chapter4.pdf",
+    "holdout": true,
+    "history": [
+      { "role": "user", "content": "سلام" },
+      { "role": "assistant", "content": "سلام! 👋 چطور می‌تونم کمکت کنم؟" }
+    ]
+  },
+  {
+    "id": "sh-huffman",
+    "type": "standalone_history",
+    "mode": "focused",
+    "question": "الگوریتم هافمن به چه دردی میخوره",
+    "expectedPages": [26],
+    "filename": "Algorithm-Chapter4.pdf",
+    "history": [
+      { "role": "user", "content": "الگوریتم کروسکال چیه؟" },
+      { "role": "assistant", "content": "کروسکال یال‌ها را به ترتیب وزن مرتب می‌کند و هر بار کم‌وزن‌ترین یالی را که دور نمی‌سازد به درخت اضافه می‌کند؛ بیشتر زمان آن صرف مرتب‌سازی یال‌ها می‌شود [1].\n\n**منابع:**\n- [1] Algorithm-Chapter4.pdf — صفحه 18" }
+    ]
+  },
+  {
+    "id": "sh-kruskal-order",
+    "type": "standalone_history",
+    "mode": "focused",
+    "question": "مرتبه اجرایی کروسکال چنده",
+    "expectedPages": [19],
+    "mustInclude": ["nlogn"],
+    "filename": "Algorithm-Chapter4.pdf",
+    "history": [
+      { "role": "user", "content": "الگوریتم هافمن برای چی استفاده میشه؟" },
+      { "role": "assistant", "content": "برای کدگذاری عناصر با کدهایی با طول متغیر، به‌طوری که عنصرهای پرتکرار کد کوتاه‌تری بگیرند [1].\n\n**منابع:**\n- [1] Algorithm-Chapter4.pdf — صفحه 26" }
+    ]
+  },
+  {
+    "id": "sh-growth",
+    "type": "standalone_history",
+    "mode": "focused",
+    "question": "ترتیب رشد توابع چجوریه",
+    "expectedPages": [28],
+    "filename": "DataStructure_Chapter2.pdf",
+    "history": [
+      { "role": "user", "content": "📚 جزوه‌های من" },
+      { "role": "assistant", "content": "📚 **جزوه‌های تو**\n\nسؤال‌هات رو از روی همه این جزوه‌ها جواب می‌دم." }
+    ]
+  },
+  {
+    "id": "sh-worst-best",
+    "type": "standalone_history",
+    "mode": "focused",
+    "question": "W(n) و B(n) چی هستن",
+    "expectedPages": [16],
+    "mustInclude": ["بدترین", "بهترین"],
+    "filename": "DataStructure_Chapter2.pdf",
+    "holdout": true,
+    "history": [
+      { "role": "user", "content": "نماد O در مرتبه اجرایی یعنی چه؟" },
+      { "role": "assistant", "content": "نماد O حد بالا برای رشد یک تابع است [1].\n\n**منابع:**\n- [1] DataStructure_Chapter2.pdf — صفحه 29" }
+    ]
+  },
+  {
+    "id": "sh-lisbon-date",
+    "type": "standalone_history",
+    "mode": "focused",
+    "question": "زلزله لیسبون کی بود",
+    "expectedPages": [2],
+    "mustInclude": ["نوامبر"],
+    "filename": "زلزلهٔ لیسبون ۱۷۵۵.pdf",
+    "history": [
+      { "role": "user", "content": "اصول شی گرایی چیه؟" },
+      { "role": "assistant", "content": "اصول شی‌گرایی عبارتند از محصورسازی، تجرید، سلسله مراتب و واحدبندی [1].\n\n**منابع:**\n- [1] جزوه مهندسی نرم افزار - بخش شی گرایی.pdf — صفحه 46" }
+    ]
+  },
+  {
+    "id": "sh-lisbon-rebuild",
+    "type": "standalone_history",
+    "mode": "focused",
+    "question": "لیسبون چطور بازسازی شد",
+    "expectedPages": [9],
+    "filename": "زلزلهٔ لیسبون ۱۷۵۵.pdf",
+    "history": [
+      { "role": "user", "content": "ولتر درباره زلزله لیسبون چه نظری داشت؟" },
+      { "role": "assistant", "content": "ولتر خوش‌بینی رایج را زیر سؤال برد و شعری درباره فاجعه لیسبون نوشت [1].\n\n**منابع:**\n- [1] زلزلهٔ لیسبون ۱۷۵۵.pdf — صفحه 5" }
+    ]
+  },
+  {
+    "id": "sh-oo-principles",
+    "type": "standalone_history",
+    "mode": "focused",
+    "question": "اصول شی گرایی چیه",
+    "expectedPages": [46],
+    "filename": "جزوه مهندسی نرم افزار - بخش شی گرایی.pdf",
+    "history": [
+      { "role": "user", "content": "سلام" },
+      { "role": "assistant", "content": "سلام! 👋 چطور می‌تونم کمکت کنم؟" }
+    ]
+  },
+  {
+    "id": "sh-open-closed",
+    "type": "standalone_history",
+    "mode": "focused",
+    "question": "قاعده باز و بسته چیه",
+    "expectedPages": [69],
+    "filename": "جزوه مهندسی نرم افزار - بخش شی گرایی.pdf",
+    "holdout": true,
+    "history": [
+      { "role": "user", "content": "انسجام و وابستگی یعنی چی؟" },
+      { "role": "assistant", "content": "انسجام درجه ارتباط عناصر داخلی یک ماژول و وابستگی درجه ارتباط ماژول‌های گوناگون با یکدیگر است [1].\n\n**منابع:**\n- [1] جزوه مهندسی نرم افزار - بخش شی گرایی.pdf — صفحه 63" }
+    ]
+  },
+  {
+    "id": "sh-oo-relations",
+    "type": "standalone_history",
+    "mode": "focused",
+    "question": "روابط بین کلاس ها چیا هستن",
+    "expectedPages": [37],
+    "filename": "جزوه مهندسی نرم افزار - بخش شی گرایی.pdf",
+    "history": [
+      { "role": "user", "content": "هویت یک شیء یعنی چی؟" },
+      { "role": "assistant", "content": "هویت ویژگی‌ای است که یک شیء را از همه اشیاء دیگر متمایز می‌کند [1].\n\n**منابع:**\n- [1] جزوه مهندسی نرم افزار - بخش شی گرایی.pdf — صفحه 23" }
+    ]
+  },
+  {
+    "id": "sh-decision-table",
+    "type": "standalone_history",
+    "mode": "focused",
+    "question": "تست جدول تصمیم چیه",
+    "expectedPages": [130, 110],
+    "filename": "جزوه درس آزمون نرم افزاراستاد زاغری 405.pdf",
+    "history": [
+      { "role": "user", "content": "تست آلفا چیه؟" },
+      { "role": "assistant", "content": "تست آلفا در محل سازنده نرم‌افزار و پیش از عرضه انجام می‌شود [1].\n\n**منابع:**\n- [1] جزوه درس آزمون نرم افزاراستاد زاغری 405.pdf — صفحه 96" }
+    ]
+  },
+  {
+    "id": "sh-static-dynamic",
+    "type": "standalone_history",
+    "mode": "focused",
+    "question": "فرق تست ایستا و پویا چیه",
+    "expectedPages": [150],
+    "filename": "جزوه درس آزمون نرم افزاراستاد زاغری 405.pdf",
+    "history": [
+      { "role": "user", "content": "LIFO یعنی چی؟" },
+      { "role": "assistant", "content": "یعنی آخرین عنصری که وارد پشته شده، اولین عنصری است که خارج می‌شود [1].\n\n**منابع:**\n- [1] DataStructure_Chapter1.pdf — صفحه 9" },
+      { "role": "user", "content": "مرسی" },
+      { "role": "assistant", "content": "خواهش می‌کنم! 😊 اگه سؤال دیگه‌ای داشتی بپرس." }
+    ]
+  },
+  {
+    "id": "sh-alpha-beta",
+    "type": "standalone_history",
+    "mode": "focused",
+    "question": "تست آلفا و بتا چه فرقی دارن",
+    "expectedPages": [95, 96, 97, 118, 191],
+    "mustInclude": ["مشتری"],
+    "filename": "جزوه درس آزمون نرم افزاراستاد زاغری 405.pdf",
+    "holdout": true,
+    "history": [
+      { "role": "user", "content": "پوشش دستور در تست جعبه سفید یعنی چی؟" },
+      { "role": "assistant", "content": "پوشش دستور درصد دستورهایی از برنامه است که تست‌ها اجرا کرده‌اند [1].\n\n**منابع:**\n- [1] جزوه درس آزمون نرم افزاراستاد زاغری 405.pdf — صفحه 133" }
+    ]
+  },
+  {
+    "id": "sh-expert-def",
+    "type": "standalone_history",
+    "mode": "focused",
+    "question": "سیستم خبره چیه",
+    "expectedPages": [1],
+    "mustInclude": ["برنامه"],
+    "filename": "CamScanner 05-18-2025 16.58.pdf",
+    "history": [
+      { "role": "user", "content": "hi" },
+      { "role": "assistant", "content": "سلام! 👋 چطور می‌تونم کمکت کنم؟" }
+    ]
+  },
+  {
+    "id": "sh-expert-person",
+    "type": "standalone_history",
+    "mode": "focused",
+    "question": "شخص خبره چه ویژگی هایی داره",
+    "expectedPages": [2],
+    "mustInclude": ["تجربه"],
+    "filename": "CamScanner 05-18-2025 16.58.pdf",
+    "history": [
+      { "role": "user", "content": "سیستم خبره چیه؟" },
+      { "role": "assistant", "content": "سیستم خبره مجموعه‌ای از چند برنامه کامپیوتری است که با دانش و رویه‌های استنتاج، مسائلی را حل می‌کند که به هوش فرد خبره نیاز دارند [1].\n\n**منابع:**\n- [1] CamScanner 05-18-2025 16.58.pdf — صفحه 1" }
+    ]
+  },
+  {
+    "id": "sh-flu-deaths",
+    "type": "standalone_history",
+    "mode": "focused",
+    "question": "سالانه چند نفر از آنفولانزا میمیرن",
+    "expectedPages": [7],
+    "mustInclude": [["650", "نیم میلیون"]],
+    "filename": "4_6023995269647959615.pdf",
+    "history": [
+      { "role": "user", "content": "ویروس کرونا چه سالی ظهور کرد؟" },
+      { "role": "assistant", "content": "طبق متن، یک سویه جدید از خانواده کرونا در سال ۲۰۱۹ ظهور کرد [1].\n\n**منابع:**\n- [1] 4_6023995269647959615.pdf — صفحه 2" }
+    ]
+  },
+  {
+    "id": "sh-trigger-fire",
+    "type": "standalone_history",
+    "mode": "focused",
+    "question": "trigger و fire چیکار میکنن",
+    "expectedPages": [5],
+    "mustInclude": ["انتخاب"],
+    "filename": "CamScanner 05-18-2025 16.58.pdf",
+    "holdout": true,
+    "history": [
+      { "role": "user", "content": "تفاوت تست ایستا و پویا چیه؟" },
+      { "role": "assistant", "content": "در تست ایستا برنامه اجرا نمی‌شود و کد و مستندات بازبینی می‌شوند؛ در تست پویا نرم‌افزار اجرا می‌شود [1].\n\n**منابع:**\n- [1] جزوه درس آزمون نرم افزاراستاد زاغری 405.pdf — صفحه 150" }
+    ]
+  },
+  {
+    "id": "fu-kruskal-order",
+    "type": "follow_up",
+    "mode": "focused",
+    "question": "مرتبه اجراییش برای گراف خلوت و شلوغ چقدره؟",
+    "expectedPages": [19],
+    "mustInclude": ["nlogn"],
+    "filename": "Algorithm-Chapter4.pdf",
+    "history": [
+      { "role": "user", "content": "الگوریتم کروسکال چیه؟" },
+      { "role": "assistant", "content": "کروسکال یال‌ها را به ترتیب وزن مرتب می‌کند و هر بار کم‌وزن‌ترین یالی را که دور نمی‌سازد به درخت اضافه می‌کند؛ بیشتر زمان آن صرف مرتب‌سازی یال‌ها می‌شود [1].\n\n**منابع:**\n- [1] Algorithm-Chapter4.pdf — صفحه 18" }
+    ]
+  },
+  {
+    "id": "fu-huffman-code",
+    "type": "follow_up",
+    "mode": "focused",
+    "question": "توی مثالش کد عنصر B چی شد؟",
+    "expectedPages": [33],
+    "mustInclude": ["11011"],
+    "filename": "Algorithm-Chapter4.pdf",
+    "history": [
+      { "role": "user", "content": "الگوریتم هافمن برای چی استفاده میشه؟" },
+      { "role": "assistant", "content": "برای کدگذاری عناصر با کدهایی با طول متغیر، به‌طوری که عنصرهای پرتکرار کد کوتاه‌تری بگیرند [1].\n\n**منابع:**\n- [1] Algorithm-Chapter4.pdf — صفحه 26" }
+    ]
+  },
+  {
+    "id": "fu-optimism",
+    "type": "follow_up",
+    "mode": "focused",
+    "question": "این دیدگاهش با چیزی که خوش‌بین‌ها درباره بهترین جهان ممکن می‌گفتند چه فرقی داشت؟",
+    "expectedPages": [5, 6],
+    "filename": "زلزلهٔ لیسبون ۱۷۵۵.pdf",
+    "history": [
+      { "role": "user", "content": "ولتر درباره زلزله لیسبون چه نظری داشت؟" },
+      { "role": "assistant", "content": "ولتر خوش‌بینی رایج را زیر سؤال برد و شعری درباره فاجعه لیسبون نوشت [1].\n\n**منابع:**\n- [1] زلزلهٔ لیسبون ۱۷۵۵.pdf — صفحه 5" }
+    ]
+  },
+  {
+    "id": "fu-rebuild-view",
+    "type": "follow_up",
+    "mode": "focused",
+    "question": "این کار چه تغییری در نگاه مردم به فاجعه‌های طبیعی ایجاد کرد؟",
+    "expectedPages": [9],
+    "filename": "زلزلهٔ لیسبون ۱۷۵۵.pdf",
+    "holdout": true,
+    "history": [
+      { "role": "user", "content": "لیسبون بعد از زلزله چطور بازسازی شد؟" },
+      { "role": "assistant", "content": "خیابان‌ها منظم‌تر و ساختمان‌ها با توجه بیشتری به مقاومت در برابر زلزله طراحی شدند [1].\n\n**منابع:**\n- [1] زلزلهٔ لیسبون ۱۷۵۵.pdf — صفحه 9" }
+    ]
+  },
+  {
+    "id": "fu-beta-where",
+    "type": "follow_up",
+    "mode": "focused",
+    "question": "و بتا کجا انجام میشه؟",
+    "expectedPages": [95, 96, 97, 118, 191],
+    "mustInclude": ["مشتری"],
+    "filename": "جزوه درس آزمون نرم افزاراستاد زاغری 405.pdf",
+    "history": [
+      { "role": "user", "content": "تست آلفا چیه؟" },
+      { "role": "assistant", "content": "تست آلفا در محل سازنده نرم‌افزار و پیش از عرضه انجام می‌شود [1].\n\n**منابع:**\n- [1] جزوه درس آزمون نرم افزاراستاد زاغری 405.pdf — صفحه 96" }
+    ]
+  },
+  {
+    "id": "fu-decision-coverage",
+    "type": "follow_up",
+    "mode": "focused",
+    "question": "اون یکی، پوشش تصمیم، چطور حساب میشه؟",
+    "expectedPages": [133],
+    "filename": "جزوه درس آزمون نرم افزاراستاد زاغری 405.pdf",
+    "history": [
+      { "role": "user", "content": "پوشش دستور در تست جعبه سفید یعنی چی؟" },
+      { "role": "assistant", "content": "پوشش دستور درصد دستورهایی از برنامه است که تست‌ها اجرا کرده‌اند [1].\n\n**منابع:**\n- [1] جزوه درس آزمون نرم افزاراستاد زاغری 405.pdf — صفحه 133" }
+    ]
+  },
+  {
+    "id": "fu-inspection-roles",
+    "type": "follow_up",
+    "mode": "focused",
+    "question": "رسمی‌ترینشون کدومه و چه نقش‌هایی داره؟",
+    "expectedPages": [148],
+    "mustInclude": ["بازرسی"],
+    "filename": "جزوه درس آزمون نرم افزاراستاد زاغری 405.pdf",
+    "history": [
+      { "role": "user", "content": "انواع بازبینی در تست ایستا چیا هستن؟" },
+      { "role": "assistant", "content": "چهار نوع بازبینی وجود دارد: Informal Review، Walkthrough، Technical Review و Inspection [1].\n\n**منابع:**\n- [1] جزوه درس آزمون نرم افزاراستاد زاغری 405.pdf — صفحه 147" }
+    ]
+  },
+  {
+    "id": "fu-cohesion",
+    "type": "follow_up",
+    "mode": "focused",
+    "question": "انسجام و وابستگی توش یعنی چی؟",
+    "expectedPages": [63],
+    "filename": "جزوه مهندسی نرم افزار - بخش شی گرایی.pdf",
+    "holdout": true,
+    "history": [
+      { "role": "user", "content": "واحدبندی در شی گرایی یعنی چی؟" },
+      { "role": "assistant", "content": "واحدبندی یعنی تجزیه سیستم به مجموعه‌ای از ماژول‌های منسجم و معنی‌دار که وابستگی بین آن‌ها حداقل است [1].\n\n**منابع:**\n- [1] جزوه مهندسی نرم افزار - بخش شی گرایی.pdf — صفحه 62" }
+    ]
+  },
+  {
+    "id": "fu-aggregation",
+    "type": "follow_up",
+    "mode": "focused",
+    "question": "اونی که توش یک کلاس از کنار هم گذاشتن چند تا کلاس دیگه ساخته میشه رو بیشتر توضیح بده",
+    "expectedPages": [40, 41],
+    "filename": "جزوه مهندسی نرم افزار - بخش شی گرایی.pdf",
+    "history": [
+      { "role": "user", "content": "روابط اساسی بین کلاس‌ها کدامند؟" },
+      { "role": "assistant", "content": "روابط اساسی بین کلاس‌ها عبارتند از وابستگی، تجمع و وراثت [1].\n\n**منابع:**\n- [1] جزوه مهندسی نرم افزار - بخش شی گرایی.pdf — صفحه 37" }
+    ]
+  },
+  {
+    "id": "fu-expert-features",
+    "type": "follow_up",
+    "mode": "focused",
+    "question": "چه ویژگی‌هایی باید داشته باشه؟",
+    "expectedPages": [1],
+    "mustInclude": [
+      ["استنباط", "استنتاج"]
+    ],
+    "filename": "CamScanner 05-18-2025 16.58.pdf",
+    "history": [
+      { "role": "user", "content": "سیستم خبره چیه؟" },
+      { "role": "assistant", "content": "سیستم خبره مجموعه‌ای از چند برنامه کامپیوتری است که با دانش و رویه‌های استنتاج، مسائلی را حل می‌کند که به هوش فرد خبره نیاز دارند [1].\n\n**منابع:**\n- [1] CamScanner 05-18-2025 16.58.pdf — صفحه 1" }
+    ]
+  },
+  {
+    "id": "fu-fire",
+    "type": "follow_up",
+    "mode": "focused",
+    "question": "مرحله دومش دقیقاً چیکار می‌کنه؟",
+    "expectedPages": [5],
+    "filename": "CamScanner 05-18-2025 16.58.pdf",
+    "history": [
+      { "role": "user", "content": "مکانیزم کنترل در سیستم خبره چیه؟" },
+      { "role": "assistant", "content": "مکانیزم کنترل در دو مرحله trigger و fire تعیین می‌کند کدام قانون‌ها نامزد و کدام اجرا شوند [1].\n\n**منابع:**\n- [1] CamScanner 05-18-2025 16.58.pdf — صفحه 5" }
+    ]
+  },
+  {
+    "id": "fu-covid-symptoms",
+    "type": "follow_up",
+    "mode": "focused",
+    "question": "چه علائمی ایجاد می‌کرد؟",
+    "expectedPages": [2],
+    "mustInclude": ["تنفس"],
+    "filename": "4_6023995269647959615.pdf",
+    "holdout": true,
+    "history": [
+      { "role": "user", "content": "ویروس کرونا چه سالی ظهور کرد؟" },
+      { "role": "assistant", "content": "طبق متن، یک سویه جدید از خانواده کرونا در سال ۲۰۱۹ ظهور کرد [1].\n\n**منابع:**\n- [1] 4_6023995269647959615.pdf — صفحه 2" }
+    ]
+  },
+  {
+    "id": "fu-fib-slow",
+    "type": "follow_up",
+    "mode": "focused",
+    "question": "برای فیبوناچی بازگشتی چرا اینقدر کند میشه؟",
+    "expectedPages": [42, 43],
+    "filename": "DataStructure_Chapter2.pdf",
+    "history": [
+      { "role": "user", "content": "مرتبه اجرایی توابع بازگشتی رو چطور حساب می‌کنیم؟" },
+      { "role": "assistant", "content": "تابع را به فرم ریاضی بازگشتی می‌نویسیم و با معادلات بازگشتی یا رسم درخت بازگشتی، تعداد فراخوانی‌ها را می‌شماریم [1].\n\n**منابع:**\n- [1] DataStructure_Chapter2.pdf — صفحه 34" }
+    ]
+  },
+  {
+    "id": "fu-pros-cons",
+    "type": "follow_up",
+    "mode": "focused",
+    "question": "استفاده ازش به جای حلقه چه خوبی‌ها و بدی‌هایی داره؟",
+    "expectedPages": [13],
+    "filename": "DataStructure_Chapter1.pdf",
+    "history": [
+      { "role": "user", "content": "تابع بازگشتی چیه؟" },
+      { "role": "assistant", "content": "تابع بازگشتی تابعی است که برای حل مسئله، خودش را با ورودی کوچک‌تر صدا می‌زند تا به حالت پایه برسد [1].\n\n**منابع:**\n- [1] DataStructure_Chapter1.pdf — صفحه 5" }
+    ]
+  },
+  {
+    "id": "fu-knapsack",
+    "type": "follow_up",
+    "mode": "focused",
+    "question": "این روش کدوم نوع مسئله کوله‌پشتی رو درست حل می‌کنه و کدوم رو نه؟",
+    "expectedPages": [46, 47],
+    "mustInclude": ["کسری"],
+    "filename": "Algorithm-Chapter4.pdf",
+    "history": [
+      { "role": "user", "content": "روش حریصانه چیه؟" },
+      { "role": "assistant", "content": "در هر مرحله بهترین انتخاب فعلی انجام می‌شود، بدون توجه به انتخاب‌های قبلی یا بعدی [1].\n\n**منابع:**\n- [1] Algorithm-Chapter4.pdf — صفحه 2" }
+    ]
+  },
+  {
+    "id": "mp-lifo-pros",
+    "type": "multi_page",
+    "mode": "multi_part",
+    "question": "LIFO یعنی چه و استفاده از بازگشت چه مزایا و معایبی دارد؟",
+    "expectedPages": [9, 13],
+    "parts": [
+      [9],
+      [13]
+    ],
+    "mustInclude": ["آخرین"],
+    "filename": "DataStructure_Chapter1.pdf",
+    "holdout": true
+  },
+  {
+    "id": "mp-hanoi",
+    "type": "multi_page",
+    "mode": "multi_part",
+    "question": "تابع بازگشتی برج هانوی چیست و با سه دیسک چند جابه‌جایی لازم است؟",
+    "expectedPages": [30, 28],
+    "parts": [
+      [30],
+      [28]
+    ],
+    "mustInclude": ["7"],
+    "filename": "DataStructure_Chapter1.pdf"
+  },
+  {
+    "id": "mp-factors-growth",
+    "type": "multi_page",
+    "mode": "multi_part",
+    "question": "فاکتورهای مهم ارزیابی الگوریتم کدامند و ترتیب رشد توابع مهم چیست؟",
+    "expectedPages": [2, 28],
+    "parts": [
+      [2],
+      [28]
+    ],
+    "filename": "DataStructure_Chapter2.pdf"
+  },
+  {
+    "id": "mp-worst-recursive",
+    "type": "multi_page",
+    "mode": "multi_part",
+    "question": "W(n) و B(n) چه هستند و مرتبه اجرایی توابع بازگشتی چطور محاسبه می‌شود؟",
+    "expectedPages": [16, 34],
+    "parts": [
+      [16],
+      [34]
+    ],
+    "mustInclude": ["بدترین"],
+    "filename": "DataStructure_Chapter2.pdf"
+  },
+  {
+    "id": "mp-kruskal-dijkstra",
+    "type": "multi_page",
+    "mode": "multi_part",
+    "question": "الگوریتم کروسکال و الگوریتم دایجکسترا هر کدام چه کاری می‌کنند؟",
+    "expectedPages": [18, 22],
+    "parts": [
+      [18],
+      [22]
+    ],
+    "filename": "Algorithm-Chapter4.pdf",
+    "holdout": true
+  },
+  {
+    "id": "mp-mst-huffman",
+    "type": "multi_page",
+    "mode": "multi_part",
+    "question": "MST یعنی چه و الگوریتم هافمن برای چه کاری استفاده می‌شود؟",
+    "expectedPages": [8, 26],
+    "parts": [
+      [8],
+      [26]
+    ],
+    "filename": "Algorithm-Chapter4.pdf"
+  },
+  {
+    "id": "mp-activity-deadlines",
+    "type": "multi_page",
+    "mode": "multi_part",
+    "question": "مسئله انتخاب فعالیت‌ها و زمان‌بندی کارهای مهلت‌دار هر کدام چطور با روش حریصانه حل می‌شوند؟",
+    "expectedPages": [40, 41, 35, 37],
+    "parts": [
+      [40, 41],
+      [35, 37]
+    ],
+    "filename": "Algorithm-Chapter4.pdf"
+  },
+  {
+    "id": "mp-lisbon-date-rebuild",
+    "type": "multi_page",
+    "mode": "multi_part",
+    "question": "زلزله لیسبون چه زمانی رخ داد و شهر پس از آن چگونه بازسازی شد؟",
+    "expectedPages": [2, 9],
+    "parts": [
+      [2],
+      [9]
+    ],
+    "mustInclude": ["نوامبر"],
+    "filename": "زلزلهٔ لیسبون ۱۷۵۵.pdf"
+  },
+  {
+    "id": "mp-lisbon-cause-voltaire",
+    "type": "multi_page",
+    "mode": "multi_part",
+    "question": "پرسش درباره علت طبیعی زلزله لیسبون چه بود و ولتر چه واکنشی نشان داد؟",
+    "expectedPages": [4, 5, 6],
+    "parts": [
+      [4],
+      [5, 6]
+    ],
+    "filename": "زلزلهٔ لیسبون ۱۷۵۵.pdf",
+    "holdout": true
+  },
+  {
+    "id": "mp-oo-relations-principles",
+    "type": "multi_page",
+    "mode": "multi_part",
+    "question": "روابط اساسی بین کلاس‌ها و اصول شی‌گرایی کدامند؟",
+    "expectedPages": [37, 46],
+    "parts": [
+      [37],
+      [46]
+    ],
+    "filename": "جزوه مهندسی نرم افزار - بخش شی گرایی.pdf"
+  },
+  {
+    "id": "mp-oo-cohesion-open-closed",
+    "type": "multi_page",
+    "mode": "multi_part",
+    "question": "انسجام و وابستگی یعنی چه و قاعده باز و بسته چیست؟",
+    "expectedPages": [63, 69],
+    "parts": [
+      [63],
+      [69]
+    ],
+    "filename": "جزوه مهندسی نرم افزار - بخش شی گرایی.pdf"
+  },
+  {
+    "id": "mp-oo-identity-message",
+    "type": "multi_page",
+    "mode": "multi_part",
+    "question": "هویت و حالت شیء یعنی چه و اشیاء چطور با هم ارتباط برقرار می‌کنند؟",
+    "expectedPages": [23, 35, 36],
+    "parts": [
+      [23],
+      [35, 36]
+    ],
+    "filename": "جزوه مهندسی نرم افزار - بخش شی گرایی.pdf"
+  },
+  {
+    "id": "mp-oo-each-principle",
+    "type": "multi_page",
+    "mode": "multi_part",
+    "question": "اصول شی گرایی رو یکی یکی توضیح بده",
+    "expectedPages": [54, 55, 56, 57, 58, 59, 60, 61, 47, 48, 49, 50, 51, 52, 53, 70, 71, 72, 62, 63, 64, 65, 66, 67, 68],
+    "parts": [
+      [54, 55, 56, 57, 58, 59, 60, 61],
+      [47, 48, 49, 50, 51, 52, 53],
+      [70, 71, 72],
+      [62, 63, 64, 65, 66, 67, 68]
+    ],
+    "filename": "جزوه مهندسی نرم افزار - بخش شی گرایی.pdf",
+    "holdout": true
+  },
+  {
+    "id": "mp-sw-static-coverage",
+    "type": "multi_page",
+    "mode": "multi_part",
+    "question": "تفاوت تست ایستا و پویا چیست و پوشش تصمیم چطور محاسبه می‌شود؟",
+    "expectedPages": [150, 133],
+    "parts": [
+      [150],
+      [133]
+    ],
+    "filename": "جزوه درس آزمون نرم افزاراستاد زاغری 405.pdf"
+  },
+  {
+    "id": "mp-sw-table-guessing",
+    "type": "multi_page",
+    "mode": "multi_part",
+    "question": "تست جدول تصمیم و حدس خطا هر کدام چه هستند؟",
+    "expectedPages": [130, 110, 123, 124],
+    "parts": [
+      [130, 110],
+      [123, 124]
+    ],
+    "filename": "جزوه درس آزمون نرم افزاراستاد زاغری 405.pdf"
+  },
+  {
+    "id": "mp-cs-system-person",
+    "type": "multi_page",
+    "mode": "multi_part",
+    "question": "سیستم خبره چیست و شخص خبره چه ویژگی‌هایی باید داشته باشد؟",
+    "expectedPages": [1, 2],
+    "parts": [
+      [1],
+      [2]
+    ],
+    "mustInclude": ["تجربه"],
+    "filename": "CamScanner 05-18-2025 16.58.pdf"
+  },
+  {
+    "id": "mp-covid-year-flu",
+    "type": "multi_page",
+    "mode": "multi_part",
+    "question": "ویروس کرونا چه سالی ظهور کرد و سالانه چند نفر بر اثر آنفولانزا می‌میرند؟",
+    "expectedPages": [2, 7],
+    "parts": [
+      [2],
+      [7]
+    ],
+    "mustInclude": ["2019", ["650", "نیم میلیون"]],
+    "filename": "4_6023995269647959615.pdf",
+    "holdout": true
+  },
+  {
+    "id": "nm-binary-search",
+    "type": "negative",
+    "mode": "focused",
+    "question": "تابع بازگشتی جست‌وجوی دودویی در آرایه مرتب چطور نوشته می‌شود؟",
+    "expectedPages": [],
+    "tags": ["near_miss"],
+    "filename": "DataStructure_Chapter1.pdf"
+  },
+  {
+    "id": "nm-ackermann",
+    "type": "negative",
+    "mode": "focused",
+    "question": "تابع بازگشتی آکرمان چطور تعریف می‌شود؟",
+    "expectedPages": [],
+    "tags": ["near_miss"],
+    "filename": "DataStructure_Chapter1.pdf"
+  },
+  {
+    "id": "nm-gcd",
+    "type": "negative",
+    "mode": "focused",
+    "question": "بزرگ‌ترین مقسوم‌علیه مشترک دو عدد را چطور به صورت بازگشتی حساب می‌کنیم؟",
+    "expectedPages": [],
+    "tags": ["near_miss"],
+    "filename": "DataStructure_Chapter1.pdf"
+  },
+  {
+    "id": "nm-bubble-order",
+    "type": "negative",
+    "mode": "focused",
+    "question": "مرتبه اجرایی مرتب‌سازی حبابی در بدترین حالت چیست؟",
+    "expectedPages": [],
+    "tags": ["near_miss"],
+    "filename": "DataStructure_Chapter2.pdf",
+    "holdout": true
+  },
+  {
+    "id": "nm-little-o",
+    "type": "negative",
+    "mode": "focused",
+    "question": "نماد o کوچک چه تفاوتی با نماد O بزرگ دارد؟",
+    "expectedPages": [],
+    "tags": ["near_miss"],
+    "filename": "DataStructure_Chapter2.pdf"
+  },
+  {
+    "id": "nm-sollin",
+    "type": "negative",
+    "mode": "focused",
+    "question": "الگوریتم سولین برای پیدا کردن درخت پوشای کمینه چطور کار می‌کند؟",
+    "expectedPages": [],
+    "tags": ["near_miss"],
+    "filename": "Algorithm-Chapter4.pdf"
+  },
+  {
+    "id": "nm-huffman-ratio",
+    "type": "negative",
+    "mode": "focused",
+    "question": "نرخ فشرده‌سازی در کدگذاری هافمن چطور محاسبه می‌شود؟",
+    "expectedPages": [],
+    "tags": ["near_miss"],
+    "filename": "Algorithm-Chapter4.pdf"
+  },
+  {
+    "id": "nm-dijkstra-heap",
+    "type": "negative",
+    "mode": "focused",
+    "question": "مرتبه اجرایی الگوریتم دایجکسترا با صف اولویت چقدر است؟",
+    "expectedPages": [],
+    "tags": ["near_miss"],
+    "filename": "Algorithm-Chapter4.pdf",
+    "holdout": true
+  },
+  {
+    "id": "nm-graph-coloring",
+    "type": "negative",
+    "mode": "focused",
+    "question": "مسئله رنگ‌آمیزی گراف با روش حریصانه چطور حل می‌شود؟",
+    "expectedPages": [],
+    "tags": ["near_miss"],
+    "filename": "Algorithm-Chapter4.pdf"
+  },
+  {
+    "id": "nm-lisbon-richter",
+    "type": "negative",
+    "mode": "focused",
+    "question": "زلزله لیسبون چند ریشتر بود؟",
+    "expectedPages": [],
+    "tags": ["near_miss"],
+    "filename": "زلزلهٔ لیسبون ۱۷۵۵.pdf"
+  },
+  {
+    "id": "nm-lisbon-king",
+    "type": "negative",
+    "mode": "focused",
+    "question": "پادشاه پرتغال در زمان زلزله لیسبون چه کسی بود؟",
+    "expectedPages": [],
+    "tags": ["near_miss"],
+    "filename": "زلزلهٔ لیسبون ۱۷۵۵.pdf"
+  },
+  {
+    "id": "nm-lisbon-morocco",
+    "type": "negative",
+    "mode": "focused",
+    "question": "زلزله لیسبون در مراکش چه خسارت‌هایی به بار آورد؟",
+    "expectedPages": [],
+    "tags": ["near_miss"],
+    "filename": "زلزلهٔ لیسبون ۱۷۵۵.pdf",
+    "holdout": true
+  },
+  {
+    "id": "nm-liskov",
+    "type": "negative",
+    "mode": "focused",
+    "question": "اصل جایگزینی لیسکوف در شی‌گرایی چیست؟",
+    "expectedPages": [],
+    "tags": ["near_miss"],
+    "filename": "جزوه مهندسی نرم افزار - بخش شی گرایی.pdf"
+  },
+  {
+    "id": "nm-constructor",
+    "type": "negative",
+    "mode": "focused",
+    "question": "متد سازنده (constructor) در یک کلاس چه کاری انجام می‌دهد؟",
+    "expectedPages": [],
+    "tags": ["near_miss"],
+    "filename": "جزوه مهندسی نرم افزار - بخش شی گرایی.pdf"
+  },
+  {
+    "id": "nm-fuzz",
+    "type": "negative",
+    "mode": "focused",
+    "question": "تست فازینگ (Fuzz Testing) چیست و چه خطاهایی را پیدا می‌کند؟",
+    "expectedPages": [],
+    "tags": ["near_miss"],
+    "filename": "جزوه درس آزمون نرم افزاراستاد زاغری 405.pdf"
+  },
+  {
+    "id": "nm-tmmi",
+    "type": "negative",
+    "mode": "focused",
+    "question": "مدل بلوغ تست TMMi چند سطح دارد؟",
+    "expectedPages": [],
+    "tags": ["near_miss"],
+    "filename": "جزوه درس آزمون نرم افزاراستاد زاغری 405.pdf",
+    "holdout": true
+  },
+  {
+    "id": "nm-pairwise",
+    "type": "negative",
+    "mode": "focused",
+    "question": "تکنیک تست Pairwise چطور تعداد موارد تست را کم می‌کند؟",
+    "expectedPages": [],
+    "tags": ["near_miss"],
+    "filename": "جزوه درس آزمون نرم افزاراستاد زاغری 405.pdf"
+  },
+  {
+    "id": "nm-owasp",
+    "type": "negative",
+    "mode": "focused",
+    "question": "فهرست OWASP Top 10 شامل چه آسیب‌پذیری‌هایی است؟",
+    "expectedPages": [],
+    "tags": ["near_miss"],
+    "filename": "جزوه درس آزمون نرم افزاراستاد زاغری 405.pdf"
+  },
+  {
+    "id": "nm-chaining",
+    "type": "negative",
+    "mode": "focused",
+    "question": "زنجیره‌سازی رو به جلو و رو به عقب در سیستم خبره چه تفاوتی دارند؟",
+    "expectedPages": [],
+    "tags": ["near_miss"],
+    "filename": "CamScanner 05-18-2025 16.58.pdf"
+  },
+  {
+    "id": "nm-mycin",
+    "type": "negative",
+    "mode": "focused",
+    "question": "سیستم خبره MYCIN برای چه کاری ساخته شد؟",
+    "expectedPages": [],
+    "tags": ["near_miss"],
+    "filename": "CamScanner 05-18-2025 16.58.pdf",
+    "holdout": true
+  },
+  {
+    "id": "nm-fuzzy",
+    "type": "negative",
+    "mode": "focused",
+    "question": "منطق فازی در سیستم‌های خبره چه کاربردی دارد؟",
+    "expectedPages": [],
+    "tags": ["near_miss"],
+    "filename": "CamScanner 05-18-2025 16.58.pdf"
+  },
+  {
+    "id": "nm-pfizer",
+    "type": "negative",
+    "mode": "focused",
+    "question": "واکسن فایزر چند درصد اثربخشی داشت؟",
+    "expectedPages": [],
+    "tags": ["near_miss"],
+    "filename": "4_6023995269647959615.pdf"
+  },
+  {
+    "id": "nm-omicron",
+    "type": "negative",
+    "mode": "focused",
+    "question": "سویه اومیکرون چه تفاوتی با سویه دلتا داشت؟",
+    "expectedPages": [],
+    "tags": ["near_miss"],
+    "filename": "4_6023995269647959615.pdf"
+  },
+  {
+    "id": "en-lifo",
+    "type": "exact_term",
+    "mode": "focused",
+    "question": "What does LIFO mean?",
+    "expectedPages": [9],
+    "tags": ["english"],
+    "filename": "DataStructure_Chapter1.pdf",
+    "holdout": true
+  },
+  {
+    "id": "en-mst",
+    "type": "exact_term",
+    "mode": "focused",
+    "question": "What is a minimum spanning tree (MST)?",
+    "expectedPages": [8],
+    "tags": ["english"],
+    "filename": "Algorithm-Chapter4.pdf"
+  },
+  {
+    "id": "en-dijkstra",
+    "type": "exact_term",
+    "mode": "focused",
+    "question": "How does Dijkstra's algorithm work?",
+    "expectedPages": [22],
+    "tags": ["english"],
+    "filename": "Algorithm-Chapter4.pdf"
+  },
+  {
+    "id": "en-static-dynamic",
+    "type": "exact_term",
+    "mode": "focused",
+    "question": "What is the difference between static testing and dynamic testing?",
+    "expectedPages": [150],
+    "tags": ["english"],
+    "filename": "جزوه درس آزمون نرم افزاراستاد زاغری 405.pdf"
+  },
+  {
+    "id": "en-expert-system",
+    "type": "exact_term",
+    "mode": "focused",
+    "question": "What is an expert system?",
+    "expectedPages": [1],
+    "tags": ["english"],
+    "filename": "CamScanner 05-18-2025 16.58.pdf",
+    "holdout": true
+  },
+  {
+    "id": "en-lisbon-date",
+    "type": "exact_term",
+    "mode": "focused",
+    "question": "When did the Lisbon earthquake happen?",
+    "expectedPages": [2],
+    "tags": ["english"],
+    "filename": "زلزلهٔ لیسبون ۱۷۵۵.pdf"
+  },
+  {
+    "id": "fi-lifo",
+    "type": "exact_term",
+    "mode": "focused",
+    "question": "LIFO yani chi?",
+    "expectedPages": [9],
+    "tags": ["finglish"],
+    "filename": "DataStructure_Chapter1.pdf"
+  },
+  {
+    "id": "fi-memory-cost",
+    "type": "paraphrase",
+    "mode": "focused",
+    "question": "chera tabe bazgashti hafeze ziadi masraf mikone?",
+    "expectedPages": [8, 13],
+    "tags": ["finglish"],
+    "filename": "DataStructure_Chapter1.pdf"
+  },
+  {
+    "id": "fi-kruskal",
+    "type": "exact_term",
+    "mode": "focused",
+    "question": "algoritm kruskal che vizhegi dare?",
+    "expectedPages": [18],
+    "tags": ["finglish"],
+    "filename": "Algorithm-Chapter4.pdf",
+    "holdout": true
+  },
+  {
+    "id": "fi-oo-principles",
+    "type": "exact_term",
+    "mode": "focused",
+    "question": "osoole shey garaei chia hastan?",
+    "expectedPages": [46],
+    "tags": ["finglish"],
+    "filename": "جزوه مهندسی نرم افزار - بخش شی گرایی.pdf"
+  },
+  {
+    "id": "fi-alpha-beta",
+    "type": "exact_term",
+    "mode": "focused",
+    "question": "farghe test alpha va beta chie?",
+    "expectedPages": [95, 96, 97, 118, 191],
+    "tags": ["finglish"],
+    "filename": "جزوه درس آزمون نرم افزاراستاد زاغری 405.pdf"
+  },
+  {
+    "id": "fi-lisbon-date",
+    "type": "exact_term",
+    "mode": "focused",
+    "question": "zelzele lisbon che roozi etefagh oftad?",
+    "expectedPages": [2],
+    "tags": ["finglish"],
+    "filename": "زلزلهٔ لیسبون ۱۷۵۵.pdf"
+  },
+  {
+    "id": "ty-hanoi",
+    "type": "exact_term",
+    "mode": "focused",
+    "question": "تابع بازگشتتی برج هانویی رو توضیح بده",
+    "expectedPages": [30],
+    "tags": ["typo"],
+    "filename": "DataStructure_Chapter1.pdf",
+    "holdout": true
+  },
+  {
+    "id": "ty-dijkstra",
+    "type": "exact_term",
+    "mode": "focused",
+    "question": "الگوریتم دایجکسرا چطور کار میکنه",
+    "expectedPages": [22],
+    "tags": ["typo"],
+    "filename": "Algorithm-Chapter4.pdf"
+  },
+  {
+    "id": "ty-huffman",
+    "type": "exact_term",
+    "mode": "focused",
+    "question": "الگوریتم هافمم برای چه کاری استفاده میشه",
+    "expectedPages": [26],
+    "tags": ["typo"],
+    "filename": "Algorithm-Chapter4.pdf"
+  },
+  {
+    "id": "ty-open-closed",
+    "type": "exact_term",
+    "mode": "focused",
+    "question": "قاعده باز و بسنه چیست",
+    "expectedPages": [69],
+    "tags": ["typo"],
+    "filename": "جزوه مهندسی نرم افزار - بخش شی گرایی.pdf"
+  },
+  {
+    "id": "ty-decision-table",
+    "type": "exact_term",
+    "mode": "focused",
+    "question": "تست جدول تصمبم چیست",
+    "expectedPages": [130, 110],
+    "tags": ["typo"],
+    "filename": "جزوه درس آزمون نرم افزاراستاد زاغری 405.pdf",
+    "holdout": true
+  },
+  {
+    "id": "ty-expert-system",
+    "type": "exact_term",
+    "mode": "focused",
+    "question": "سیتم خبره چیست",
+    "expectedPages": [1],
+    "tags": ["typo"],
+    "filename": "CamScanner 05-18-2025 16.58.pdf"
+  },
+  {
+    "id": "ar-mst",
+    "type": "exact_term",
+    "mode": "focused",
+    "question": "درخت پوشاي كمينه يعني چه؟",
+    "expectedPages": [8],
+    "tags": ["arabic_letters"],
+    "filename": "Algorithm-Chapter4.pdf"
+  },
+  {
+    "id": "ar-kruskal",
+    "type": "exact_term",
+    "mode": "focused",
+    "question": "الگوريتم كروسكال چه ويژگي‌اي دارد؟",
+    "expectedPages": [18],
+    "tags": ["arabic_letters"],
+    "filename": "Algorithm-Chapter4.pdf"
+  },
+  {
+    "id": "ar-identity",
+    "type": "exact_term",
+    "mode": "focused",
+    "question": "هويت و حالت يك شيء يعني چه؟",
+    "expectedPages": [23],
+    "tags": ["arabic_letters"],
+    "filename": "جزوه مهندسی نرم افزار - بخش شی گرایی.pdf",
+    "holdout": true
+  },
+  {
+    "id": "ar-factors",
+    "type": "exact_term",
+    "mode": "focused",
+    "question": "فاكتورهاي مهم ارزيابي يك الگوريتم كدامند؟",
+    "expectedPages": [2],
+    "tags": ["arabic_letters"],
+    "filename": "DataStructure_Chapter2.pdf"
+  },
+  {
+    "id": "ar-lisbon-date",
+    "type": "exact_term",
+    "mode": "focused",
+    "question": "زلزله ليسبون در چه روزي رخ داد؟",
+    "expectedPages": [2],
+    "mustInclude": ["نوامبر"],
+    "tags": ["arabic_letters"],
+    "filename": "زلزلهٔ لیسبون ۱۷۵۵.pdf"
+  },
+  {
+    "id": "ar-expert-system",
+    "type": "exact_term",
+    "mode": "focused",
+    "question": "سيستم خبره چيست؟",
+    "expectedPages": [1],
+    "mustInclude": ["برنامه"],
+    "tags": ["arabic_letters"],
+    "filename": "CamScanner 05-18-2025 16.58.pdf"
+  },
+  {
+    "id": "ta-huffman-code-e",
+    "type": "exact_term",
+    "mode": "focused",
+    "question": "در مثال هافمن کد عنصر E چیست؟",
+    "expectedPages": [33],
+    "mustInclude": ["11010"],
+    "tags": ["table"],
+    "filename": "Algorithm-Chapter4.pdf",
+    "holdout": true
+  },
+  {
+    "id": "ta-huffman-code-h",
+    "type": "exact_term",
+    "mode": "focused",
+    "question": "در مثال هافمن کد عنصر H چیست؟",
+    "expectedPages": [33],
+    "mustInclude": ["1100"],
+    "tags": ["table"],
+    "filename": "Algorithm-Chapter4.pdf"
+  },
+  {
+    "id": "ta-review-walkthrough",
+    "type": "paraphrase",
+    "mode": "focused",
+    "question": "در کدام نوع بازبینی، نویسنده خودش جلسه را هدایت می‌کند؟",
+    "expectedPages": [147],
+    "mustInclude": ["Walkthrough"],
+    "tags": ["table"],
+    "filename": "جزوه درس آزمون نرم افزاراستاد زاغری 405.pdf"
+  },
+  {
+    "id": "ta-review-medium",
+    "type": "exact_term",
+    "mode": "focused",
+    "question": "کدام نوع بازبینی میزان رسمیت متوسط دارد؟",
+    "expectedPages": [147],
+    "mustInclude": [
+      ["Technical Review", "بازبینی فنی"]
+    ],
+    "tags": ["table"],
+    "filename": "جزوه درس آزمون نرم افزاراستاد زاغری 405.pdf"
+  },
+  {
+    "id": "ta-discount-rules",
+    "type": "exact_term",
+    "mode": "focused",
+    "question": "در مثال جدول تصمیم اعطای تخفیف چند قانون وجود دارد؟",
+    "expectedPages": [130],
+    "mustInclude": [
+      ["4", "چهار", "R4"]
+    ],
+    "tags": ["table"],
+    "filename": "جزوه درس آزمون نرم افزاراستاد زاغری 405.pdf",
+    "holdout": true
+  },
+  {
+    "id": "fo-q-definition",
+    "type": "exact_term",
+    "mode": "focused",
+    "question": "تعریف بازگشتی تابع Q(a,b) چیست؟",
+    "expectedPages": [22],
+    "mustInclude": ["Q(a-b,b)+1"],
+    "tags": ["formula"],
+    "filename": "DataStructure_Chapter1.pdf"
+  },
+  {
+    "id": "fo-hanoi-calls",
+    "type": "exact_term",
+    "mode": "focused",
+    "question": "در الگوریتم بازگشتی برج هانوی برای n=3 چند فراخوانی انجام می‌شود؟",
+    "expectedPages": [36, 37],
+    "mustInclude": ["7"],
+    "tags": ["formula"],
+    "filename": "DataStructure_Chapter2.pdf"
+  },
+  {
+    "id": "fo-growth-compare",
+    "type": "paraphrase",
+    "mode": "focused",
+    "question": "بین nlogn و n² کدام تابع سریع‌تر رشد می‌کند؟",
+    "expectedPages": [28],
+    "mustInclude": [
+      ["n2", "n^2"]
+    ],
+    "tags": ["formula"],
+    "filename": "DataStructure_Chapter2.pdf"
+  },
+  {
+    "id": "fo-kruskal-dense",
+    "type": "exact_term",
+    "mode": "focused",
+    "question": "مرتبه اجرایی کروسکال برای گراف شلوغ چیست؟",
+    "expectedPages": [19],
+    "mustInclude": ["n2logn"],
+    "tags": ["formula"],
+    "filename": "Algorithm-Chapter4.pdf",
+    "holdout": true
+  },
+  {
+    "id": "fo-log-programs",
+    "type": "exact_term",
+    "mode": "focused",
+    "question": "برنامه‌ای که مرتبه اجرایی آن O(logn) است چه نام دارد؟",
+    "expectedPages": [28],
+    "mustInclude": ["لگاریتمی"],
+    "tags": ["formula"],
+    "filename": "DataStructure_Chapter2.pdf"
   }
 ]
