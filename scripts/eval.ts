@@ -48,6 +48,8 @@ import {
 } from "../src/rag/retrieve.js";
 import { rerankChunks } from "../src/rag/rerank.js";
 import { needsRewrite, rewriteQuestion } from "../src/rag/rewrite.js";
+import { routeMessage } from "../src/rag/router.js";
+import { listCompletedFilenames } from "../src/db/documents.js";
 import type { HistoryMessage } from "../src/rag/rewrite.js";
 
 type QuestionType = "exact_term" | "paraphrase" | "multi_page" | "follow_up" | "standalone_history" | "negative";
@@ -137,6 +139,8 @@ const questions = allQuestions.filter((q) => !only || q.id.includes(only));
 /** Whose copies of the eval documents are searched (--user 42 for the distractor run). */
 const evalUserId = await evalUser(args, allQuestions.map((q) => q.filename));
 console.log(`Eval user: ${evalUserId}`);
+/** What the router sees, as in the bot. */
+const documentNames = await listCompletedFilenames(evalUserId);
 
 async function findDocument(filename: string) {
   const found = await pool.query<{ id: number; user_id: number }>(
@@ -185,10 +189,16 @@ for (const q of questions) {
     continue;
   }
 
-  // Like production: a short message after an earlier exchange is rewritten
-  // before searching, and the previous answer's hits compete with the results.
-  const followUp = q.history !== undefined && needsRewrite(q.question, q.history);
-  const rewritten = followUp && useRewrite ? await rewriteQuestion(q.question, q.history!) : undefined;
+  // Like production: after an earlier exchange the router decides whether the
+  // message depends on it (the length rule only if it gives no decision); a
+  // follow-up is searched as the standalone question, and the previous
+  // answer's hits compete with the results.
+  const routed = q.history?.length ? await routeMessage(q.question, documentNames, q.history).catch(() => null) : null;
+  const followUp = q.history !== undefined && (routed?.dependsOnHistory ?? needsRewrite(q.question, q.history));
+  const rewritten =
+    followUp && useRewrite
+      ? (routed?.standaloneQuestion ?? (await rewriteQuestion(q.question, q.history!, undefined, true)))
+      : undefined;
   const text = rewritten ?? q.question;
   // Like the bot: all of the user's documents, unless --per-doc.
   const scopeId = perDocument ? document.id : undefined;

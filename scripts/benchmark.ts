@@ -154,11 +154,14 @@ if (concurrency !== null) {
   async function answerLikeBot(q: EvalQuestion): Promise<void> {
     const document = byName.get(q.filename)!;
     const history = q.history ?? [];
-    const followUp = needsRewrite(q.question, history);
-    const prefetch = followUp ? undefined : prefetchCandidates(document.user_id, q.question);
+    const prefetch = prefetchCandidates(document.user_id, q.question);
+    prefetch.catch(() => undefined);
 
-    await routeMessage(q.question, filenames, history);
-    const question = await rewriteQuestion(q.question, history);
+    const routed = await routeMessage(q.question, filenames, history);
+    const followUp = routed.dependsOnHistory ?? needsRewrite(q.question, history);
+    const question = followUp
+      ? (routed.standaloneQuestion ?? (await rewriteQuestion(q.question, history, undefined, true)))
+      : q.question;
     const search = followUp ? prefetchCandidates(document.user_id, question) : prefetch;
     await answerFromDocuments(document.user_id, question, q.mode, search ? { prefetch: search } : {});
   }
@@ -232,10 +235,14 @@ for (const { sample, core, q, history } of samples) {
   console.log(`... ${q.id} (${sample})`);
 
   const totalStart = performance.now();
-  const [, router] = await timed(() => routeMessage(q.question, [q.filename], history));
-  const [question, rewriteMs] = needsRewrite(q.question, history)
-    ? await timed(() => rewriteQuestion(q.question, history))
-    : [q.question, undefined];
+  const [routed, router] = await timed(() => routeMessage(q.question, [q.filename], history));
+  // Like the bot: the router decides and usually writes the standalone question
+  // itself; the separate rewrite call runs only as its fallback.
+  const followUp = routed.dependsOnHistory ?? needsRewrite(q.question, history);
+  const [question, rewriteMs] =
+    followUp && !routed.standaloneQuestion
+      ? await timed(() => rewriteQuestion(q.question, history, undefined, true))
+      : [followUp ? routed.standaloneQuestion! : q.question, undefined];
   const [, embedding] = await timed(() => generateEmbedding(question));
   const mode = q.mode === "multi_part" ? "multi_part" : "focused";
   const [, retrieval] = await timed(() => retrieveContext(document.user_id, question, mode, { documentId: document.id }));

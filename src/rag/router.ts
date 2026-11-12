@@ -2,6 +2,7 @@ import { config } from "../config.js";
 import { logger } from "../logger.js";
 import { chat } from "../llm/ollamaClient.js";
 import { buildRouterSystemPrompt } from "../llm/prompts/router.js";
+import { cleanRewrite } from "./rewrite.js";
 
 export type MessageRoute = "document" | "chat";
 
@@ -10,6 +11,17 @@ export type RetrievalMode = "focused" | "multi_part" | "broad";
 export interface MessageClassification {
   route: MessageRoute;
   retrievalMode: RetrievalMode;
+  /**
+   * The message cannot be understood without the conversation ("explain more",
+   * "what about the second one?"). Absent when the router was not asked.
+   */
+  dependsOnHistory?: boolean;
+  /**
+   * The router's standalone version of a message that depends on the history,
+   * checked with cleanRewrite; null when it was missing or unusable (the caller
+   * then rewrites with the separate call).
+   */
+  standaloneQuestion?: string | null;
 }
 
 interface ConversationMessage {
@@ -28,14 +40,16 @@ const ROUTER_SCHEMA = {
   properties: {
     route: { type: "string", enum: ["document", "chat"] },
     retrievalMode: { type: "string", enum: RETRIEVAL_MODES },
+    dependsOnHistory: { type: "boolean" },
+    standaloneQuestion: { type: "string" },
   },
-  required: ["route", "retrievalMode"],
+  required: ["route", "retrievalMode", "dependsOnHistory", "standaloneQuestion"],
   additionalProperties: false,
 };
 
 /** Validates the router's raw JSON output; throws on anything unexpected. */
 export function parseClassification(content: string): MessageClassification {
-  let result: { route?: unknown; retrievalMode?: unknown };
+  let result: { route?: unknown; retrievalMode?: unknown; dependsOnHistory?: unknown; standaloneQuestion?: unknown };
 
   try {
     result = JSON.parse(content) as typeof result;
@@ -54,13 +68,26 @@ export function parseClassification(content: string): MessageClassification {
     throw new Error(`Router returned an invalid retrieval mode: ${content}`);
   }
 
+  // The follow-up decision is optional: a router answer without it still routes.
+  const followUp =
+    typeof result.dependsOnHistory === "boolean"
+      ? {
+          dependsOnHistory: result.dependsOnHistory,
+          standaloneQuestion:
+            result.dependsOnHistory && typeof result.standaloneQuestion === "string"
+              ? cleanRewrite(result.standaloneQuestion)
+              : null,
+        }
+      : {};
+
   if (result.route === "chat") {
-    return { route: "chat", retrievalMode: "focused" };
+    return { route: "chat", retrievalMode: "focused", ...followUp };
   }
 
   return {
     route: "document",
     retrievalMode: result.retrievalMode as RetrievalMode,
+    ...followUp,
   };
 }
 
@@ -80,7 +107,7 @@ export function resolveRoute(
     topScore >= config.reranker.relevantScore
   ) {
     logger.info("Router said chat, but the notes clearly match:", { topScore });
-    return { route: "document", retrievalMode: "focused" };
+    return { ...classification, route: "document", retrievalMode: "focused" };
   }
 
   return classification;
@@ -94,7 +121,8 @@ export async function routeMessage(
   const content = await chat({
     think: false,
     format: ROUTER_SCHEMA,
-    options: { num_predict: 64, temperature: config.llm.temperature.router },
+    // Room for the standalone question (a sentence or two of Persian).
+    options: { num_predict: 200, temperature: config.llm.temperature.router },
     timeoutMs: config.llm.routerTimeoutMs,
     messages: [
       { role: "system", content: buildRouterSystemPrompt(documentNames) },
@@ -105,5 +133,10 @@ export async function routeMessage(
 
   logger.info("Router response:", content);
 
-  return parseClassification(content);
+  const classification = parseClassification(content);
+
+  // Without an earlier exchange nothing can depend on it.
+  return history.length === 0
+    ? { ...classification, dependsOnHistory: false, standaloneQuestion: null }
+    : classification;
 }

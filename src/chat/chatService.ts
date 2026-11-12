@@ -111,19 +111,27 @@ async function composeAnswer(
   // The current message is already saved, so it is the last history entry.
   const previous = history.slice(0, -1);
 
-  // A standalone question can be searched while the router decides (saves the
-  // search time). Follow-ups are searched only after they are rewritten.
-  const followUp = needsRewrite(text, previous);
-  const prefetch = followUp ? undefined : prefetchCandidates(userId, text);
+  // The message is searched as typed while the router decides (saves the search
+  // time for standalone questions, which most are).
+  const prefetch = prefetchCandidates(userId, text);
+  prefetch.catch(() => undefined); // may go unused (follow-ups); its failure is handled where it is awaited
   const routed = await routeMessage(text, documentNames, previous);
-  // The search ran in parallel; if it clearly found the answer, keep the notes.
+  // The router decides whether the message depends on the conversation. The
+  // length rule (needsRewrite) is only the fallback when it gave no decision: it
+  // rewrote every short standalone question (20 of 20, eval:router 2026-11-12).
+  const followUp = routed.dependsOnHistory ?? needsRewrite(text, previous);
+  // If the search clearly found the answer, keep the notes (not for follow-ups:
+  // "explain more" searched as typed says nothing).
   const classification =
-    routed.route === "chat" && prefetch
+    routed.route === "chat" && !followUp
       ? resolveRoute(routed, (await prefetch.catch(() => null))?.ranked[0]?.rerankScore)
       : routed;
 
   if (classification.route === "document") {
-    const question = await rewriteQuestion(text, previous, signal);
+    const question = followUp
+      ? (routed.standaloneQuestion ?? (await rewriteQuestion(text, previous, signal, true)))
+      : text;
+    if (followUp) logger.info("[RAG] Follow-up:", { rewritten: question !== text, byRouter: Boolean(routed.standaloneQuestion) });
     // A follow-up is usually about the pages of the previous answer, so its
     // chunks compete with the search results (the reranker decides).
     const search = followUp
