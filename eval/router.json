@@ -1,39 +1,43 @@
 [
-  { "id": "hello", "message": "سلام خوبی؟", "route": "chat" },
-  { "id": "thanks", "message": "مرسی، خیلی کمکم کردی", "route": "chat" },
-  { "id": "who-are-you", "message": "تو کی هستی؟", "route": "chat" },
-  { "id": "joke", "message": "یه جوک بگو بخندیم", "route": "chat" },
-  { "id": "weather", "message": "هوای تهران فردا چطوره؟", "route": "chat" },
-  { "id": "football", "message": "به نظرت کدوم تیم قهرمان جام جهانی میشه؟", "route": "chat" },
-  { "id": "recipe", "message": "طرز تهیه قورمه سبزی رو بگو", "route": "chat" },
-  { "id": "motivation", "message": "حوصله درس خوندن ندارم، چیکار کنم؟", "route": "chat" },
-  { "id": "english-hi", "message": "hi, how are you?", "route": "chat" },
-  { "id": "bye", "message": "خداحافظ فعلا", "route": "chat" },
-
-  { "id": "def-recursion", "message": "تابع بازگشتی چیست؟", "route": "document", "mode": "focused" },
-  { "id": "def-mst", "message": "درخت پوشای کمینه یعنی چی؟", "route": "document", "mode": "focused" },
-  { "id": "huffman-code", "message": "کد هافمن عنصر B چی میشه؟", "route": "document", "mode": "focused" },
-  { "id": "lisbon-date", "message": "زلزله لیسبون کی اتفاق افتاد؟", "route": "document", "mode": "focused" },
-  { "id": "big-o", "message": "نماد O بزرگ رو توضیح بده", "route": "document", "mode": "focused" },
-  { "id": "dijkstra-how", "message": "دایجکسترا چطور کار می‌کنه؟", "route": "document", "mode": "focused" },
-  { "id": "english-concept", "message": "what is a greedy algorithm?", "route": "document", "mode": "focused" },
-
-  { "id": "prim-vs-kruskal", "message": "فرق پریم و کروسکال چیه و مرتبه اجرایی هر کدوم چنده؟", "route": "document", "mode": "multi_part" },
-  { "id": "notations", "message": "نمادهای O و امگا و تتا رو تعریف کن و با هم مقایسه کن", "route": "document", "mode": "multi_part" },
-  { "id": "voltaire-rousseau", "message": "ولتر و روسو هر کدوم چه واکنشی به زلزله لیسبون داشتن؟", "route": "document", "mode": "multi_part" },
-  { "id": "knapsack-two", "message": "کوله‌پشتی کسری و صفر و یک چیه و روش حریصانه کدومو حل می‌کنه؟", "route": "document", "mode": "multi_part" },
-  { "id": "recursion-pros-stack", "message": "مزایا و معایب بازگشت چیه و پشته چه نقشی داره؟", "route": "document", "mode": "multi_part" },
-
-  { "id": "summarize-chapter", "message": "فصل چهارم الگوریتم رو خلاصه کن", "route": "document", "mode": "broad" },
-  { "id": "key-points", "message": "مهم‌ترین نکات جزوه ساختمان داده فصل اول چیه؟", "route": "document", "mode": "broad" },
-  { "id": "overview-lisbon", "message": "یه مرور کلی از کل متن زلزله لیسبون بده", "route": "document", "mode": "broad" },
-  { "id": "exam-review", "message": "برای امتحان، همه مطالب فصل دوم رو برام جمع‌بندی کن", "route": "document", "mode": "broad" },
-
+  { "id": "hello", "kind": "small_talk", "message": "سلام خوبی؟", "route": "chat" },
+  { "id": "thanks", "kind": "small_talk", "message": "مرسی، خیلی کمکم کردی", "route": "chat" },
+  { "id": "who-are-you", "kind": "small_talk", "message": "تو کی هستی؟", "route": "chat" },
+  { "id": "joke", "kind": "small_talk", "message": "یه جوک بگو بخندیم", "route": "chat" },
+  { "id": "weather", "kind": "small_talk", "message": "هوای تهران فردا چطوره؟", "route": "chat" },
+  { "id": "football", "kind": "small_talk", "message": "به نظرت کدوم تیم قهرمان جام جهانی میشه؟", "route": "chat" },
+  { "id": "recipe", "kind": "small_talk", "message": "طرز تهیه قورمه سبزی رو بگو", "route": "chat" },
+  { "id": "motivation", "kind": "small_talk", "message": "حوصله درس خوندن ندارم، چیکار کنم؟", "route": "chat" },
+  { "id": "english-hi", "kind": "small_talk", "message": "hi, how are you?", "route": "chat" },
+  { "id": "bye", "kind": "small_talk", "message": "خداحافظ فعلا", "route": "chat" },
+  { "id": "def-recursion", "kind": "course_question", "message": "تابع بازگشتی چیست؟", "route": "document", "mode": "focused" },
+  { "id": "def-mst", "kind": "course_question", "message": "درخت پوشای کمینه یعنی چی؟", "route": "document", "mode": "focused" },
+  { "id": "huffman-code", "kind": "course_question", "message": "کد هافمن عنصر B چی میشه؟", "route": "document", "mode": "focused" },
+  { "id": "lisbon-date", "kind": "course_question", "message": "زلزله لیسبون کی اتفاق افتاد؟", "route": "document", "mode": "focused" },
+  { "id": "big-o", "kind": "course_question", "message": "نماد O بزرگ رو توضیح بده", "route": "document", "mode": "focused" },
+  { "id": "dijkstra-how", "kind": "course_question", "message": "دایجکسترا چطور کار می‌کنه؟", "route": "document", "mode": "focused" },
+  { "id": "english-concept", "kind": "course_question", "message": "what is a greedy algorithm?", "route": "document", "mode": "focused" },
+  { "id": "prim-vs-kruskal", "kind": "course_question", "message": "فرق پریم و کروسکال چیه و مرتبه اجرایی هر کدوم چنده؟", "route": "document", "mode": "multi_part" },
+  { "id": "notations", "kind": "course_question", "message": "نمادهای O و امگا و تتا رو تعریف کن و با هم مقایسه کن", "route": "document", "mode": "multi_part" },
+  { "id": "voltaire-rousseau", "kind": "course_question", "message": "ولتر و روسو هر کدوم چه واکنشی به زلزله لیسبون داشتن؟", "route": "document", "mode": "multi_part" },
+  { "id": "knapsack-two", "kind": "course_question", "message": "کوله‌پشتی کسری و صفر و یک چیه و روش حریصانه کدومو حل می‌کنه؟", "route": "document", "mode": "multi_part" },
+  { "id": "recursion-pros-stack", "kind": "course_question", "message": "مزایا و معایب بازگشت چیه و پشته چه نقشی داره؟", "route": "document", "mode": "multi_part" },
+  { "id": "summarize-chapter", "kind": "summary", "message": "فصل چهارم الگوریتم رو خلاصه کن", "route": "document", "mode": "broad" },
+  { "id": "key-points", "kind": "summary", "message": "مهم‌ترین نکات جزوه ساختمان داده فصل اول چیه؟", "route": "document", "mode": "broad" },
+  { "id": "overview-lisbon", "kind": "summary", "message": "یه مرور کلی از کل متن زلزله لیسبون بده", "route": "document", "mode": "broad" },
+  { "id": "exam-review", "kind": "summary", "message": "برای امتحان، همه مطالب فصل دوم رو برام جمع‌بندی کن", "route": "document", "mode": "broad" },
   {
     "id": "followup-more",
+    "kind": "follow_up",
+    "dependsOnHistory": true,
     "history": [
-      { "role": "user", "content": "تابع بازگشتی فاکتوریل چطور کار می‌کنه؟" },
-      { "role": "assistant", "content": "fact(n) اگر n کوچک‌تر یا مساوی ۱ باشد ۱ برمی‌گرداند و گرنه n*fact(n-1)." }
+      {
+        "role": "user",
+        "content": "تابع بازگشتی فاکتوریل چطور کار می‌کنه؟"
+      },
+      {
+        "role": "assistant",
+        "content": "fact(n) اگر n کوچک‌تر یا مساوی ۱ باشد ۱ برمی‌گرداند و گرنه n*fact(n-1)."
+      }
     ],
     "message": "بیشتر توضیح بده",
     "route": "document",
@@ -41,9 +45,17 @@
   },
   {
     "id": "followup-example",
+    "kind": "follow_up",
+    "dependsOnHistory": true,
     "history": [
-      { "role": "user", "content": "روش حریصانه چیه؟" },
-      { "role": "assistant", "content": "در هر مرحله بهترین انتخاب فعلی بدون توجه به انتخاب‌های قبلی یا بعدی انجام می‌شود." }
+      {
+        "role": "user",
+        "content": "روش حریصانه چیه؟"
+      },
+      {
+        "role": "assistant",
+        "content": "در هر مرحله بهترین انتخاب فعلی بدون توجه به انتخاب‌های قبلی یا بعدی انجام می‌شود."
+      }
     ],
     "message": "یه مثال بزن",
     "route": "document",
@@ -51,9 +63,17 @@
   },
   {
     "id": "followup-pronoun",
+    "kind": "follow_up",
+    "dependsOnHistory": true,
     "history": [
-      { "role": "user", "content": "الگوریتم پریم چیه؟" },
-      { "role": "assistant", "content": "پریم درخت پوشای کمینه را با اضافه کردن نزدیک‌ترین راس در هر مرحله می‌سازد." }
+      {
+        "role": "user",
+        "content": "الگوریتم پریم چیه؟"
+      },
+      {
+        "role": "assistant",
+        "content": "پریم درخت پوشای کمینه را با اضافه کردن نزدیک‌ترین راس در هر مرحله می‌سازد."
+      }
     ],
     "message": "مرتبه‌اش چنده؟",
     "route": "document",
@@ -61,15 +81,530 @@
   },
   {
     "id": "followup-thanks",
+    "kind": "small_talk",
+    "dependsOnHistory": false,
     "history": [
-      { "role": "user", "content": "LIFO یعنی چی؟" },
-      { "role": "assistant", "content": "یعنی آخرین عنصری که وارد پشته شده، اولین عنصری است که خارج می‌شود." }
+      {
+        "role": "user",
+        "content": "LIFO یعنی چی؟"
+      },
+      {
+        "role": "assistant",
+        "content": "یعنی آخرین عنصری که وارد پشته شده، اولین عنصری است که خارج می‌شود."
+      }
     ],
     "message": "آهان فهمیدم، دمت گرم",
     "route": "chat"
-  },
-
-  { "id": "camscanner-def", "message": "سیستم خبره چیه", "route": "document", "mode": "focused" },
-  { "id": "camscanner-features", "message": "خصوصیات یک سیستم خبره چیه؟", "route": "document", "mode": "focused" },
-  { "id": "camscanner-knowledge-base", "message": "پایگاه دانش توی سیستم خبره چه نقشی داره؟", "route": "document", "mode": "focused" }
+  },
+  { "id": "camscanner-def", "kind": "course_question", "message": "سیستم خبره چیه", "route": "document", "mode": "focused" },
+  { "id": "camscanner-features", "kind": "course_question", "message": "خصوصیات یک سیستم خبره چیه؟", "route": "document", "mode": "focused" },
+  { "id": "camscanner-knowledge-base", "kind": "course_question", "message": "پایگاه دانش توی سیستم خبره چه نقشی داره؟", "route": "document", "mode": "focused" },
+  {
+    "id": "real-greeting-after-menu",
+    "kind": "small_talk",
+    "dependsOnHistory": false,
+    "history": [
+      {
+        "role": "user",
+        "content": "/start"
+      },
+      {
+        "role": "assistant",
+        "content": "سلام! 👋 به دانشجویار خوش اومدی.\n\n🎓 من دستیار هوشمند مطالعه‌ات هستم. جزوه‌هات رو به‌صورت PDF یا عکس برام بفرست تا بتونی درباره‌شون ازم سؤال بپرسی.\n\n📌 **برای شروع:**\n۱. فایل PDF جزوه‌ات یا عکس یک صفحه‌ش رو بفرست.\n۲. صبر کن تا پردازش فایل تموم بشه.\n۳. سؤالت رو بپرس تا بر اساس جزوه جوابت رو بدم.\n\nاز دکمه‌های پایین صفحه هم می‌تونی جزوه‌هات و راهنما رو ببینی.\n\nیادگیری بهتر، قدم‌به‌قدم! 🌱"
+      },
+      {
+        "role": "user",
+        "content": "📚 جزوه‌های من"
+      },
+      {
+        "role": "assistant",
+        "content": "📚 **جزوه‌های تو**\n\nسؤال‌هات رو از روی همه این جزوه‌ها جواب می‌دم.\n\n👇 روی اسم هر جزوه بزن تا اسم کاملش رو ببینی، و برای پاک کردنش «🗑️ حذف» رو بزن."
+      }
+    ],
+    "message": "سلام حالت چطوره",
+    "route": "chat"
+  },
+  {
+    "id": "real-greeting-weather",
+    "kind": "small_talk",
+    "dependsOnHistory": false,
+    "history": [
+      {
+        "role": "user",
+        "content": "/start"
+      },
+      {
+        "role": "assistant",
+        "content": "سلام! 👋 به دانشجویار خوش اومدی.\n\n🎓 من دستیار هوشمند مطالعه‌ات هستم. جزوه‌هات رو به‌صورت PDF یا عکس برام بفرست تا بتونی درباره‌شون ازم سؤال بپرسی.\n\n📌 **برای شروع:**\n۱. فایل PDF جزوه‌ات یا عکس یک صفحه‌ش رو بفرست.\n۲. صبر کن تا پردازش فایل تموم بشه.\n۳. سؤالت رو بپرس تا بر اساس جزوه جوابت رو بدم.\n\nاز دکمه‌های پایین صفحه هم می‌تونی جزوه‌هات و راهنما رو ببینی.\n\nیادگیری بهتر، قدم‌به‌قدم! 🌱"
+      }
+    ],
+    "message": "سلام چطوری؟ آب و هوا امروز چطوره؟",
+    "route": "chat"
+  },
+  {
+    "id": "real-hi-after-help",
+    "kind": "small_talk",
+    "dependsOnHistory": false,
+    "history": [
+      {
+        "role": "user",
+        "content": "❓ راهنما"
+      },
+      {
+        "role": "assistant",
+        "content": "📚 **راهنمای دانشجویار**\n\nمن بهت کمک می‌کنم راحت‌تر درس بخونی و جواب سؤال‌هات رو از روی جزوه‌هات پیدا کنی.\n\n**چطور ازم استفاده کنی؟**\n\n📄 **۱. فرستادن جزوه**\nیک فایل PDF یا عکس یک صفحه از جزوه‌ات رو بفرست. خوندن صفحه‌های اسکن‌شده و عکس‌ها برای هر صفحه حدود یک دقیقه طول می‌کشه.\nهر عکس یک جزوه جدا می‌شه؛ برای چند صفحه بهتره PDF بفرستی. اگه متن عکسی درست خونده نشد، عکس رو به‌صورت فایل بفرست تا کیفیتش کم نشه.\n\n💬 **۲. پرسیدن سؤال**\nسؤالت رو بپرس؛ خودم توی همه جزوه‌هات می‌گردم و جواب رو با اسم فایل و شماره صفحه بهت می‌دم. لازم نیست جزوه‌ای رو انتخاب کنی. زیر هر جواب با 👍 یا 👎 بگو مفید بود یا نه.\n\n📝 **۳. خلاصه**\nبگو کدوم جزوه یا چه موضوعی رو خلاصه کنم، مثلاً «جزوه ساختمان داده رو خلاصه کن».\n\n📚 **۴. مدیریت جزوه‌ها**\nدکمه «📚 جزوه‌های من» رو بزن؛ زیر فهرست، برای حذف هر جزوه دکمه هست.\n\n🌐 **۵. سؤال‌های عمومی**\nاگه سؤالت به جزوه‌هات ربطی نداشته باشه، مثل یک دستیار هوشمند معمولی جوابت رو می‌دم."
+      }
+    ],
+    "message": "hi",
+    "route": "chat"
+  },
+  {
+    "id": "real-greeting-after-answer",
+    "kind": "small_talk",
+    "dependsOnHistory": false,
+    "history": [
+      {
+        "role": "user",
+        "content": "برنامه نویسی شی گرا چیه"
+      },
+      {
+        "role": "assistant",
+        "content": "برنامه‌نویسی شی‌گرا یکی از پارادایم‌های غالب در دهه تحول نرم‌افزار است که در سال ۱۹۸۰ با زبان‌هایی مانند Smalltalk و C++ معرفی شد [2]. این رویکرد بر اصولی همچون محصورسازی، تجرد، سلسله مراتب و واحد‌بندی استوار است [5].\n\n**منابع:**\n- [2] جزوه مهندسی نرم افزار - بخش شی گرایی.pdf — صفحه 12\n- [5] جزوه مهندسی نرم افزار - بخش شی گرایی.pdf — صفحه 46"
+      }
+    ],
+    "message": "سلام چطوری",
+    "route": "chat"
+  },
+  {
+    "id": "real-expert-system-after-hi",
+    "kind": "course_question",
+    "dependsOnHistory": false,
+    "history": [
+      {
+        "role": "user",
+        "content": "hi"
+      },
+      {
+        "role": "assistant",
+        "content": "سلام! 👋 چطور می‌تونم کمکت کنم؟"
+      }
+    ],
+    "message": "سیستم خبره چیه",
+    "route": "document",
+    "mode": "focused"
+  },
+  {
+    "id": "real-expert-system-after-summary",
+    "kind": "course_question",
+    "dependsOnHistory": false,
+    "history": [
+      {
+        "role": "user",
+        "content": "خلاصه کن"
+      },
+      {
+        "role": "assistant",
+        "content": "# خلاصه راهنمای درسی ساختمان داده‌ها\n\nاین راهنما شامل تعاریف پایه، مفاهیم بازگشتی، الگوریتم‌های معروف و ساختار کلی درس است.\n\n## ۱. سرفصل‌ها\n1. توابع بازگشتی\n2. پیچیدگی زمانی و مرتبه اجرایی\n3. آرایه و رشته\n4. پشته و صف\n5. لیست‌های پیوندی\n6. درخت\n\n## ۲. فصل اول: توابع بازگشتی\n* **ساختمان داده‌ها:** ساختارهایی برای دریافت داده‌های خام توسط کامپیوتر و اجرای الگوریتم‌های مختلف روی آن‌ها.\n* **تابع بازگشتی:** تابعی که خودش را فراخوانی می‌کند."
+      }
+    ],
+    "message": "سیستم خبره چیه",
+    "route": "document",
+    "mode": "focused"
+  },
+  {
+    "id": "real-oop-after-greeting",
+    "kind": "course_question",
+    "dependsOnHistory": false,
+    "history": [
+      {
+        "role": "user",
+        "content": "سلام حالت چطوره"
+      },
+      {
+        "role": "assistant",
+        "content": "سلام! من عالی‌ام، ممنون که پرسیدی 😊. تو چطوری؟ امیدوارم روزت پر از یادگیری و ایده‌های جدید باشه! 🌟"
+      }
+    ],
+    "message": "برنامه نویسی شی گرا چیه",
+    "route": "document",
+    "mode": "focused"
+  },
+  {
+    "id": "real-problem-solving",
+    "kind": "course_question",
+    "dependsOnHistory": false,
+    "history": [
+      {
+        "role": "user",
+        "content": "📚 جزوه‌های من"
+      },
+      {
+        "role": "assistant",
+        "content": "📚 **جزوه‌های تو**\n\nسؤال‌هات رو از روی همه این جزوه‌ها جواب می‌دم.\n\n👇 روی اسم هر جزوه بزن تا اسم کاملش رو ببینی، و برای پاک کردنش «🗑️ حذف» رو بزن."
+      }
+    ],
+    "message": "فرایند حل مسیله چجوریه",
+    "route": "document",
+    "mode": [
+      "focused",
+      "multi_part"
+    ]
+  },
+  {
+    "id": "real-oo-after-problem-solving",
+    "kind": "course_question",
+    "dependsOnHistory": false,
+    "history": [
+      {
+        "role": "user",
+        "content": "فرایند حل مسیله چجوریه"
+      },
+      {
+        "role": "assistant",
+        "content": "فرایند حل مسئله شامل سه فاز اصلی است:\n\n1. **فاز ۱: تحلیل و طراحی**: خروجی آن الگوریتم است [3]\n2. **فاز ۲: پیاده‌سازی**: خروجی آن برنامه قابل اجرا است [4]\n3. **فاز ۳: نگهداری**: خروجی آن نسخه جدید نرم‌افزار است [5]\n\n**منابع:**\n- [3] جزوه مهندسی نرم افزار - بخش شی گرایی.pdf — صفحه 9\n- [4] جزوه مهندسی نرم افزار - بخش شی گرایی.pdf — صفحه 10\n- [5] جزوه مهندسی نرم افزار - بخش شی گرایی.pdf — صفحه 11"
+      }
+    ],
+    "message": "شی گرایی چیه",
+    "route": "document",
+    "mode": "focused"
+  },
+  {
+    "id": "real-test-types",
+    "kind": "course_question",
+    "dependsOnHistory": false,
+    "history": [
+      {
+        "role": "user",
+        "content": "سیستم خبره چیه"
+      },
+      {
+        "role": "assistant",
+        "content": "سیستم خبره مجموعه‌ای از چند عامل کامپیوتری است که به صورت هوشمند از دانش و رویه‌های یک فرد خبره استفاده می‌کند تا در کارهایی که نیاز به هوشمندی یا تخصص دارد موفق عمل کند [1].\n\n**منابع:**\n- [1] CamScanner 05-18-2025 16.58.pdf — صفحه 2"
+      }
+    ],
+    "message": "انواع تست نرم افزار",
+    "route": "document",
+    "mode": [
+      "focused",
+      "multi_part"
+    ]
+  },
+  {
+    "id": "real-software-crisis",
+    "kind": "course_question",
+    "dependsOnHistory": false,
+    "history": [
+      {
+        "role": "user",
+        "content": "📚 جزوه‌های من"
+      },
+      {
+        "role": "assistant",
+        "content": "📚 **جزوه‌های تو**\n\nسؤال‌هات رو از روی همه این جزوه‌ها جواب می‌دم.\n\n👇 روی اسم هر جزوه بزن تا اسم کاملش رو ببینی، و برای پاک کردنش «🗑️ حذف» رو بزن."
+      }
+    ],
+    "message": "بحران نرم افزار رو توضیح بده",
+    "route": "document",
+    "mode": "focused"
+  },
+  {
+    "id": "real-oop-explain-after-refusal",
+    "kind": "course_question",
+    "dependsOnHistory": false,
+    "history": [
+      {
+        "role": "user",
+        "content": "بحران نرم افزار رو توضیح بده"
+      },
+      {
+        "role": "assistant",
+        "content": "بر اساس منابع ارائه‌شده، هیچ توضیحی در مورد «بحران نرم‌افزار» وجود ندارد. این منبع تنها به مفاهیم اولیه (داده، نرم‌افزار، سخت‌افزار)، اجزای سیستم و فازهای حل مسئله می‌پردازد."
+      }
+    ],
+    "message": "برنامه نویسی شی گرا رو توضیح بده",
+    "route": "document",
+    "mode": [
+      "focused",
+      "multi_part"
+    ]
+  },
+  {
+    "id": "real-functional-test",
+    "kind": "course_question",
+    "dependsOnHistory": false,
+    "history": [
+      {
+        "role": "user",
+        "content": "برنامه نویسی شی گرا رو توضیح بده"
+      },
+      {
+        "role": "assistant",
+        "content": "برنامه‌نویسی شی‌گرا با استفاده از اصولی مانند محصورسازی، تجرد، سلسله مراتب و واحد‌بندی پیاده‌سازی می‌شود [5]. این رویکرد مزایایی همچون افزایش خوانایی و تسهیل اشکال‌زدایی دارد [6].\n\n**منابع:**\n- [5] جزوه مهندسی نرم افزار - بخش شی گرایی.pdf — صفحه 46\n- [6] جزوه مهندسی نرم افزار - بخش شی گرایی.pdf — صفحه 51"
+      },
+      {
+        "role": "user",
+        "content": "بیشتر اصول رو توضیح بده مثال بزن"
+      },
+      {
+        "role": "assistant",
+        "content": "بر اساس منابع ارائه‌شده، اصول اصلی برنامه‌نویسی شی‌گرا عبارتند از:\n\n1. **محصورسازی**: پنهان کردن جزئیات داخلی یک شی [1]\n2. **تجرد**: تمرکز بر ویژگی‌های اصلی یک پدیده [2]\n3. **سلسله مراتب**: رتبه‌بندی تجردها [3]\n4. **واحدبندی**: تقسیم برنامه به واحدهای مستقل [4]\n\n**منابع:**\n- [1] جزوه مهندسی نرم افزار - بخش شی گرایی.pdf — صفحه 49\n- [2] جزوه مهندسی نرم افزار - بخش شی گرایی.pdf — صفحه 47\n- [3] جزوه مهندسی نرم افزار - بخش شی گرایی.pdf — صفحه 53\n- [4] جزوه مهندسی نرم افزار - بخش شی گرایی.pdf — صفحه 52"
+      }
+    ],
+    "message": "فانکشنال تست از چه اعضایی تشکیل شده",
+    "route": "document",
+    "mode": [
+      "focused",
+      "multi_part"
+    ]
+  },
+  {
+    "id": "real-soft-skills",
+    "kind": "course_question",
+    "dependsOnHistory": false,
+    "history": [
+      {
+        "role": "user",
+        "content": "فانکشنال تست از چه اعضایی تشکیل شده"
+      },
+      {
+        "role": "assistant",
+        "content": "فانکشنال تست از اعضای زیر تشکیل شده است:\n\n- تست واحد\n- تست یکپارچگی\n- تست سیستم\n- تست پذیرش [1]\n\n**منابع:**\n- [1] جزوه درس آزمون نرم افزاراستاد زاغری 405.pdf — صفحه 31"
+      }
+    ],
+    "message": "مهارت غیر فنی چیست",
+    "route": "document",
+    "mode": "focused"
+  },
+  {
+    "id": "real-summarise-after-list",
+    "kind": "summary",
+    "dependsOnHistory": false,
+    "history": [
+      {
+        "role": "user",
+        "content": "📚 جزوه‌های من"
+      },
+      {
+        "role": "assistant",
+        "content": "📚 **جزوه‌های تو**\n\nسؤال‌هات رو از روی همه این جزوه‌ها جواب می‌دم.\n\n👇 روی اسم هر جزوه بزن تا اسم کاملش رو ببینی، و برای پاک کردنش «🗑️ حذف» رو بزن."
+      }
+    ],
+    "message": "خلاصه کن",
+    "route": "document",
+    "mode": "broad"
+  },
+  {
+    "id": "real-summarise-after-help",
+    "kind": "summary",
+    "dependsOnHistory": false,
+    "history": [
+      {
+        "role": "user",
+        "content": "❓ راهنما"
+      },
+      {
+        "role": "assistant",
+        "content": "📚 **راهنمای دانشجویار**\n\nمن بهت کمک می‌کنم راحت‌تر درس بخونی و جواب سؤال‌هات رو از روی جزوه‌هات پیدا کنی.\n\n**چطور ازم استفاده کنی؟**\n\n📄 **۱. فرستادن جزوه**\nیک فایل PDF یا عکس یک صفحه از جزوه‌ات رو بفرست. خوندن صفحه‌های اسکن‌شده و عکس‌ها برای هر صفحه حدود یک دقیقه طول می‌کشه.\nهر عکس یک جزوه جدا می‌شه؛ برای چند صفحه بهتره PDF بفرستی. اگه متن عکسی درست خونده نشد، عکس رو به‌صورت فایل بفرست تا کیفیتش کم نشه.\n\n💬 **۲. پرسیدن سؤال**\nسؤالت رو بپرس؛ خودم توی همه جزوه‌هات می‌گردم و جواب رو با اسم فایل و شماره صفحه بهت می‌دم. لازم نیست جزوه‌ای رو انتخاب کنی. زیر هر جواب با 👍 یا 👎 بگو مفید بود یا نه.\n\n📝 **۳. خلاصه**\nبگو کدوم جزوه یا چه موضوعی رو خلاصه کنم، مثلاً «جزوه ساختمان داده رو خلاصه کن».\n\n📚 **۴. مدیریت جزوه‌ها**\nدکمه «📚 جزوه‌های من» رو بزن؛ زیر فهرست، برای حذف هر جزوه دکمه هست.\n\n🌐 **۵. سؤال‌های عمومی**\nاگه سؤالت به جزوه‌هات ربطی نداشته باشه، مثل یک دستیار هوشمند معمولی جوابت رو می‌دم."
+      }
+    ],
+    "message": "خلاصه کن",
+    "route": "document",
+    "mode": "broad"
+  },
+  {
+    "id": "real-abstract-of-handout",
+    "kind": "summary",
+    "dependsOnHistory": false,
+    "history": [
+      {
+        "role": "user",
+        "content": "LIFO یعنی چی؟"
+      },
+      {
+        "role": "assistant",
+        "content": "یعنی آخرین عنصری که وارد پشته شده، اولین عنصری است که خارج می‌شود [1].\n\n**منابع:**\n- [1] DataStructure_Chapter1.pdf — صفحه 9"
+      }
+    ],
+    "message": "\"چکیده متن\" این جزوه رو بهم بگو...",
+    "route": "document",
+    "mode": "broad"
+  },
+  {
+    "id": "real-about-what",
+    "kind": "about_document",
+    "dependsOnHistory": false,
+    "history": [
+      {
+        "role": "user",
+        "content": "/start"
+      },
+      {
+        "role": "assistant",
+        "content": "سلام! 👋 به دانشجویار خوش اومدی.\n\n🎓 من دستیار هوشمند مطالعه‌ات هستم. جزوه‌هات رو به‌صورت PDF یا عکس برام بفرست تا بتونی درباره‌شون ازم سؤال بپرسی.\n\n📌 **برای شروع:**\n۱. فایل PDF جزوه‌ات یا عکس یک صفحه‌ش رو بفرست.\n۲. صبر کن تا پردازش فایل تموم بشه.\n۳. سؤالت رو بپرس تا بر اساس جزوه جوابت رو بدم.\n\nاز دکمه‌های پایین صفحه هم می‌تونی جزوه‌هات و راهنما رو ببینی.\n\nیادگیری بهتر، قدم‌به‌قدم! 🌱"
+      },
+      {
+        "role": "user",
+        "content": "📚 جزوه‌های من"
+      },
+      {
+        "role": "assistant",
+        "content": "📚 **جزوه‌های تو**\n\nسؤال‌هات رو از روی همه این جزوه‌ها جواب می‌دم.\n\n👇 روی اسم هر جزوه بزن تا اسم کاملش رو ببینی، و برای پاک کردنش «🗑️ حذف» رو بزن."
+      }
+    ],
+    "message": "این جزوه راجع به چیه؟ یه اطلاعات کلی بهم بده لطفا...",
+    "route": "document"
+  },
+  {
+    "id": "real-whose-handout",
+    "kind": "about_document",
+    "dependsOnHistory": false,
+    "history": [
+      {
+        "role": "user",
+        "content": "📚 جزوه‌های من"
+      },
+      {
+        "role": "assistant",
+        "content": "📚 **جزوه‌های تو**\n\nسؤال‌هات رو از روی همه این جزوه‌ها جواب می‌دم.\n\n👇 روی اسم هر جزوه بزن تا اسم کاملش رو ببینی، و برای پاک کردنش «🗑️ حذف» رو بزن."
+      }
+    ],
+    "message": "این جزوه مال کیست؟",
+    "route": "document"
+  },
+  {
+    "id": "real-about-short",
+    "kind": "about_document",
+    "history": [
+      {
+        "role": "user",
+        "content": "📚 جزوه‌های من"
+      },
+      {
+        "role": "assistant",
+        "content": "📚 **جزوه‌های تو**\n\nسؤال‌هات رو از روی همه این جزوه‌ها جواب می‌دم.\n\n👇 روی اسم هر جزوه بزن تا اسم کاملش رو ببینی، و برای پاک کردنش «🗑️ حذف» رو بزن."
+      }
+    ],
+    "message": "درباره چیه",
+    "route": "document"
+  },
+  { "id": "about-what-plain", "kind": "about_document", "message": "این فایل درباره چیه؟", "route": "document" },
+  { "id": "about-topics", "kind": "about_document", "message": "سرفصل‌های این جزوه چیا هستن؟", "route": "document" },
+  { "id": "about-author", "kind": "about_document", "message": "نویسنده این جزوه کیه؟", "route": "document" },
+  {
+    "id": "real-three-sentence-summary",
+    "kind": "transform",
+    "dependsOnHistory": true,
+    "history": [
+      {
+        "role": "user",
+        "content": "برنامه نویسی شی گرا چیه"
+      },
+      {
+        "role": "assistant",
+        "content": "برنامه‌نویسی شی‌گرا یکی از پارادایم‌های غالب در دهه تحول نرم‌افزار است که در سال ۱۹۸۰ با زبان‌هایی مانند Smalltalk و C++ معرفی شد [2]. این رویکرد بر اصولی همچون محصورسازی، تجرد، سلسله مراتب و واحد‌بندی استوار است [5]. همچنین مدیریت داده‌های سراسری را خطرناک می‌داند و برای مقابله با آن از کپسوله‌سازی استفاده می‌شود [4].\n\n**منابع:**\n- [2] جزوه مهندسی نرم افزار - بخش شی گرایی.pdf — صفحه 12\n- [4] جزوه مهندسی نرم افزار - بخش شی گرایی.pdf — صفحه 20\n- [5] جزوه مهندسی نرم افزار - بخش شی گرایی.pdf — صفحه 46"
+      }
+    ],
+    "message": "میتونی یه خلاصه سه جمله ای بهم بدی؟",
+    "route": "document",
+    "mode": [
+      "focused",
+      "multi_part"
+    ]
+  },
+  {
+    "id": "transform-shorter",
+    "kind": "transform",
+    "dependsOnHistory": true,
+    "history": [
+      {
+        "role": "user",
+        "content": "فرایند حل مسیله چجوریه"
+      },
+      {
+        "role": "assistant",
+        "content": "فرایند حل مسئله شامل سه فاز اصلی است:\n\n1. **فاز ۱: تحلیل و طراحی**: خروجی آن الگوریتم است [3]\n2. **فاز ۲: پیاده‌سازی**: خروجی آن برنامه قابل اجرا است [4]\n3. **فاز ۳: نگهداری**: خروجی آن نسخه جدید نرم‌افزار است [5]\n\n**منابع:**\n- [3] جزوه مهندسی نرم افزار - بخش شی گرایی.pdf — صفحه 9\n- [4] جزوه مهندسی نرم افزار - بخش شی گرایی.pdf — صفحه 10\n- [5] جزوه مهندسی نرم افزار - بخش شی گرایی.pdf — صفحه 11"
+      }
+    ],
+    "message": "کوتاه‌ترش کن",
+    "route": "document",
+    "mode": [
+      "focused",
+      "multi_part"
+    ]
+  },
+  {
+    "id": "transform-simpler",
+    "kind": "transform",
+    "dependsOnHistory": true,
+    "history": [
+      {
+        "role": "user",
+        "content": "الگوریتم پریم چیه؟"
+      },
+      {
+        "role": "assistant",
+        "content": "پریم درخت پوشای کمینه را با اضافه کردن نزدیک‌ترین راس در هر مرحله می‌سازد [1].\n\n**منابع:**\n- [1] Algorithm-Chapter4.pdf — صفحه 21"
+      }
+    ],
+    "message": "ساده‌تر بگو، نفهمیدم",
+    "route": "document",
+    "mode": [
+      "focused",
+      "multi_part"
+    ]
+  },
+  {
+    "id": "real-explain-each",
+    "kind": "follow_up",
+    "dependsOnHistory": true,
+    "history": [
+      {
+        "role": "user",
+        "content": "شی گرایی چیه"
+      },
+      {
+        "role": "assistant",
+        "content": "بر اساس منابع ارائه‌شده، تعریف مستقیم و کاملی از «شی گرایی» به صورت یک جمله واحد در متن موجود نیست. با این حال، اصول کلیدی تشکیل‌دهنده آن عبارتند از:\n\n* **محصورسازی**\n* **تجرید**\n* **سلسله مراتب**\n* **واحد بندی** [4]\n\n**منابع:**\n- [4] جزوه مهندسی نرم افزار - بخش شی گرایی.pdf — صفحه 46"
+      }
+    ],
+    "message": "توضیحشون بده هر کدومو",
+    "route": "document",
+    "mode": "multi_part"
+  },
+  {
+    "id": "real-principles-more",
+    "kind": "follow_up",
+    "dependsOnHistory": true,
+    "history": [
+      {
+        "role": "user",
+        "content": "برنامه نویسی شی گرا چیه"
+      },
+      {
+        "role": "assistant",
+        "content": "برنامه‌نویسی شی‌گرا یکی از پارادایم‌های غالب در دهه تحول نرم‌افزار است که در سال ۱۹۸۰ با زبان‌هایی مانند Smalltalk و C++ معرفی شد [2]. این رویکرد بر اصولی همچون محصورسازی، تجرد، سلسله مراتب و واحد‌بندی استوار است [5].\n\n**منابع:**\n- [2] جزوه مهندسی نرم افزار - بخش شی گرایی.pdf — صفحه 12\n- [5] جزوه مهندسی نرم افزار - بخش شی گرایی.pdf — صفحه 46"
+      }
+    ],
+    "message": "اصول رو بیشتر توضیح میدی",
+    "route": "document",
+    "mode": "multi_part"
+  },
+  {
+    "id": "real-principles-example",
+    "kind": "follow_up",
+    "dependsOnHistory": true,
+    "history": [
+      {
+        "role": "user",
+        "content": "برنامه نویسی شی گرا رو توضیح بده"
+      },
+      {
+        "role": "assistant",
+        "content": "برنامه‌نویسی شی‌گرا با استفاده از اصولی مانند محصورسازی، تجرد، سلسله مراتب و واحد‌بندی پیاده‌سازی می‌شود [5]. این رویکرد مزایایی همچون افزایش خوانایی و تسهیل اشکال‌زدایی دارد [6].\n\n**منابع:**\n- [5] جزوه مهندسی نرم افزار - بخش شی گرایی.pdf — صفحه 46\n- [6] جزوه مهندسی نرم افزار - بخش شی گرایی.pdf — صفحه 51"
+      }
+    ],
+    "message": "بیشتر اصول رو توضیح بده مثال بزن",
+    "route": "document",
+    "mode": "multi_part"
+  }
 ]
