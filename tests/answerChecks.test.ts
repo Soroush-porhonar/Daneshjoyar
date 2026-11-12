@@ -6,6 +6,7 @@ import {
   missingKeywords,
   persianShare,
   scoreAnswer,
+  separation,
 } from "../scripts/answerChecks.js";
 import { NO_RELEVANT_CONTENT_TEXT, SOURCES_HEADING, sourceLineText } from "../src/messages.js";
 
@@ -94,6 +95,25 @@ describe("citedSentences (eval: each citation against its source)", () => {
     ]);
   });
 
+  it("reads a list item with the line that introduces the list", () => {
+    const body = [
+      "رسمی‌ترین نوع بازبینی، Inspection است [2]. این نوع بازبینی نقش‌های زیر را دارد:",
+      "*   Moderator (هدایت جلسه) [2]",
+      "*   Reader (خواننده سند) [2]",
+      "",
+      "پس از آن جلسه پیگیری برگزار می‌شود [3].",
+      "*   این مورد بعد از متن عادی آمده است [3]",
+    ].join("\n");
+
+    expect(citedSentences(body)).toEqual([
+      { sentence: "رسمی‌ترین نوع بازبینی، Inspection است.", numbers: [2] },
+      { sentence: "این نوع بازبینی نقش‌های زیر را دارد: Moderator (هدایت جلسه)", numbers: [2] },
+      { sentence: "این نوع بازبینی نقش‌های زیر را دارد: Reader (خواننده سند)", numbers: [2] },
+      { sentence: "پس از آن جلسه پیگیری برگزار می‌شود.", numbers: [3] },
+      { sentence: "این مورد بعد از متن عادی آمده است", numbers: [3] },
+    ]);
+  });
+
   it("drops list numbers, and skips headings and code", () => {
     const body = [
       "**مراحل** [1]",
@@ -123,6 +143,37 @@ describe("coversPage (eval: was the expected page given to the model?)", () => {
     expect(coversPage(chunks, 1, [5])).toBe(false);
     expect(coversPage(chunks, 2, [4, 5])).toBe(true);
     expect(coversPage([], 1, [3])).toBe(false);
+  });
+});
+
+describe("separation (eval: does a score tell supported citations from unsupported ones?)", () => {
+  const pair = (score: number, supported: boolean) => ({ score, supported });
+
+  it("finds a clean cut-off in the middle of the gap", () => {
+    const result = separation([pair(5, true), pair(3, true), pair(2, true), pair(-4, false), pair(-6, false)]);
+
+    expect(result).toEqual({ threshold: -1, accuracy: 1, falsePositives: 0, falseNegatives: 0, auc: 1 });
+  });
+
+  it("reports the errors of the best cut-off when the groups overlap", () => {
+    // One unsupported pair scores above two supported ones.
+    const result = separation([pair(6, true), pair(4, true), pair(1, true), pair(0, true), pair(2, false), pair(-5, false)]);
+
+    expect(result.accuracy).toBeCloseTo(5 / 6);
+    expect(result.falsePositives + result.falseNegatives).toBe(1);
+    expect(result.auc).toBeCloseTo(6 / 8);
+  });
+
+  it("says so when the score separates nothing", () => {
+    const result = separation([pair(1, true), pair(1, false), pair(1, true), pair(1, false)]);
+
+    expect(result.auc).toBe(0.5);
+    expect(result.accuracy).toBe(0.5);
+  });
+
+  it("handles a single group and no pairs", () => {
+    expect(separation([pair(2, true), pair(3, true)])).toMatchObject({ accuracy: 1, auc: 1 });
+    expect(separation([])).toMatchObject({ accuracy: 1, auc: 1 });
   });
 });
 

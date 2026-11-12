@@ -85,39 +85,53 @@ const LIST_MARKER = /^\s*(?:[-*•]\s+|[\d۰-۹]+\s*[.)]\s+)/;
  * The sentences of an answer that cite a source, for checking each citation
  * against its source. A line is split at sentence ends; a citation written
  * after the full stop ("... است. [2]") belongs to the sentence before it.
+ * A list item is read with the line that introduces the list ("... has these
+ * roles:"), since "Reader: reads the document" says nothing on its own.
  * Sentences too short to be a claim (a heading with a citation) are skipped.
  */
 export function citedSentences(body: string, minLength = 15): CitedSentence[] {
-  const sentences: string[] = [];
+  const sentences: { raw: string; lead?: string }[] = [];
+  /** The last line outside a list that ends with ":" (it introduces the items below it). */
+  let lead: string | undefined;
 
   for (const line of body.split("\n")) {
+    const isItem = LIST_MARKER.test(line);
     const text = line.replace(LIST_MARKER, "").trim();
     if (!text) continue;
+
+    if (!isItem) {
+      const last = clean(text.split(/(?<=[.؟?!])\s+/).at(-1) ?? "");
+      lead = /:$/.test(last) ? last : undefined;
+    }
 
     // Cut after . ؟ ? ! when a space follows (so "1.5" and "a.b" stay whole).
     for (const part of text.split(/(?<=[.؟?!])\s+/)) {
       const leading = new RegExp(`^(?:${CITATION_RUN.source})\\s*[.]?\\s*`).exec(part);
+      const rest = leading ? part.slice(leading[0].length) : part;
 
-      if (leading && sentences.length > 0) {
-        sentences[sentences.length - 1] += ` ${leading[0].trim()}`;
-        if (part.slice(leading[0].length).trim()) sentences.push(part.slice(leading[0].length));
-      } else {
-        sentences.push(part);
-      }
+      if (leading && sentences.length > 0) sentences[sentences.length - 1]!.raw += ` ${leading[0].trim()}`;
+      if (rest.trim()) sentences.push(isItem && lead ? { raw: rest, lead } : { raw: rest });
     }
   }
 
-  return sentences.flatMap((raw) => {
+  return sentences.flatMap(({ raw, lead: intro }) => {
     const numbers = [...citedNumbers(raw)].sort((a, b) => a - b);
-    const sentence = raw
-      .replace(CITATION_RUN, " ")
-      .replace(/\*\*|__/g, "")
-      .replace(/\s+([.،؛:؟?!])/g, "$1")
-      .replace(/\s{2,}/g, " ")
-      .trim();
+    const sentence = clean(raw);
 
-    return numbers.length > 0 && sentence.length >= minLength ? [{ sentence, numbers }] : [];
+    return numbers.length > 0 && sentence.length >= minLength
+      ? [{ sentence: intro ? `${intro} ${sentence}` : sentence, numbers }]
+      : [];
   });
+}
+
+/** Without citation marks, bold marks and doubled spaces. */
+function clean(text: string): string {
+  return text
+    .replace(CITATION_RUN, " ")
+    .replace(/\*\*|__/g, "")
+    .replace(/\s+([.،؛:؟?!])/g, "$1")
+    .replace(/\s{2,}/g, " ")
+    .trim();
 }
 
 /** A chunk of the context as the eval needs it. */
@@ -134,6 +148,73 @@ export function coversPage(chunks: PageSpan[], documentId: number, pages: number
     const end = chunk.pageEnd ?? chunk.pageNumber;
     return pages.some((page) => page >= chunk.pageNumber! && page <= end);
   });
+}
+
+/** A hand-labelled pair with the score a model gave it. */
+export interface LabelledScore {
+  score: number;
+  supported: boolean;
+}
+
+export interface Separation {
+  /** The cut-off (score >= threshold counts as supported) with the most labels right. */
+  threshold: number;
+  /** Share of the labels that cut-off gets right. */
+  accuracy: number;
+  /** Unsupported pairs scoring at or above the cut-off. */
+  falsePositives: number;
+  /** Supported pairs scoring below it. */
+  falseNegatives: number;
+  /**
+   * Chance that a supported pair scores above an unsupported one (ties count
+   * half): 1 = the scores separate the two groups fully, 0.5 = not at all.
+   */
+  auc: number;
+}
+
+/**
+ * How well a score separates supported from unsupported pairs, and the best
+ * cut-off: tried between every two neighbouring scores; among equally good
+ * cut-offs, the one in the widest gap.
+ */
+export function separation(pairs: LabelledScore[]): Separation {
+  const supported = pairs.filter((pair) => pair.supported).map((pair) => pair.score);
+  const unsupported = pairs.filter((pair) => !pair.supported).map((pair) => pair.score);
+
+  const wins = supported.reduce(
+    (sum, s) => sum + unsupported.reduce((inner, u) => inner + (s > u ? 1 : s === u ? 0.5 : 0), 0),
+    0,
+  );
+  const auc = supported.length * unsupported.length === 0 ? 1 : wins / (supported.length * unsupported.length);
+
+  const scores = [...new Set(pairs.map((pair) => pair.score))].sort((a, b) => a - b);
+  const candidates = scores.slice(1).map((score, index) => ({
+    threshold: (score + scores[index]!) / 2,
+    gap: score - scores[index]!,
+  }));
+
+  let best: Separation & { gap: number } = {
+    threshold: (scores[0] ?? 0) - 1,
+    accuracy: -1,
+    falsePositives: 0,
+    falseNegatives: 0,
+    auc,
+    gap: 0,
+  };
+
+  // Below every score (everything supported) is a candidate too.
+  for (const { threshold, gap } of [{ threshold: (scores[0] ?? 0) - 1, gap: 0 }, ...candidates]) {
+    const falsePositives = unsupported.filter((score) => score >= threshold).length;
+    const falseNegatives = supported.filter((score) => score < threshold).length;
+    const accuracy = pairs.length === 0 ? 1 : 1 - (falsePositives + falseNegatives) / pairs.length;
+
+    if (accuracy > best.accuracy || (accuracy === best.accuracy && gap > best.gap)) {
+      best = { threshold, accuracy, falsePositives, falseNegatives, auc, gap };
+    }
+  }
+
+  const { gap: _gap, ...result } = best;
+  return result;
 }
 
 export interface AnswerScore {

@@ -12,7 +12,7 @@ vi.mock("../src/config.js", async (importOriginal) => {
   };
 });
 
-const { rerankChunks } = await import("../src/rag/rerank.js");
+const { rerankChunks, scoreTexts } = await import("../src/rag/rerank.js");
 const { config } = await import("../src/config.js");
 const ragSettings = config.rag as { chunkContext: boolean };
 const { logger } = await import("../src/logger.js");
@@ -137,5 +137,46 @@ describe("rerankChunks", () => {
   it("does not call the service for fewer than two chunks", async () => {
     expect(await rerankChunks("سؤال", [chunks[0]!])).toEqual([chunks[0]]);
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("scoreTexts", () => {
+  it("returns one score per text, in the order of the texts", async () => {
+    reply({
+      results: [
+        { index: 2, relevance_score: 0.5 },
+        { index: 0, relevance_score: 0.1 },
+        { index: 1, relevance_score: 0.9 },
+      ],
+    });
+
+    expect(await scoreTexts("جمله", ["الف", "ب", "ج"])).toEqual([0.1, 0.9, 0.5]);
+    expect(JSON.parse(fetchMock.mock.calls[0]![1].body as string)).toEqual({
+      query: "جمله",
+      documents: ["الف", "ب", "ج"],
+    });
+  });
+
+  it("scores a single text", async () => {
+    reply({ results: [{ index: 0, relevance_score: -2.5 }] });
+
+    expect(await scoreTexts("جمله", ["الف"])).toEqual([-2.5]);
+  });
+
+  it("is null when the service is down, answers badly, or there is nothing to score", async () => {
+    fetchMock.mockRejectedValueOnce(new TypeError("fetch failed"));
+    expect(await scoreTexts("جمله", ["الف"])).toBeNull();
+
+    // The same index twice: one text has no score.
+    reply({
+      results: [
+        { index: 0, relevance_score: 1 },
+        { index: 0, relevance_score: 2 },
+      ],
+    });
+    expect(await scoreTexts("جمله", ["الف", "ب"])).toBeNull();
+
+    expect(await scoreTexts("جمله", [])).toBeNull();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 });
