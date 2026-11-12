@@ -13,6 +13,7 @@ import {
 } from "../messages.js";
 import { isPhotoFilename } from "./documentKind.js";
 import { chat } from "../llm/ollamaClient.js";
+import type { ChatStats } from "../llm/ollamaClient.js";
 import {
   BROAD_EXTRACTION_SYSTEM_PROMPT,
   RAG_SYSTEM_PROMPT,
@@ -41,15 +42,22 @@ const GENERATION_OPTIONS = {
   temperature: config.llm.temperature.rag,
 };
 
+/** With a `trace`, the call's token counts and timings are recorded on it. */
 function generate(
   system: string,
   user: string,
   signal?: AbortSignal,
+  trace?: AnswerTrace,
 ): Promise<string> {
   return chat({
     think: false,
     options: GENERATION_OPTIONS,
     signal,
+    onStats: trace
+      ? (stats) => {
+          trace.generation = stats;
+        }
+      : undefined,
     messages: [
       { role: "system", content: system },
       { role: "user", content: user },
@@ -61,7 +69,7 @@ function generate(
  * The source line a chunk is cited as; chunks on the same page share it. A
  * photo is one page, cited by its name alone.
  */
-const sourceLine = (chunk: SourceChunk): string | null => {
+export const sourceLine = (chunk: SourceChunk): string | null => {
   if (isPhotoFilename(chunk.filename)) return documentDisplayName(chunk.filename, chunk.documentTitle);
   return chunk.pageNumber == null ? null : sourceLineText(chunk.filename, chunk.pageNumber, chunk.pageEnd);
 };
@@ -194,6 +202,7 @@ async function answerBroadQuestion(
   document: CompletedDocument,
   question: string,
   signal?: AbortSignal,
+  trace?: AnswerTrace,
 ): Promise<string> {
   const chunks = await getDocumentChunks(userId, document.id);
 
@@ -237,6 +246,7 @@ async function answerBroadQuestion(
     RAG_SYSTEM_PROMPT,
     buildBroadSynthesisPrompt(question, summaries),
     signal,
+    trace,
   );
 
   // Cite the pages the summaries drew on, not every page of the document
@@ -272,6 +282,7 @@ async function answerFocusedQuestion(
     RAG_SYSTEM_PROMPT,
     buildFocusedUserPrompt(question, formatChunks(chunks, numbers)),
     signal,
+    trace,
   );
 
   return appendSources(answer, chunks, numbers);
@@ -283,6 +294,8 @@ export interface AnswerTrace {
   documentIds?: number[];
   /** The chunks the model was given (empty for whole-document summaries). */
   context?: ContextChunk[];
+  /** Token counts and timings of the call that wrote the answer. */
+  generation?: ChatStats;
 }
 
 /** Search results fetched early, while the router was still deciding. */
@@ -401,7 +414,7 @@ export async function answerFromDocuments(
     if (!document) return NO_DOCUMENT_CONTENT_TEXT;
     if (trace) trace.documentIds = [document.id];
 
-    return answerBroadQuestion(userId, document, question, signal);
+    return answerBroadQuestion(userId, document, question, signal, trace);
   }
 
   return answerFocusedQuestion(
