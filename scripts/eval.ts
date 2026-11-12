@@ -8,6 +8,7 @@
  *   npm run eval -- --no-save             # don't write eval/results/*.json
  *   npm run eval -- --doc "x.pdf=12"      # pin a document version (before/after)
  *   npm run eval -- --per-doc             # search only each question's own document
+ *   npm run eval -- --user 42             # that user's copies of the documents (distractor run)
  *
  * Like the bot, each question searches all documents of the user who owns its
  * document; a hit counts only if it is on the right page of the right file.
@@ -18,7 +19,17 @@
  *   paraphrase  - asks the same thing in different words
  *   multi_page  - the answer is spread over several pages
  *   follow_up   - only makes sense with the earlier conversation ("history")
+ *   standalone_history - a complete question asked after an earlier exchange;
+ *                 the bot rewrites it anyway (short message after history),
+ *                 which must not make it worse
  *   negative    - the answer is NOT in the document (expectedPages: [])
+ *
+ * Optional fields:
+ *   parts    - multi-concept questions: the pages of each concept; "every
+ *              part" counts the questions where each part reached the model
+ *   tags     - english, finglish, typo, arabic_letters, table, formula,
+ *              near_miss: one metrics row per tag
+ *   holdout  - reported on its own row; do not tune against these
  *
  * Each run is saved and compared with the previous one, so a change that makes
  * some questions worse is visible immediately (regression check).
@@ -36,10 +47,10 @@ import {
   searchCandidates,
 } from "../src/rag/retrieve.js";
 import { rerankChunks } from "../src/rag/rerank.js";
-import { rewriteQuestion } from "../src/rag/rewrite.js";
+import { needsRewrite, rewriteQuestion } from "../src/rag/rewrite.js";
 import type { HistoryMessage } from "../src/rag/rewrite.js";
 
-type QuestionType = "exact_term" | "paraphrase" | "multi_page" | "follow_up" | "negative";
+type QuestionType = "exact_term" | "paraphrase" | "multi_page" | "follow_up" | "standalone_history" | "negative";
 
 interface EvalQuestion {
   id: string;
@@ -49,6 +60,9 @@ interface EvalQuestion {
   question: string;
   expectedPages: number[];
   history?: HistoryMessage[];
+  parts?: number[][];
+  tags?: string[];
+  holdout?: boolean;
 }
 
 interface Row {
@@ -63,6 +77,11 @@ interface Row {
   wrongDistance: number | null;
   /** Expected page present in the context the model would really get. */
   inContext: boolean;
+  /** Multi-concept questions: how many parts, and how many had a page in that context. */
+  parts?: number;
+  partsInContext?: number;
+  tags?: string[];
+  holdout?: boolean;
   /**
    * Follow-ups: vector rank of the message as typed, before rewriting. The other
    * ranks use the rewritten question (and the previous answer's hits), like production.
@@ -98,6 +117,13 @@ const save = !args.includes("--no-save");
 const perDocument = args.includes("--per-doc");
 const threshold = config.rag.maxCosineDistance;
 
+/**
+ * --user 42: use that user's copies of the eval documents (the distractor run: the
+ * eval PDFs ingested with many other documents under a separate user).
+ */
+const evalUserIndex = args.indexOf("--user");
+const evalUser = evalUserIndex >= 0 ? Number(args[evalUserIndex + 1]) : null;
+
 /** --doc "name.pdf=12": use that document version instead of the newest one (before/after comparisons). */
 const pinned = new Map(
   args
@@ -117,8 +143,9 @@ async function findDocument(filename: string) {
     `SELECT id, user_id FROM documents
      WHERE filename = $1 AND status = 'completed'
        AND ($2::integer IS NULL OR id = $2)
+       AND ($3::integer IS NULL OR user_id = $3)
      ORDER BY id DESC LIMIT 1`,
-    [filename, pinned.get(filename) ?? null],
+    [filename, pinned.get(filename) ?? null, evalUser],
   );
   return found.rows[0];
 }
@@ -158,17 +185,15 @@ for (const q of questions) {
     continue;
   }
 
-  // Like production: follow-ups are rewritten before searching, and the
-  // previous answer's hits compete with the search results.
-  const rewritten =
-    q.type === "follow_up" && useRewrite && q.history
-      ? await rewriteQuestion(q.question, q.history)
-      : undefined;
+  // Like production: a short message after an earlier exchange is rewritten
+  // before searching, and the previous answer's hits compete with the results.
+  const followUp = q.history !== undefined && needsRewrite(q.question, q.history);
+  const rewritten = followUp && useRewrite ? await rewriteQuestion(q.question, q.history!) : undefined;
   const text = rewritten ?? q.question;
   // Like the bot: all of the user's documents, unless --per-doc.
   const scopeId = perDocument ? document.id : undefined;
   const scope = scopeId === undefined ? {} : { documentId: scopeId };
-  const include = q.type === "follow_up" ? await previousHits(document, q.history, scopeId) : [];
+  const include = followUp ? await previousHits(document, q.history, scopeId) : [];
 
   const start = performance.now();
   const chunks = await retrieveRelevantChunks(
@@ -223,6 +248,11 @@ for (const q of questions) {
       q.type === "negative" ? (distances[0] ?? null) : rank > 0 ? distances[rank - 1]! : null,
     wrongDistance: wrongIndex >= 0 ? distances[wrongIndex]! : null,
     inContext: rankOf(context, document.id, q.expectedPages) > 0,
+    ...(q.parts
+      ? { parts: q.parts.length, partsInContext: q.parts.filter((pages) => rankOf(context, document.id, pages) > 0).length }
+      : {}),
+    ...(q.tags ? { tags: q.tags } : {}),
+    ...(q.holdout ? { holdout: true } : {}),
     pages: chunks.slice(0, 5).map((chunk) => span(chunk, document.id)).join(","),
     ms: Math.round(ms),
   };
@@ -317,6 +347,13 @@ for (const filename of new Set(positives.map((row) => row.filename))) {
   byType[`📄 ${filename.slice(0, 24)}`] = metrics(positives.filter((r) => r.filename === filename));
 }
 
+// Ways of asking (english, typo, table, ...) and the held-out questions.
+for (const tag of new Set(positives.flatMap((row) => row.tags ?? []))) {
+  byType[`#${tag}`] = metrics(positives.filter((r) => r.tags?.includes(tag)));
+}
+const heldOut = positives.filter((row) => row.holdout);
+if (heldOut.length > 0) byType["held out"] = metrics(heldOut);
+
 console.log("\nRetrieval (answerable questions):");
 console.table(
   Object.fromEntries(
@@ -375,11 +412,29 @@ console.log(
     `threshold ${threshold} (the model must then refuse on its own).`,
 );
 
+const multiPart = positives.filter((row) => row.parts !== undefined);
+if (multiPart.length > 0) {
+  const parts = multiPart.reduce((sum, row) => sum + row.parts!, 0);
+  const found = multiPart.reduce((sum, row) => sum + row.partsInContext!, 0);
+  console.log(
+    `Multi-concept questions: every part in context ${multiPart.filter((row) => row.partsInContext === row.parts).length}/${multiPart.length}; ` +
+      `parts in context ${found}/${parts}`,
+  );
+}
+
+const nearMiss = negatives.filter((row) => row.tags?.includes("near_miss"));
+if (nearMiss.length > 0) {
+  console.log(
+    `Near-miss unanswerable questions (topic in the notes, fact not): ${nearMiss.length}; ` +
+      `best chunk distance ${nearMiss.map((row) => row.distance ?? Infinity).filter(Number.isFinite).map((d) => d.toFixed(2)).sort().join(", ")}`,
+  );
+}
+
 const followUps = rows.filter((row) => row.originalRank !== undefined);
 if (followUps.length > 0) {
   const found = (ranks: number[]) => ranks.filter((rank) => rank >= 1 && rank <= 3).length;
   console.log(
-    `Follow-ups hit@3: as typed ${found(followUps.map((r) => r.originalRank!))}/${followUps.length}, ` +
+    `Rewritten messages (follow-ups and standalone_history) hit@3: as typed ${found(followUps.map((r) => r.originalRank!))}/${followUps.length}, ` +
       `rewritten ${found(followUps.map((r) => r.rank))}/${followUps.length}, ` +
       `+ previous answer's hits, reranked ${found(followUps.map((r) => r.rerankRank))}/${followUps.length}`,
   );

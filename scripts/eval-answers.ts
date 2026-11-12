@@ -59,6 +59,7 @@ interface EvalQuestion extends AnswerQuestion {
   mode: "focused" | "multi_part" | "broad";
   question: string;
   history?: HistoryMessage[];
+  tags?: string[];
 }
 
 interface Judgement {
@@ -102,6 +103,13 @@ const rescore = rescoreIndex >= 0;
 /** --rescore <file>; without a file, the newest saved run. */
 const rescoreFile = rescore && !args[rescoreIndex + 1]?.startsWith("--") ? args[rescoreIndex + 1] : undefined;
 
+/**
+ * --user 42: use that user's copies of the eval documents (the distractor run: the
+ * eval PDFs ingested with many other documents under a separate user).
+ */
+const evalUserIndex = args.indexOf("--user");
+const evalUser = evalUserIndex >= 0 ? Number(args[evalUserIndex + 1]) : null;
+
 /** --doc "name.pdf=12": use that document version instead of the newest one. */
 const pinned = new Map(
   args
@@ -117,6 +125,8 @@ const questions = (
 ).filter(
   (q) => (q.mustInclude || q.type === "negative") && (!only || q.id.includes(only)),
 );
+
+const nearMissIds = new Set(questions.filter((q) => q.tags?.includes("near_miss")).map((q) => q.id));
 
 const JUDGE_SCHEMA = {
   type: "object",
@@ -158,8 +168,9 @@ async function findDocument(filename: string) {
     `SELECT id, user_id FROM documents
      WHERE filename = $1 AND status = 'completed'
        AND ($2::integer IS NULL OR id = $2)
+       AND ($3::integer IS NULL OR user_id = $3)
      ORDER BY id DESC LIMIT 1`,
-    [filename, pinned.get(filename) ?? null],
+    [filename, pinned.get(filename) ?? null, evalUser],
   );
   return found.rows[0];
 }
@@ -244,6 +255,8 @@ function report(rows: Row[], details: Detail[]): void {
   const supported = totals.reduce((sum, t) => sum + t.supported, 0);
   const scored = totals.reduce((sum, t) => sum + t.scored, 0);
   const withContext = details.filter((detail) => typeof detail.inContext === "boolean");
+  // Unanswerable questions whose topic is in the notes but whose fact is not: the hard refusals.
+  const nearMiss = rows.filter((row) => nearMissIds.has(String(row.id)));
 
   console.log(
     `\npassed ${count("pass", "PASS")}/${rows.length}  ` +
@@ -256,6 +269,9 @@ function report(rows: Row[], details: Detail[]): void {
       `inline [n] ${count("inline", "yes")}/${count("inline", "yes") + count("inline", "NO")}  ` +
       `keywords ${count("keywords", "yes")}/${positives}  ` +
       `refused negatives ${count("refused", "yes")}/${negatives}  ` +
+      (nearMiss.length > 0
+        ? `of them near-miss ${nearMiss.filter((row) => row.refused === "yes").length}/${nearMiss.length}  `
+        : "") +
       (judged > 0
         ? `judge faithful ${count("faithful", "yes")}/${judged}  judge answers ${count("answers", "yes")}/${judged}  `
         : "") +
