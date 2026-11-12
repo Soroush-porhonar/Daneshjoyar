@@ -111,6 +111,26 @@ describe("numbered sources", () => {
     expect(isRefusal("در آرایه محدودیتی برای اندازه وجود ندارد؛ پشته LIFO است [2].")).toBe(false);
   });
 
+  it("recognises refusals that name the missing topic (near-miss answers, 2026-11-12)", () => {
+    const refusals = [
+      "بر اساس منابع ارائه‌شده، هیچ اشاره‌ای به میزان دقیق زلزله لیسبون به صورت «ریشتر» نشده است. تنها اطلاعات موجود درباره شدت آن این است [2].",
+      "متن ارائه‌شده در منابع، توضیحی درباره تکنیک **Pairwise** یا نحوه کاهش تعداد موارد تست با این روش خاص ندارد. منابع به تقسیم‌بندی هم‌ارزی اشاره کرده‌اند [4].",
+      "بر اساس متن ارائه‌شده در منابع، هیچ اشاره‌ای به مفاهیم «زنجیره‌سازی رو به جلو» یا «زنجیره‌سازی رو به عقب» و تفاوت‌های آن‌ها نشده است. بنابراین نمی‌توان پاسخ دقیقی داد [1, 2, 3].",
+      "بر اساس منابع ارائه‌شده، هیچ اشاره‌ای به «منطق فازی» و کاربرد آن در سیستم‌های خبره نشده است.",
+      "با توجه به جزوه نمی‌توانم به این سؤال پاسخ بدهم.",
+    ];
+
+    for (const refusal of refusals) {
+      expect(isRefusal(refusal)).toBe(true);
+      expect(appendSources(refusal, context, numbers)).toBe(refusal);
+    }
+  });
+
+  it("does not take a content sentence that mentions a topic for a refusal", () => {
+    expect(isRefusal("مرتبه اجرایی دایجکسترا در منابع O(n2) ذکر شده است [2، 4]. به صف اولویت اشاره‌ای نشده.")).toBe(false);
+    expect(isRefusal("این متن به سه مرحله اشاره دارد: تحلیل، طراحی و پیاده‌سازی [1].")).toBe(false);
+  });
+
   it("keeps sources on a partial answer that cites them", () => {
     const partial = "پشته LIFO است [2]، اما درباره صف اطلاعاتی در منابع نیامده.";
 
