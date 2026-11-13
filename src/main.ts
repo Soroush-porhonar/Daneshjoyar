@@ -6,6 +6,7 @@ import { runEnrichmentWorker } from "./bot/enrichmentWorker.js";
 import { pool } from "./db/pool.js";
 import { recoverInterruptedUploads } from "./bot/recovery.js";
 import { startSweeper } from "./bot/sweeper.js";
+import { startRetentionJob } from "./bot/retentionJob.js";
 import { config } from "./config.js";
 import { preloadModels } from "./llm/ollamaClient.js";
 import { logger } from "./logger.js";
@@ -31,6 +32,7 @@ await recoverInterruptedUploads();
 const stopSweeper = await startSweeper();
 void startPolling();
 void runEnrichmentWorker();
+const stopRetention = startRetentionJob();
 
 /**
  * Graceful shutdown (roadmap 8.9; `docker stop` sends SIGTERM and waits
@@ -45,6 +47,7 @@ async function shutdown(signal: string): Promise<void> {
   logger.info(`[Shutdown] ${signal}: no new updates; waiting for running work`);
   stopPolling();
   stopSweeper();
+  stopRetention();
   server.close();
 
   if (!(await backgroundIdle(config.shutdown.graceMs))) {

@@ -155,7 +155,8 @@ export async function enrichDocument(documentId: number, signal?: AbortSignal): 
     ),
     filename,
   );
-  logger.info(`[Enrich] Document ${documentId}: "${profile.title}", ${sections.length} sections`);
+  logger.info(`[Enrich] Document ${documentId}: ${sections.length} sections`);
+  logger.debug(`[Enrich] Document ${documentId} title: "${profile.title}"`);
 
   const contexts: { chunk: EnrichmentChunk; context: string; questions: string[] }[] = [];
 

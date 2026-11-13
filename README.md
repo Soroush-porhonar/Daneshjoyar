@@ -179,6 +179,12 @@ The `backup` service dumps the database nightly at 03:00 (Tehran time) to `backu
 docker compose exec -T postgres pg_restore --clean --if-exists -U "$POSTGRES_USER" -d "$POSTGRES_DB" < backups/daneshjo-YYYY-MM-DD.dump
 ```
 
+Network connections to the database need the password from `.env` (`scram-sha-256`); only the socket inside the postgres container is trusted (health check, `docker compose exec`). A volume created before this rule (with `POSTGRES_HOST_AUTH_METHOD: trust`) is switched once:
+
+```bash
+docker compose exec postgres sh -c 'f=$(psql -U "$POSTGRES_USER" -tAc "show hba_file"); sed -i -E "s/^(host\s+.*)trust\s*$/\1scram-sha-256/" "$f" && psql -U "$POSTGRES_USER" -tAc "select pg_reload_conf()"'
+```
+
 ## Project structure
 
 ```

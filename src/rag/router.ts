@@ -143,9 +143,15 @@ export async function routeMessage(
     ],
   });
 
-  logger.info("Router response:", content);
+  // The reply holds the student's words (standaloneQuestion): debug only (roadmap 8.10).
+  logger.debug("Router response:", content);
 
   const classification = parseClassification(content);
+  logger.info("Router:", {
+    route: classification.route,
+    retrievalMode: classification.retrievalMode,
+    dependsOnHistory: classification.dependsOnHistory,
+  });
 
   // Without an earlier exchange nothing can depend on it.
   return history.length === 0

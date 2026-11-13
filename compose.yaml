@@ -7,7 +7,9 @@ services:
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_HOST_AUTH_METHOD: trust
+      # No POSTGRES_HOST_AUTH_METHOD: network connections need the password
+      # (scram-sha-256). It only applies when the data directory is created; on
+      # the existing volume pg_hba.conf was changed by hand (README, Backup and restore).
     ports:
       - "127.0.0.1:5433:5432"
     volumes:

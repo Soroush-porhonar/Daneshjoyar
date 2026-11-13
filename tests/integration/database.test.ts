@@ -23,6 +23,7 @@ vi.mock("../../src/rag/embeddings.js", () => ({
 vi.mock("../../src/rag/pdf.js", () => ({ openPdf: vi.fn() }));
 
 const { pool } = await import("../../src/db/pool.js");
+const { applyRetention } = await import("../../src/db/retention.js");
 const { findOrCreateUser } = await import("../../src/db/users.js");
 const { findOrCreateConversation, startNewTopic } = await import("../../src/db/conversations.js");
 const { getRecentMessages, saveMessage } = await import("../../src/db/messages.js");
@@ -686,6 +687,64 @@ describe("conversation history (what the models see of earlier turns)", () => {
 
     expect((await getRecentMessages(alices)).map((m) => m.content)).toEqual(["تازه"]);
     expect((await getRecentMessages(bobs)).map((m) => m.content)).toEqual(["قبلی باب"]);
+  });
+});
+
+describe("retention (how long student data is kept)", () => {
+  it("deletes inbox rows older than a week", async () => {
+    await receiveUpdate({ update_id: 300, message: { chat: { id: 1 }, text: "قدیمی" } });
+    await receiveUpdate({ update_id: 301, message: { chat: { id: 1 }, text: "تازه" } });
+    await pool.query(`UPDATE processed_updates SET processed_at = now() - interval '8 days' WHERE update_id = 300`);
+
+    expect((await applyRetention()).updates).toBe(1);
+    expect((await pool.query("SELECT update_id FROM processed_updates")).rows).toEqual([{ update_id: "301" }]);
+  });
+
+  it("blanks the words of answers older than 90 days and keeps their numbers", async () => {
+    const alice = await addUser("alice");
+    const entry = {
+      userId: alice,
+      question: "سؤال",
+      rewrittenQuestion: "سؤال کامل",
+      route: "document" as const,
+      retrievalMode: "focused",
+      documentIds: [] as number[],
+      context: [{ page: 3, chunkIndex: 2, isHit: true }],
+      answer: "جواب",
+      latencyMs: 9000,
+      timings: { queueMs: 10 },
+    };
+    const old = await createAnswerLog(entry);
+    const recent = await createAnswerLog(entry);
+    await pool.query(`UPDATE answer_logs SET created_at = now() - interval '91 days', feedback = 1 WHERE id = $1`, [old]);
+
+    expect((await applyRetention()).answerTexts).toBe(1);
+    const { rows } = await pool.query(
+      "SELECT id, question, rewritten_question, answer, latency_ms, feedback, context, timings FROM answer_logs ORDER BY id",
+    );
+    expect(rows).toEqual([
+      { id: old, question: "", rewritten_question: null, answer: "", latency_ms: 9000, feedback: 1, context: entry.context, timings: entry.timings },
+      { id: recent, question: "سؤال", rewritten_question: "سؤال کامل", answer: "جواب", latency_ms: 9000, feedback: null, context: entry.context, timings: entry.timings },
+    ]);
+    expect((await applyRetention()).answerTexts).toBe(0); // already blank
+  });
+
+  it("keeps the newest messages of each conversation", async () => {
+    const alice = await findOrCreateConversation(await addUser("alice"));
+    const bob = await findOrCreateConversation(await addUser("bob"));
+    const keep = config.retention.messagesPerConversation;
+    for (let i = 0; i < keep + 3; i++) await saveMessage(alice, "user", `پیام ${i}`);
+    await saveMessage(bob, "user", "پیام باب");
+
+    expect((await applyRetention()).messages).toBe(3);
+    const { rows } = await pool.query(
+      "SELECT min(content) FILTER (WHERE conversation_id = $1) AS oldest, count(*) FILTER (WHERE conversation_id = $1) AS alice, count(*) FILTER (WHERE conversation_id = $2) AS bob FROM messages",
+      [alice, bob],
+    );
+    expect(Number(rows[0].alice)).toBe(keep);
+    expect(Number(rows[0].bob)).toBe(1);
+    const left = await pool.query("SELECT content FROM messages WHERE conversation_id = $1 ORDER BY id LIMIT 1", [alice]);
+    expect(left.rows[0].content).toBe("پیام 3");
   });
 });
 

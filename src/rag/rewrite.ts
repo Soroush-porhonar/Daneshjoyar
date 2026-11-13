@@ -70,7 +70,7 @@ export async function rewriteQuestion(
 
     const rewritten = cleanRewrite(output);
 
-    logger.info("[RAG] Question rewrite:", { original: text, rewritten });
+    logger.debug("[RAG] Question rewrite:", { original: text, rewritten });
 
     return rewritten ?? text;
   } catch (error: unknown) {

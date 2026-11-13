@@ -114,7 +114,7 @@ async function processDocument(chatId: number, document: BaleDocument): Promise<
 
     if (!kind) {
       logger.info(
-        `[Upload] Unsupported file from chat ${chatId}: ${document.file_name} (${document.mime_type})`,
+        `[Upload] Unsupported file from chat ${chatId} (${document.mime_type})`,
       );
       await sendMessage(chatId, UNSUPPORTED_FILE_TEXT);
       return true;
