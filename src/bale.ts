@@ -192,6 +192,23 @@ export async function editMessageText(
   });
 }
 
+/** Shows "typing…" in the chat header; Bale shows it for up to about 6 seconds. */
+export async function sendChatAction(chatId: number, action: "typing" = "typing"): Promise<void> {
+  await callBale("sendChatAction", { chat_id: chatId, action });
+}
+
+/**
+ * Keeps "typing…" visible while slow work runs: once now, then every 5
+ * seconds until the returned stop function is called. Failures are ignored
+ * (it is only a hint).
+ */
+export function keepTyping(chatId: number): () => void {
+  const send = () => void sendChatAction(chatId).catch(() => undefined);
+  send();
+  const timer = setInterval(send, 5_000);
+  return () => clearInterval(timer);
+}
+
 /** Acknowledges a button press; Bale keeps the button "loading" until this is called. */
 export async function answerCallbackQuery(callbackQueryId: string, text?: string): Promise<void> {
   await callBale("answerCallbackQuery", {

@@ -5,6 +5,7 @@ vi.mock("../src/bale.js", () => ({
   sendMessage: vi.fn(),
   removeButtons: vi.fn(),
   editMessageText: vi.fn(),
+  keepTyping: vi.fn(() => () => undefined),
 }));
 vi.mock("../src/db/users.js", () => ({ findOrCreateUser: vi.fn() }));
 vi.mock("../src/db/conversations.js", () => ({
@@ -322,6 +323,16 @@ describe("handleMessage", () => {
 
     expect(askAI).toHaveBeenCalled();
     expect(answerFromDocuments).not.toHaveBeenCalled();
+  });
+
+  it("answers a greeting at once: no notice, no router, no answer log", async () => {
+    await handleMessage(CHAT_ID, "سلام، چطوری؟");
+
+    expect(vi.mocked(sendMessage).mock.calls).toHaveLength(1);
+    expect(lastReply()).toBe(messages.GREETING_REPLY_TEXT);
+    expect(routeMessage).not.toHaveBeenCalled();
+    expect(askAI).not.toHaveBeenCalled();
+    expect(createAnswerLog).not.toHaveBeenCalled();
   });
 
   it("logs chat answers too", async () => {

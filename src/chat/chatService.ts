@@ -1,4 +1,4 @@
-import { editMessageText, removeButtons, sendMessage } from "../bale.js";
+import { editMessageText, keepTyping, removeButtons, sendMessage } from "../bale.js";
 import { plainMath } from "../rag/plainMath.js";
 import type { Markup } from "../bale.js";
 import { cancelButton } from "../bot/buttons.js";
@@ -29,6 +29,7 @@ import { needsRewrite, rewriteQuestion } from "../rag/rewrite.js";
 import { resolveRoute, routeMessage } from "../rag/router.js";
 import type { MessageClassification } from "../rag/router.js";
 import { startForegroundWork } from "../llm/priority.js";
+import { smallTalkReply } from "./smallTalk.js";
 
 interface Session {
   userId: number;
@@ -76,6 +77,7 @@ async function answerQuestion(
   signal?: AbortSignal,
 ): Promise<Reply> {
   const noticeId = await sendMessage(chatId, THINKING_NOTICE_TEXT, { inline: cancelButton() });
+  const stopTyping = keepTyping(chatId);
   // Background enrichment pauses until this answer is done (one GPU).
   const finished = startForegroundWork();
 
@@ -87,6 +89,7 @@ async function answerQuestion(
     return { ...reply, answer: plainMath(reply.answer) };
   } finally {
     finished();
+    stopTyping();
     if (noticeId !== undefined) {
       // Done or cancelled: the notice says so (editing the text also drops the button).
       // On a failure the error message follows, so only the button goes.
@@ -246,10 +249,14 @@ export async function handleMessage(
 
   try {
     const command = parseCommand(text);
+    const smallTalk = command ? null : smallTalkReply(text);
 
     if (command) {
       const result = await command.handler({ chatId, userId: session.userId, args: command.args });
       reply = typeof result === "string" ? { answer: result } : { answer: result.text, markup: result.markup };
+    } else if (smallTalk) {
+      // A greeting or thanks: answered at once, no notice, no model, not logged as an answer.
+      reply = { answer: smallTalk };
     } else {
       reply = await answerQuestion(chatId, session, text, signal);
     }

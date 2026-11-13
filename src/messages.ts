@@ -232,6 +232,14 @@ export const THINKING_NOTICE_TEXT =
   "⏳ دارم سؤالت رو بررسی می‌کنم و جواب رو آماده می‌کنم...\n\n" +
   `برای توقف، دکمه «${CANCEL_BUTTON}» رو بزن.`;
 
+// Greetings, thanks and goodbyes get these at once, with no model call.
+export const GREETING_REPLY_TEXT =
+  "سلام! 👋 خوبم، مرسی. هر سؤالی از جزوه‌هات داری بپرس؛ اگه هنوز جزوه‌ای نفرستادی، فایل PDF یا عکس صفحه‌اش رو بفرست.";
+
+export const THANKS_REPLY_TEXT = "خواهش می‌کنم! 🙏 سؤال دیگه‌ای داشتی بپرس.";
+
+export const BYE_REPLY_TEXT = "خداحافظ! 👋 هر وقت سؤال داشتی، من اینجام.";
+
 /** The thinking notice once the answer is sent (no stale "press cancel" line). */
 export const THINKING_DONE_TEXT = "✅ جوابت آماده شد 👇";
 
