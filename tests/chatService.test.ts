@@ -24,7 +24,11 @@ vi.mock("../src/db/documents.js", () => ({
   findDocumentFilename: vi.fn(),
   deleteDocument: vi.fn(),
 }));
-vi.mock("../src/db/answerLogs.js", () => ({ createAnswerLog: vi.fn(), getLastAnswerHits: vi.fn() }));
+vi.mock("../src/db/answerLogs.js", () => ({
+  createAnswerLog: vi.fn(),
+  getLastAnswerHits: vi.fn(),
+  countQuestionsToday: vi.fn(async () => 0),
+}));
 vi.mock("../src/llm/generalChat.js", () => ({ askAI: vi.fn() }));
 vi.mock("../src/rag/answer.js", () => ({
   answerFromDocuments: vi.fn(),
@@ -59,7 +63,7 @@ const { saveMessage, getRecentMessages } = await import("../src/db/messages.js")
 const { listCompletedFilenames } = await import("../src/db/documents.js");
 const { askAI } = await import("../src/llm/generalChat.js");
 const { answerFromDocuments, prefetchCandidates } = await import("../src/rag/answer.js");
-const { createAnswerLog, getLastAnswerHits } = await import("../src/db/answerLogs.js");
+const { createAnswerLog, getLastAnswerHits, countQuestionsToday } = await import("../src/db/answerLogs.js");
 const { answerDocumentInfo } = await import("../src/rag/documentInfo.js");
 const { answerTransform } = await import("../src/rag/transform.js");
 const { needsRewrite, rewriteQuestion } = await import("../src/rag/rewrite.js");
@@ -394,6 +398,29 @@ describe("handleMessage", () => {
     await handleMessage(CHAT_ID, "یه جوک بگو");
 
     expect(removeButtons).toHaveBeenCalledWith(CHAT_ID, 904);
+  });
+
+  describe("daily limit", () => {
+    it("stops answering at the limit, with a message and no model call", async () => {
+      vi.mocked(countQuestionsToday).mockResolvedValueOnce(config.limits.dailyQuestions);
+
+      await handleMessage(CHAT_ID, "LIFO چیه؟");
+
+      expect(lastReply()).toBe(messages.dailyLimitText(config.limits.dailyQuestions));
+      expect(routeMessage).not.toHaveBeenCalled();
+      expect(createAnswerLog).not.toHaveBeenCalled();
+    });
+
+    it("still runs commands at the limit", async () => {
+      vi.mocked(countQuestionsToday).mockResolvedValue(config.limits.dailyQuestions);
+      try {
+        await handleMessage(CHAT_ID, "/help");
+
+        expect(lastReply()).not.toBe(messages.dailyLimitText(config.limits.dailyQuestions));
+      } finally {
+        vi.mocked(countQuestionsToday).mockResolvedValue(0);
+      }
+    });
   });
 
   describe("GPU queue", () => {

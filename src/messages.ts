@@ -201,6 +201,28 @@ export const FILE_RECEIVED_TEXT =
 export const PHOTO_RECEIVED_TEXT =
   "📥 عکست رسید. دارم متنش رو می‌خونم؛ حدود یک دقیقه طول می‌کشه...";
 
+/** Asked before reading a long scan (config.limits.ocrConfirmPages). */
+export const ocrConfirmText = (pages: number, minutes: number): string =>
+  `🔍 ${pages} صفحه از این فایل اسکن‌شده‌ست و باید با هوش مصنوعی خونده بشه؛ این کار حدود ${minutes} دقیقه طول می‌کشه. ادامه بدم؟`;
+
+export const OCR_CONTINUE_BUTTON = "✅ ادامه بده";
+export const OCR_CANCEL_BUTTON = "❌ نه، لغو کن";
+
+/** The student said no to a long scan, or did not answer within an hour. */
+export const OCR_DECLINED_TEXT =
+  "باشه، این فایل رو نخوندم. اگه فقط چند صفحه‌اش رو لازم داری، همون صفحه‌ها رو جدا بفرست (یا عکسشون رو).";
+
+/** A ✅/❌ press on a question that is no longer waiting (answered, expired or asked before a restart). */
+export const CONFIRMATION_EXPIRED_TEXT = "این سؤال دیگه منتظر جواب نیست.";
+
+/** A second file while the first is still being read. */
+export const UPLOAD_IN_PROGRESS_TEXT =
+  "⏳ هنوز دارم فایل قبلیت رو می‌خونم. وقتی تموم شد خبرت می‌کنم؛ بعدش این یکی رو دوباره بفرست.";
+
+/** The daily question limit (config.limits.dailyQuestions) is reached. */
+export const dailyLimitText = (limit: number): string =>
+  `📵 امروز ${limit} تا سؤال پرسیدی که سقف روزانه‌ست. فردا (از ساعت ۰۰:۰۰) دوباره می‌تونی بپرسی.`;
+
 export const ocrStartedText = (
   total: number,
   skipped: number,

@@ -40,7 +40,9 @@ const {
 const { receiveUpdate, finishUpdate, listUnfinishedUpdates, claimRetry, abandonUpdate, hasLaterMessage } = await import(
   "../../src/db/updates.js"
 );
-const { createAnswerLog, getLastAnswerHits, setFeedback } = await import("../../src/db/answerLogs.js");
+const { countQuestionsToday, createAnswerLog, getLastAnswerHits, setFeedback } = await import(
+  "../../src/db/answerLogs.js"
+);
 const { getChunksByRef, getDocumentChunks, retrieveContext, retrieveRelevantChunks, searchCandidates } = await import(
   "../../src/rag/retrieve.js"
 );
@@ -474,6 +476,26 @@ describe("answer logs and feedback", () => {
       [timed, untimed],
     ]);
     expect(rows.map((row) => row.timings)).toEqual([timings, null]);
+  });
+
+  it("counts today's questions by the Tehran day, per user", async () => {
+    const alice = await addUser("alice");
+    const bob = await addUser("bob");
+    const today = await createAnswerLog(log(alice));
+    await createAnswerLog(log(alice));
+    const yesterday = await createAnswerLog(log(alice));
+    await createAnswerLog(log(bob));
+    await pool.query(
+      `UPDATE answer_logs SET created_at = (date_trunc('day', now() AT TIME ZONE 'Asia/Tehran') AT TIME ZONE 'Asia/Tehran') - interval '1 minute' WHERE id = $1`,
+      [yesterday],
+    );
+    await pool.query(
+      `UPDATE answer_logs SET created_at = (date_trunc('day', now() AT TIME ZONE 'Asia/Tehran') AT TIME ZONE 'Asia/Tehran') + interval '1 minute' WHERE id = $1`,
+      [today],
+    );
+
+    expect(await countQuestionsToday(alice)).toBe(2);
+    expect(await countQuestionsToday(bob)).toBe(1);
   });
 
   it("nobody can vote on someone else's answer", async () => {

@@ -4,6 +4,7 @@ import {
   FILE_PROCESSING_FAILED_TEXT,
   FILE_TIMEOUT_TEXT,
   FILE_UNREADABLE_TEXT,
+  OCR_DECLINED_TEXT,
 } from "./messages.js";
 
 /** The Ollama service failed, was unreachable, or returned bad data. */
@@ -30,6 +31,11 @@ export class BaleApiError extends Error {
   get isRateLimit(): boolean {
     return this.status === 429;
   }
+}
+
+/** The student declined reading a long scan (or did not answer). */
+export class OcrDeclinedError extends Error {
+  override name = "OcrDeclinedError";
 }
 
 /** The PDF or image could not be read or contained no usable text. */
@@ -59,6 +65,10 @@ function isTimeoutOrAbort(error: unknown): boolean {
 }
 
 export function getDocumentErrorText(error: unknown): string {
+  if (error instanceof OcrDeclinedError) {
+    return OCR_DECLINED_TEXT;
+  }
+
   if (isTimeoutOrAbort(error)) {
     return FILE_TIMEOUT_TEXT;
   }

@@ -6,11 +6,14 @@
  *   delok / delno        confirm / cancel the pending delete
  *   docs                 show the documents list
  *   cancel               stop the running request
+ *   ocr:<token>:<y|n>    go ahead with / cancel reading a long scan
  */
 import type { InlineButton } from "../bale.js";
 import type { DocumentSummary } from "../db/documents.js";
 import {
   CANCEL_BUTTON,
+  OCR_CANCEL_BUTTON,
+  OCR_CONTINUE_BUTTON,
   DELETE_BUTTON,
   DELETE_CANCEL_BUTTON,
   DELETE_CONFIRM_BUTTON,
@@ -21,7 +24,8 @@ import {
 
 export type Callback =
   | { action: "info" | "delete"; documentId: number }
-  | { action: "confirmDelete" | "cancelDelete" | "documents" | "cancel" };
+  | { action: "confirmDelete" | "cancelDelete" | "documents" | "cancel" }
+  | { action: "ocr"; token: string; yes: boolean };
 
 /** Longest document name shown on its (full-width) button. */
 const MAX_NAME_LENGTH = 40;
@@ -55,6 +59,13 @@ export const confirmDeleteButtons = (): InlineButton[][] => [
   ],
 ];
 
+export const confirmOcrButtons = (token: string): InlineButton[][] => [
+  [
+    { text: OCR_CONTINUE_BUTTON, callback_data: `ocr:${token}:y` },
+    { text: OCR_CANCEL_BUTTON, callback_data: `ocr:${token}:n` },
+  ],
+];
+
 export const cancelButton = (): InlineButton[][] => [[{ text: CANCEL_BUTTON, callback_data: "cancel" }]];
 
 export const documentsButton = (): InlineButton[][] => [[{ text: MENU_DOCUMENTS, callback_data: "docs" }]];
@@ -70,6 +81,9 @@ const SIMPLE: Record<string, Callback> = {
 export function parseCallback(data: string | undefined): Callback | null {
   if (!data) return null;
   if (Object.hasOwn(SIMPLE, data)) return SIMPLE[data]!;
+
+  const ocr = /^ocr:([0-9a-f]{8}):([yn])$/.exec(data);
+  if (ocr) return { action: "ocr", token: ocr[1]!, yes: ocr[2] === "y" };
 
   // Old list messages may still carry "sel:" buttons; selection no longer exists.
   const match = /^(info|del):(\d+)$/.exec(data);

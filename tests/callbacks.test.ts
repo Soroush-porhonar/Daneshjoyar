@@ -45,6 +45,9 @@ describe("parseCallback", () => {
     ["docs", { action: "documents" }],
     ["cancel", { action: "cancel" }],
     ["info:7", { action: "info", documentId: 7 }],
+    ["ocr:0a1b2c3d:y", { action: "ocr", token: "0a1b2c3d", yes: true }],
+    ["ocr:0a1b2c3d:n", { action: "ocr", token: "0a1b2c3d", yes: false }],
+    ["ocr:xyz:y", null],
     ["sel:abc", null],
     ["toString", null],
     ["", null],
@@ -54,6 +57,13 @@ describe("parseCallback", () => {
 });
 
 describe("handleCallback", () => {
+  it("says a ✅/❌ press came too late when its question is no longer waiting", async () => {
+    await handleCallback(press("ocr:0a1b2c3d:y"));
+
+    expect(answerCallbackQuery).toHaveBeenCalledWith("cb", messages.CONFIRMATION_EXPIRED_TEXT);
+    expect(removeButtons).toHaveBeenCalledWith(CHAT, 7);
+  });
+
   it("sends 👍/👎 presses to the feedback handler", async () => {
     await handleCallback(press("fb:9:1"));
 

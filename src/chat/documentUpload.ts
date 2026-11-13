@@ -8,15 +8,18 @@ import {
   fileProcessedText,
   FILE_RECEIVED_TEXT,
   FILE_TOO_LARGE_TEXT,
+  ocrConfirmText,
   ocrProgressText,
   ocrStartedText,
   PHOTO_RECEIVED_TEXT,
   UNSUPPORTED_FILE_TEXT,
+  UPLOAD_IN_PROGRESS_TEXT,
 } from "../messages.js";
 import { config } from "../config.js";
 import { findDuplicateDocument } from "../db/documents.js";
 import { findOrCreateUser } from "../db/users.js";
-import { DuplicateDocumentError, getDocumentErrorText, getErrorMessage } from "../errors.js";
+import { DuplicateDocumentError, OcrDeclinedError, getDocumentErrorText, getErrorMessage } from "../errors.js";
+import { askConfirmation } from "./confirmations.js";
 import { logger } from "../logger.js";
 import { documentKind } from "../rag/documentKind.js";
 import { ingestDocument } from "../rag/ingest.js";
@@ -81,14 +84,31 @@ export async function handlePhoto(
   });
 }
 
+/** Chats with an upload being read now: one at a time per student (roadmap Q3). */
+const uploading = new Set<number>();
+
 /**
- * Downloads and ingests an uploaded PDF or image file.
+ * Downloads and ingests an uploaded PDF or image file, one per student at a
+ * time: a second file meanwhile is refused with a message (several at once
+ * would hold the GPU for each other and for everyone's answers).
  * Returns false when the update should be retried.
  */
-export async function handleDocument(
-  chatId: number,
-  document: BaleDocument,
-): Promise<boolean> {
+export async function handleDocument(chatId: number, document: BaleDocument): Promise<boolean> {
+  if (uploading.has(chatId)) {
+    logger.info(`[Upload] Chat ${chatId} sent a file while another is being read; refused`);
+    await sendMessage(chatId, UPLOAD_IN_PROGRESS_TEXT);
+    return true;
+  }
+
+  uploading.add(chatId);
+  try {
+    return await processDocument(chatId, document);
+  } finally {
+    uploading.delete(chatId);
+  }
+}
+
+async function processDocument(chatId: number, document: BaleDocument): Promise<boolean> {
   try {
     const kind = documentKind(document.file_name, document.mime_type);
 
@@ -148,13 +168,20 @@ export async function handleDocument(
         downloaded.filePath,
         // A photo is one page, and PHOTO_RECEIVED_TEXT already gave the time.
         kind === "image" ? undefined : async ({ ocrDone, ocrTotal, skipped }) => {
+          const minutes = Math.max(1, Math.round((ocrTotal * config.ocr.secondsPerPage) / 60));
+          // A long scan holds the GPU for a long time: ask first (no answer within an hour = no).
+          if (ocrDone === 0 && ocrTotal > config.limits.ocrConfirmPages) {
+            if (!(await askConfirmation(chatId, ocrConfirmText(ocrTotal, minutes)))) {
+              throw new OcrDeclinedError(`OCR of ${ocrTotal} pages declined`);
+            }
+          }
           await sendMessage(
             chatId,
             ocrDone === 0
               ? ocrStartedText(
                   ocrTotal,
                   skipped,
-                  Math.max(1, Math.round((ocrTotal * config.ocr.secondsPerPage) / 60)),
+                  minutes,
                 )
               : ocrProgressText(ocrDone, ocrTotal),
           );

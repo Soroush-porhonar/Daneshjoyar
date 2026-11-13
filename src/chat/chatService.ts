@@ -6,6 +6,7 @@ import { parseCommand } from "../bot/commands/index.js";
 import {
   PROCESSING_FAILED_TEXT,
   BUSY_TEXT,
+  dailyLimitText,
   REQUEST_CANCELLED_TEXT,
   RESTARTING_TEXT,
   queuePlaceText,
@@ -25,7 +26,7 @@ import { answerFromDocuments, prefetchCandidates } from "../rag/answer.js";
 import { answerDocumentInfo, isDocumentInfoQuestion } from "../rag/documentInfo.js";
 import { answerTransform, isTransformRequest } from "../rag/transform.js";
 import type { AnswerTrace } from "../rag/answer.js";
-import { createAnswerLog, getLastAnswerHits } from "../db/answerLogs.js";
+import { countQuestionsToday, createAnswerLog, getLastAnswerHits } from "../db/answerLogs.js";
 import type { NewAnswerLog } from "../db/answerLogs.js";
 import { feedbackButtons } from "../bot/feedback.js";
 import { needsRewrite, rewriteQuestion } from "../rag/rewrite.js";
@@ -369,6 +370,10 @@ export async function handleMessage(
     if (command) {
       const result = await command.handler({ chatId, userId: session.userId, args: command.args });
       reply = typeof result === "string" ? { answer: result } : { answer: result.text, markup: result.markup };
+    } else if ((await countQuestionsToday(session.userId)) >= config.limits.dailyQuestions) {
+      // The daily limit keeps one student from holding the single GPU (roadmap Q3).
+      logger.info("Daily question limit reached:", { chatId });
+      reply = { answer: dailyLimitText(config.limits.dailyQuestions) };
     } else {
       reply = await answerQuestion(chatId, session, text, signal);
     }

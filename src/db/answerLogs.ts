@@ -62,6 +62,18 @@ export async function createAnswerLog(log: NewAnswerLog): Promise<number> {
   return result.rows[0]!.id;
 }
 
+/** Questions the user asked today, by the Tehran clock (the daily limit resets at midnight there). */
+export async function countQuestionsToday(userId: number): Promise<number> {
+  const result = await pool.query<{ count: string }>(
+    `SELECT count(*) FROM answer_logs
+     WHERE user_id = $1
+       AND created_at >= (date_trunc('day', now() AT TIME ZONE 'Asia/Tehran') AT TIME ZONE 'Asia/Tehran')`,
+    [userId],
+  );
+
+  return Number(result.rows[0]?.count ?? 0);
+}
+
 /** The search hits behind the user's latest answer, when it came from documents. */
 export async function getLastAnswerHits(
   userId: number,

@@ -280,6 +280,16 @@ export const config = {
    */
   shutdown: { graceMs: 15_000, cleanupMs: 3_000 },
 
+  /** Per-student limits (roadmap Q3). */
+  limits: {
+    /** Questions a day (Tehran day); commands, buttons and uploads do not count. Chosen by the owner. */
+    dailyQuestions: Number(process.env.DAILY_QUESTION_LIMIT ?? 50),
+    /** A scan needing more OCR pages than this (~22 min at secondsPerPage) is confirmed first. */
+    ocrConfirmPages: 30,
+    /** No answer to that question within this time counts as no. */
+    confirmTimeoutMs: 60 * 60_000,
+  },
+
   /** The GPU queue (src/llm/scheduler.ts, roadmap Q2). */
   queue: {
     /**
