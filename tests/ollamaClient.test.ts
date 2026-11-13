@@ -166,14 +166,19 @@ describe("chat", () => {
 });
 
 describe("preloadModels", () => {
-  it("loads the chat and embedding models with empty requests", async () => {
+  it("loads the chat model with the real context size (else Ollama reloads it) and embeds one word", async () => {
     reply({});
-    reply({ embeddings: [] });
+    reply({ embeddings: [[0.1]] });
 
     await preloadModels();
 
-    expect(sentBody(0)).toEqual({ model: expect.any(String), messages: [], keep_alive: "30m" });
-    expect(sentBody(1)).toEqual({ model: expect.any(String), input: [], keep_alive: "30m" });
+    expect(sentBody(0)).toEqual({
+      model: expect.any(String),
+      messages: [],
+      keep_alive: "30m",
+      options: { num_ctx: 8192 },
+    });
+    expect(sentBody(1)).toEqual({ model: expect.any(String), input: ["سلام"], keep_alive: "30m" });
   });
 
   it("only logs a failure", async () => {
