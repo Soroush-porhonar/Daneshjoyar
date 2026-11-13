@@ -36,6 +36,7 @@ import { needsRewrite } from "../src/rag/rewrite.js";
 import { resolveRoute, routeMessage } from "../src/rag/router.js";
 import type { MessageClassification } from "../src/rag/router.js";
 import { isDocumentInfoQuestion } from "../src/rag/documentInfo.js";
+import { isTransformRequest } from "../src/rag/transform.js";
 
 interface Row {
   id: string;
@@ -81,7 +82,7 @@ const cases = (
   JSON.parse(await readFile("eval/router.json", "utf-8")) as RouterCase[]
 ).filter((c) => !only || c.id.includes(only));
 
-const labels = ["chat", "info", "doc:focused", "doc:multi_part", "doc:broad"];
+const labels = ["chat", "info", "transform", "doc:focused", "doc:multi_part", "doc:broad"];
 const matrix = new Map<string, Map<string, number>>(
   labels.map((row) => [row, new Map(labels.map((col) => [col, 0]))]),
 );
@@ -101,10 +102,15 @@ for (const c of cases) {
   let outcome = { routeOk: false, exactOk: false, expectedLabel: scoreRoute(c, { route: c.route, retrievalMode: "focused" }).expectedLabel, actualLabel: "error" };
 
   try {
-    // Like the bot: a question about a document itself is decided by a rule, not the router.
-    let result: MessageClassification = isDocumentInfoQuestion(c.message)
-      ? { route: "document_info", retrievalMode: "focused", dependsOnHistory: false, standaloneQuestion: null }
-      : await routeMessage(c.message, documents, history);
+    // Like the bot: reshaping the previous answer, and questions about a document
+    // itself, are decided by rules, not the router. (The bot also checks that the
+    // previous answer came from the notes; every eval history's answer does.)
+    let result: MessageClassification =
+      history.at(-1)?.role === "assistant" && isTransformRequest(c.message)
+        ? { route: "transform", retrievalMode: "focused", dependsOnHistory: true, standaloneQuestion: null }
+        : isDocumentInfoQuestion(c.message)
+          ? { route: "document_info", retrievalMode: "focused", dependsOnHistory: false, standaloneQuestion: null }
+          : await routeMessage(c.message, documents, history);
     const routerSaid = result.route;
     rewrites = result.dependsOnHistory ?? rewrites;
     decisions.set(c.id, rewrites);

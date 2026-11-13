@@ -18,6 +18,7 @@ import { askAI } from "../llm/generalChat.js";
 import { logger } from "../logger.js";
 import { answerFromDocuments, prefetchCandidates } from "../rag/answer.js";
 import { answerDocumentInfo, isDocumentInfoQuestion } from "../rag/documentInfo.js";
+import { answerTransform, isTransformRequest } from "../rag/transform.js";
 import type { AnswerTrace } from "../rag/answer.js";
 import { createAnswerLog, getLastAnswerHits } from "../db/answerLogs.js";
 import type { NewAnswerLog } from "../db/answerLogs.js";
@@ -91,6 +92,20 @@ async function answerQuestion(
   }
 }
 
+/** What an answer drew on, for the answer log. */
+function traceLog(trace: AnswerTrace): Pick<AnswerLogInfo, "documentIds" | "context"> {
+  return {
+    documentIds: trace.documentIds ?? [],
+    context: (trace.context ?? []).map((chunk) => ({
+      page: chunk.pageNumber,
+      pageEnd: chunk.pageEnd ?? null,
+      documentId: chunk.documentId,
+      chunkIndex: chunk.chunkIndex,
+      isHit: chunk.isHit,
+    })),
+  };
+}
+
 /** Answers using documents when the router says so, otherwise as general chat. */
 async function composeAnswer(
   { userId, conversationId }: Session,
@@ -112,6 +127,25 @@ async function composeAnswer(
 
   // The current message is already saved, so it is the last history entry.
   const previous = history.slice(0, -1);
+
+  // "Shorter", "in three sentences" right after an answer from the notes:
+  // rewrite that answer from its own sources (no router, no search).
+  const lastReply = previous.at(-1);
+  const transformSources =
+    lastReply?.role === "assistant" && isTransformRequest(text)
+      ? await getLastAnswerHits(userId).catch(() => [])
+      : [];
+  if (lastReply && transformSources.length > 0) {
+    const trace: AnswerTrace = {};
+    const answer = await answerTransform(userId, text, lastReply.content, transformSources, {
+      ...(signal ? { signal } : {}),
+      trace,
+    });
+    return {
+      answer,
+      log: { question: text, rewrittenQuestion: null, route: "transform", retrievalMode: null, ...traceLog(trace) },
+    };
+  }
 
   // The message is searched as typed while the router decides (saves the search
   // time for standalone questions, which most are).
@@ -157,14 +191,7 @@ async function composeAnswer(
         rewrittenQuestion: question === text ? null : question,
         route: classification.route,
         retrievalMode: classification.route === "document" ? classification.retrievalMode : null,
-        documentIds: trace.documentIds ?? [],
-        context: (trace.context ?? []).map((chunk) => ({
-          page: chunk.pageNumber,
-          pageEnd: chunk.pageEnd ?? null,
-          documentId: chunk.documentId,
-          chunkIndex: chunk.chunkIndex,
-          isHit: chunk.isHit,
-        })),
+        ...traceLog(trace),
       },
     };
   }

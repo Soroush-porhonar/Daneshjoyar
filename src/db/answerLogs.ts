@@ -16,7 +16,7 @@ export interface NewAnswerLog {
   userId: number;
   question: string;
   rewrittenQuestion: string | null;
-  route: "document" | "document_info" | "chat";
+  route: "document" | "document_info" | "transform" | "chat";
   retrievalMode: string | null;
   /** The documents the answer drew on. */
   documentIds: number[];

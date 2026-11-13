@@ -17,8 +17,11 @@ export interface AnswerQuestion {
   filename: string;
   expectedPages: number[];
   mustInclude?: Keyword[];
-  /** "document_info": a question about the file itself, answered without citations. */
-  route?: "document_info";
+  /**
+   * "document_info": a question about the file itself, answered without citations.
+   * "transform": the previous answer reshaped from its sources (cited as usual).
+   */
+  route?: "document_info" | "transform";
 }
 
 /** An answer with less Persian than this (of its Persian + Latin letters) fails. */

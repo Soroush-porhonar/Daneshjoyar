@@ -29,6 +29,11 @@ vi.mock("../src/rag/documentInfo.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/rag/documentInfo.js")>()),
   answerDocumentInfo: vi.fn(),
 }));
+// Keep the real rule for "shorter" / "in three sentences"; fake the answer.
+vi.mock("../src/rag/transform.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/rag/transform.js")>()),
+  answerTransform: vi.fn(),
+}));
 // Keep the real needsRewrite (which messages count as follow-ups); fake the LLM call.
 vi.mock("../src/rag/rewrite.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/rag/rewrite.js")>()),
@@ -50,6 +55,7 @@ const { askAI } = await import("../src/llm/generalChat.js");
 const { answerFromDocuments, prefetchCandidates } = await import("../src/rag/answer.js");
 const { createAnswerLog, getLastAnswerHits } = await import("../src/db/answerLogs.js");
 const { answerDocumentInfo } = await import("../src/rag/documentInfo.js");
+const { answerTransform } = await import("../src/rag/transform.js");
 const { needsRewrite, rewriteQuestion } = await import("../src/rag/rewrite.js");
 const { routeMessage } = await import("../src/rag/router.js");
 const { logger } = await import("../src/logger.js");
@@ -183,6 +189,34 @@ describe("handleMessage", () => {
       expect.objectContaining({ route: "document_info", retrievalMode: null, answer: "درباره جزوه" }),
     );
     expect(lastReply()).toBe("درباره جزوه");
+  });
+
+  it("reshapes the previous answer from its sources for 'shorter', without the router or a search", async () => {
+    const request = { role: "user" as const, content: "کوتاه‌ترش کن" };
+    const hits = [{ documentId: 5, chunkIndex: 12 }];
+    vi.mocked(getRecentMessages).mockResolvedValue([...earlier, request]);
+    vi.mocked(getLastAnswerHits).mockResolvedValue(hits);
+    vi.mocked(answerTransform).mockResolvedValue("کوتاه‌تر [1]");
+
+    await expect(handleMessage(CHAT_ID, request.content)).resolves.toBe(true);
+
+    expect(answerTransform).toHaveBeenCalledWith(USER_ID, "کوتاه‌ترش کن", earlier[1]!.content, hits, expect.anything());
+    expect(routeMessage).not.toHaveBeenCalled();
+    expect(prefetchCandidates).not.toHaveBeenCalled();
+    expect(createAnswerLog).toHaveBeenCalledWith(expect.objectContaining({ route: "transform" }));
+    expect(lastReply()).toBe("کوتاه‌تر [1]");
+  });
+
+  it("treats 'shorter' as a normal message when the previous answer was not from the notes", async () => {
+    const request = { role: "user" as const, content: "کوتاه‌ترش کن" };
+    vi.mocked(getRecentMessages).mockResolvedValue([...earlier, request]);
+    vi.mocked(getLastAnswerHits).mockResolvedValue([]);
+    vi.mocked(routeMessage).mockResolvedValue({ route: "chat", retrievalMode: "focused" });
+
+    await expect(handleMessage(CHAT_ID, request.content)).resolves.toBe(true);
+
+    expect(answerTransform).not.toHaveBeenCalled();
+    expect(routeMessage).toHaveBeenCalled();
   });
 
   it("still answers a follow-up when the previous answer cannot be read", async () => {

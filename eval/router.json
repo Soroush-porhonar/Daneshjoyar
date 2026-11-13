@@ -505,11 +505,7 @@
       }
     ],
     "message": "میتونی یه خلاصه سه جمله ای بهم بدی؟",
-    "route": "document",
-    "mode": [
-      "focused",
-      "multi_part"
-    ]
+    "route": "transform"
   },
   {
     "id": "transform-shorter",
@@ -526,11 +522,7 @@
       }
     ],
     "message": "کوتاه‌ترش کن",
-    "route": "document",
-    "mode": [
-      "focused",
-      "multi_part"
-    ]
+    "route": "transform"
   },
   {
     "id": "transform-simpler",
@@ -547,11 +539,7 @@
       }
     ],
     "message": "ساده‌تر بگو، نفهمیدم",
-    "route": "document",
-    "mode": [
-      "focused",
-      "multi_part"
-    ]
+    "route": "transform"
   },
   {
     "id": "real-explain-each",

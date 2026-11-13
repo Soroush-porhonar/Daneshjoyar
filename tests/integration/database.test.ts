@@ -38,7 +38,7 @@ const {
 );
 const { isUpdateProcessed, markUpdateProcessed } = await import("../../src/db/updates.js");
 const { createAnswerLog, getLastAnswerHits, setFeedback } = await import("../../src/db/answerLogs.js");
-const { getDocumentChunks, retrieveContext, retrieveRelevantChunks, searchCandidates } = await import(
+const { getChunksByRef, getDocumentChunks, retrieveContext, retrieveRelevantChunks, searchCandidates } = await import(
   "../../src/rag/retrieve.js"
 );
 const {
@@ -129,6 +129,24 @@ describe("user isolation (one student must never see another's documents)", () =
     expect(await findDocumentFilename(alice, bobsDocument)).toBeNull();
     expect(await deleteDocument(alice, bobsDocument)).toBe(false);
     expect(await findDocumentFilename(bob, bobsDocument)).toBe("bob.pdf");
+  });
+
+  it("cannot load another user's chunks by position (reshaping a previous answer)", async () => {
+    const alice = await addUser("alice");
+    const bob = await addUser("bob");
+    const alicesDocument = await addDocument(alice, "alice.pdf", [1, 2]);
+    const bobsDocument = await addDocument(bob, "bob.pdf", [1]);
+
+    const chunks = await getChunksByRef(alice, [
+      { documentId: alicesDocument, chunkIndex: 1 },
+      { documentId: bobsDocument, chunkIndex: 0 },
+      { documentId: alicesDocument, chunkIndex: 0 },
+    ]);
+
+    expect(chunks.map((chunk) => [chunk.filename, chunk.chunkIndex, chunk.isHit])).toEqual([
+      ["alice.pdf", 1, true],
+      ["alice.pdf", 0, true],
+    ]);
   });
 
   it("cannot read another user's document profile (questions about a document itself)", async () => {

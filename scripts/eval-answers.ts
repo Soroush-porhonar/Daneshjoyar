@@ -53,7 +53,10 @@ import { answerFromDocuments, formatChunks, isRefusal, numberSources } from "../
 import type { AnswerTrace } from "../src/rag/answer.js";
 import { answerDocumentInfo } from "../src/rag/documentInfo.js";
 import { rankedCandidates } from "../src/rag/retrieve.js";
-import { rewriteQuestion } from "../src/rag/rewrite.js";
+import { needsRewrite, rewriteQuestion } from "../src/rag/rewrite.js";
+import { routeMessage } from "../src/rag/router.js";
+import { answerTransform, isTransformRequest } from "../src/rag/transform.js";
+import { listCompletedFilenames } from "../src/db/documents.js";
 import type { HistoryMessage } from "../src/rag/rewrite.js";
 
 interface EvalQuestion extends AnswerQuestion {
@@ -125,6 +128,8 @@ const questions = allQuestions.filter(
 );
 /** Whose copies of the eval documents are used (--user 42 for the distractor run). */
 const evalUserId = await evalUser(args, allQuestions.map((q) => q.filename));
+/** What the router sees, as in the bot. */
+const documentNames = await listCompletedFilenames(evalUserId);
 
 const nearMissIds = new Set(questions.filter((q) => q.tags?.includes("near_miss")).map((q) => q.id));
 
@@ -329,22 +334,34 @@ for (const q of questions) {
 
   console.log(`... ${q.id}`);
   const start = performance.now();
-  const question = q.history ? await rewriteQuestion(q.question, q.history) : q.question;
+  // Like the bot: "shorter" after an answer reshapes it; otherwise, after an
+  // earlier exchange, the router decides whether the message is a follow-up
+  // (the length rule only when it gives no decision).
+  const previousReply = q.history?.at(-1);
+  const transform = previousReply?.role === "assistant" && isTransformRequest(q.question);
+  const routed =
+    q.history?.length && !transform ? await routeMessage(q.question, documentNames, q.history).catch(() => null) : null;
+  const followUp = q.history !== undefined && !transform && (routed?.dependsOnHistory ?? needsRewrite(q.question, q.history));
+  const question = followUp
+    ? (routed?.standaloneQuestion ?? (await rewriteQuestion(q.question, q.history!, undefined, true)))
+    : q.question;
   const mode = q.mode;
   // Like the bot: all of the user's documents, unless --per-doc.
   const scope = perDocument ? { documentId: document.id } : {};
-  // Like production: a follow-up's search also reranks the previous answer's hits.
-  const include = q.history ? await previousHits(document, q.history, scope.documentId) : [];
+  // Like production: a follow-up's search also reranks the previous answer's hits,
+  // and a transform request is answered from them.
+  const include = followUp || transform ? await previousHits(document, q.history!, scope.documentId) : [];
   const ranked =
-    include.length > 0
+    followUp && include.length > 0
       ? await rankedCandidates(document.user_id, question, { ...scope, include })
       : undefined;
   // The trace holds the chunks the model was really given (none for a whole-document summary).
   const trace: AnswerTrace = {};
   // A question about the file itself goes to its own route, pinned to that file
   // ("this handout" names no file; the student means this one).
-  const answer =
-    q.route === "document_info"
+  const answer = transform
+    ? await answerTransform(document.user_id, q.question, previousReply!.content, include, { trace })
+    : q.route === "document_info"
       ? await answerDocumentInfo(document.user_id, question, { documentId: document.id, trace })
       : await answerFromDocuments(document.user_id, question, mode, {
           ...scope,

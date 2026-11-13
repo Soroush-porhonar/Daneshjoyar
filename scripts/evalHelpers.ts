@@ -38,7 +38,7 @@ export interface RouterCase {
   id: string;
   message: string;
   history?: HistoryMessage[];
-  route: "document" | "document_info" | "chat";
+  route: "document" | "document_info" | "transform" | "chat";
   /**
    * Document cases: the right retrieval mode, or several acceptable ones.
    * Left out when only the route matters (questions about the handout itself).
@@ -51,7 +51,7 @@ export interface RouterCase {
 }
 
 const routeLabel = (route: string, mode?: string) =>
-  route === "chat" ? "chat" : route === "document_info" ? "info" : `doc:${mode}`;
+  route === "chat" || route === "transform" ? route : route === "document_info" ? "info" : `doc:${mode}`;
 
 /**
  * Compares the router's decision with a case's label. With several accepted
@@ -60,7 +60,7 @@ const routeLabel = (route: string, mode?: string) =>
  */
 export function scoreRoute(
   expected: Pick<RouterCase, "route" | "mode">,
-  actual: { route: "document" | "document_info" | "chat"; retrievalMode: RouterMode },
+  actual: { route: "document" | "document_info" | "transform" | "chat"; retrievalMode: RouterMode },
 ): { routeOk: boolean; exactOk: boolean; expectedLabel: string; actualLabel: string } {
   const accepted = expected.mode === undefined ? [] : [expected.mode].flat();
   const modeOk = accepted.length === 0 || accepted.includes(actual.retrievalMode);

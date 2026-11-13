@@ -407,6 +407,14 @@ export async function searchCandidates(
   return [...hits, ...extra.filter((chunk) => !found.has(chunkKey(chunk)))];
 }
 
+/** Specific chunks of the user's documents, by position (a previous answer's sources). */
+export async function getChunksByRef(userId: number, refs: ChunkRef[]): Promise<ContextChunk[]> {
+  const order = new Map(refs.map((ref, index) => [refKey(ref), index]));
+  return (await getNeighbours(userId, refs, []))
+    .map((chunk) => ({ ...chunk, isHit: true }))
+    .sort((a, b) => (order.get(refKey(a)) ?? 0) - (order.get(refKey(b)) ?? 0));
+}
+
 /** Chunks by position, plus every chunk of the given sections (of the user's documents). */
 async function getNeighbours(
   userId: number,

@@ -2129,5 +2129,80 @@
     "mustInclude": ["لگاریتمی"],
     "tags": ["formula"],
     "filename": "DataStructure_Chapter2.pdf"
+  },
+  {
+    "id": "tr-lifo-shorter",
+    "type": "follow_up",
+    "mode": "focused",
+    "route": "transform",
+    "question": "کوتاه‌ترش کن",
+    "expectedPages": [
+      9
+    ],
+    "mustInclude": [
+      [
+        "آخرین",
+        "LIFO"
+      ]
+    ],
+    "filename": "DataStructure_Chapter1.pdf",
+    "history": [
+      {
+        "role": "user",
+        "content": "LIFO یعنی چه؟"
+      },
+      {
+        "role": "assistant",
+        "content": "LIFO مخفف Last In, First Out است؛ یعنی در پشته آخرین عنصری که وارد می‌شود، اولین عنصری است که خارج می‌شود [1]. به همین دلیل عملیات درج (push) و حذف (pop) هر دو از بالای پشته انجام می‌شوند و به عنصرهای پایین‌تر فقط بعد از برداشتن عنصرهای بالایی می‌توان رسید [1].\n\n**منابع:**\n- [1] DataStructure_Chapter1.pdf — صفحه 9"
+      }
+    ]
+  },
+  {
+    "id": "tr-lisbon-two-sentences",
+    "type": "follow_up",
+    "mode": "focused",
+    "route": "transform",
+    "question": "در دو جمله بگو",
+    "expectedPages": [
+      2
+    ],
+    "mustInclude": [
+      "نوامبر"
+    ],
+    "filename": "زلزلهٔ لیسبون ۱۷۵۵.pdf",
+    "history": [
+      {
+        "role": "user",
+        "content": "زلزله لیسبون در چه روزی رخ داد؟"
+      },
+      {
+        "role": "assistant",
+        "content": "زلزله لیسبون در صبح روز اول نوامبر ۱۷۵۵ رخ داد [1]. آن روز، روز عید همه مقدسین بود و بسیاری از مردم در کلیساها بودند [1]. پس از زمین‌لرزه، سونامی و آتش‌سوزی نیز بخش بزرگی از شهر را ویران کرد [1].\n\n**منابع:**\n- [1] زلزلهٔ لیسبون ۱۷۵۵.pdf — صفحه 2"
+      }
+    ]
+  },
+  {
+    "id": "tr-expert-simpler",
+    "type": "follow_up",
+    "mode": "focused",
+    "route": "transform",
+    "question": "ساده‌تر بگو، نفهمیدم",
+    "expectedPages": [
+      1
+    ],
+    "mustInclude": [
+      "برنامه"
+    ],
+    "filename": "CamScanner 05-18-2025 16.58.pdf",
+    "history": [
+      {
+        "role": "user",
+        "content": "سیستم خبره چیست؟"
+      },
+      {
+        "role": "assistant",
+        "content": "سیستم خبره یک برنامه کامپیوتری است که دانش و تجربه یک متخصص را در یک حوزه مشخص در خود ذخیره می‌کند و با استدلال روی آن، مسائلی را حل می‌کند که معمولاً به یک فرد خبره نیاز دارند [1].\n\n**منابع:**\n- [1] CamScanner 05-18-2025 16.58.pdf — صفحه 1"
+      }
+    ]
   }
 ]

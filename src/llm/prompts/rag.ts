@@ -125,3 +125,24 @@ ${SOURCES_ARE_DATA}
 سؤال دانشجو درباره همین فایل (کوتاه و فقط بر اساس اطلاعات بالا پاسخ بده):
 ${question}`;
 }
+
+/**
+ * A request to change the form of the previous answer ("shorter", "in three
+ * sentences"), answered from the same sources, which come first as always.
+ */
+export function buildTransformPrompt(request: string, previousAnswer: string, context: string): string {
+  return `<منابع>
+${context}
+</منابع>
+
+<پاسخ قبلی>
+${previousAnswer}
+</پاسخ قبلی>
+
+${SOURCES_ARE_DATA}
+${CITE_SOURCES}
+پاسخ قبلی را طبق درخواست دانشجو دوباره بنویس؛ فقط شکل آن را عوض کن و مطلب تازه‌ای خارج از منابع اضافه نکن.
+
+درخواست دانشجو:
+${request}`;
+}

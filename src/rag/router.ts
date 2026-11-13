@@ -9,9 +9,10 @@ import { cleanRewrite } from "./rewrite.js";
  * wrote it, its topics). Decided by a rule (isDocumentInfoQuestion in
  * documentInfo.ts), not by the router: as a third router value it got 3 of 6
  * such messages right (none of the 3 real ones) and cost route+mode 94 -> 85%
- * on the other cases (eval:router 2026-11-13).
+ * on the other cases (eval:router 2026-11-13). transform: a request to reshape
+ * the previous answer, also decided by a rule (isTransformRequest in transform.ts).
  */
-export type MessageRoute = "document" | "document_info" | "chat";
+export type MessageRoute = "document" | "document_info" | "transform" | "chat";
 
 /** What the router model may answer. */
 const ROUTER_ROUTES = ["document", "chat"] as const;
