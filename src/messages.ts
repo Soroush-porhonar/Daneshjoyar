@@ -215,6 +215,10 @@ export const ocrStartedText = (
 export const uploadInterruptedText = (filename: string): string =>
   `⚠️ پردازش فایل «${filename}» به‌خاطر راه‌اندازی دوباره ربات نیمه‌کاره موند. لطفاً دوباره بفرستش.`;
 
+/** A message the bot could not answer (a restart or repeated failures) and will not answer late. */
+export const MESSAGE_NOT_ANSWERED_TEXT =
+  "⚠️ به پیام قبلیت به‌خاطر یه مشکل یا راه‌اندازی دوباره ربات نتونستم جواب بدم. لطفاً دوباره بفرستش.";
+
 export const ocrProgressText = (done: number, total: number): string =>
   `⏳ خوندن صفحه‌ها: ${done} از ${total}`;
 

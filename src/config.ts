@@ -273,6 +273,17 @@ export const config = {
   },
 
   /** Upload-time enrichment (src/rag/enrich.ts), in the background after a document is usable. */
+  /** The inbox sweeper (src/bot/sweeper.ts, roadmap 8.9). */
+  inbox: {
+    sweepIntervalMs: 60_000,
+    /** A "received" update untouched this long had its work cut off (no answer takes 2 minutes of silence). */
+    staleMs: 2 * 60_000,
+    /** Tries per update, the first included. */
+    maxAttempts: 3,
+    /** A message or button press older than this is not answered late; the student is asked to resend. */
+    maxAgeMs: 15 * 60_000,
+  },
+
   enrichment: {
     /** ENRICHMENT=false: new uploads are not queued (npm run enrich still works). */
     enabled: process.env.ENRICHMENT !== "false",

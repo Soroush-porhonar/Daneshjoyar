@@ -58,6 +58,8 @@ export interface BaleUpdate {
     chat: {
       id: number;
     };
+    /** When it was sent (Unix seconds). */
+    date?: number;
     text?: string;
     document?: BaleDocument;
     photo?: BalePhotoSize[];

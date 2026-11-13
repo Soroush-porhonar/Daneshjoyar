@@ -2,6 +2,7 @@ import express from "express";
 import { startPolling } from "./bot/poller.js";
 import { runEnrichmentWorker } from "./bot/enrichmentWorker.js";
 import { recoverInterruptedUploads } from "./bot/recovery.js";
+import { startSweeper } from "./bot/sweeper.js";
 import { config } from "./config.js";
 import { preloadModels } from "./llm/ollamaClient.js";
 import { logger } from "./logger.js";
@@ -21,7 +22,8 @@ app.listen(config.port, () => {
 
 // Not awaited: a question arriving meanwhile waits for the same load in Ollama.
 void preloadModels();
-// Before polling, so the next upload of an interrupted file isn't taken for a duplicate.
+// Before the sweeper retries interrupted uploads, so they aren't taken for duplicates.
 await recoverInterruptedUploads();
+startSweeper();
 void startPolling();
 void runEnrichmentWorker();
