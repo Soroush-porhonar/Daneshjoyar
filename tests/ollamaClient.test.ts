@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { chat, embed } from "../src/llm/ollamaClient.js";
+import { chat, embed, preloadModels } from "../src/llm/ollamaClient.js";
 import { OllamaError, OllamaTimeoutError } from "../src/errors.js";
 import { logger } from "../src/logger.js";
 
@@ -162,6 +162,25 @@ describe("chat", () => {
     await chat({ messages });
 
     expect(logger.warn).not.toHaveBeenCalled();
+  });
+});
+
+describe("preloadModels", () => {
+  it("loads the chat and embedding models with empty requests", async () => {
+    reply({});
+    reply({ embeddings: [] });
+
+    await preloadModels();
+
+    expect(sentBody(0)).toEqual({ model: expect.any(String), messages: [], keep_alive: "30m" });
+    expect(sentBody(1)).toEqual({ model: expect.any(String), input: [], keep_alive: "30m" });
+  });
+
+  it("only logs a failure", async () => {
+    fetchMock.mockRejectedValue(new Error("connect ECONNREFUSED"));
+
+    await expect(preloadModels()).resolves.toBeUndefined();
+    expect(logger.warn).toHaveBeenCalledWith("[LLM] Preloading models failed:", expect.anything());
   });
 });
 

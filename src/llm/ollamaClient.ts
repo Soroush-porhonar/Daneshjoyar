@@ -213,6 +213,24 @@ export async function chat(request: ChatRequest): Promise<string> {
   return content.trim();
 }
 
+/**
+ * Loads the chat and embedding models into memory at startup (roadmap S6):
+ * otherwise the first question after a restart waited ~10 s for the load.
+ * An empty request only loads a model. Failures are logged, never thrown:
+ * the first real request loads the model anyway.
+ */
+export async function preloadModels(): Promise<void> {
+  const started = Date.now();
+  const timeout = AbortSignal.timeout(config.llm.timeoutMs);
+  const results = await Promise.allSettled([
+    post(config.llm.url, { model: config.llm.model, messages: [], keep_alive: config.llm.keepAlive }, timeout, "preload"),
+    post(config.embedding.url, { model: config.embedding.model, input: [], keep_alive: config.llm.keepAlive }, timeout, "preload"),
+  ]);
+  const failed = results.filter((result) => result.status === "rejected");
+  if (failed.length > 0) logger.warn("[LLM] Preloading models failed:", { errors: failed.map((f) => String(f.reason)) });
+  else logger.info("[LLM] Models loaded", { ms: Date.now() - started });
+}
+
 /** Embeds one or many texts; returns one vector per input, in order. */
 export async function embed(input: string[]): Promise<number[][]> {
   const data = await post<OllamaEmbedResponse>(
