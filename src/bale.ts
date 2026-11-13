@@ -119,17 +119,71 @@ interface BaleResponse<T> {
   parameters?: { retry_after?: number };
 }
 
-async function callBale<T>(
-  method: string,
-  body?: Record<string, unknown>,
-): Promise<T> {
+interface CallOptions {
+  timeoutMs?: number;
+  /** False: fail at once (the stream editor handles its own rate limits). */
+  retry?: boolean;
+}
+
+/** Calls that create something: after a timeout the first may have gone through, so they are not repeated. */
+const NOT_IDEMPOTENT = new Set(["sendMessage"]);
+
+/** Network errors raised before the request reached Bale: any call is safe to repeat. */
+const NOT_SENT_CODES = new Set(["ECONNREFUSED", "ENOTFOUND", "EAI_AGAIN", "UND_ERR_CONNECT_TIMEOUT"]);
+
+function notSent(error: unknown): boolean {
+  const cause = error instanceof Error ? (error.cause as { code?: string } | undefined) : undefined;
+  return cause?.code !== undefined && NOT_SENT_CODES.has(cause.code);
+}
+
+/** How long to wait before repeating a failed call, or null to give up. */
+function retryDelay(error: unknown, method: string, attempt: number): number | null {
+  const backoff = config.bale.retryDelaysMs[attempt];
+  if (backoff === undefined) return null;
+
+  if (error instanceof BaleApiError) {
+    if (error.isRateLimit) {
+      return Math.min((error.retryAfterSeconds ?? backoff / 1000) * 1000, config.bale.maxRetryAfterMs);
+    }
+    // A server error: Bale answered, so the call did not go through.
+    return error.status >= 500 ? backoff : null;
+  }
+  if (notSent(error)) return backoff;
+  // A timeout or a dropped connection: the call may have reached Bale.
+  return NOT_IDEMPOTENT.has(method) ? null : backoff;
+}
+
+/**
+ * Calls the Bale API, repeating it after a rate limit (waiting retry_after),
+ * a server error or a network error, with growing delays (roadmap 8.9). A
+ * sendMessage that timed out is not repeated: it may have been delivered.
+ */
+async function callBale<T>(method: string, body?: Record<string, unknown>, options: CallOptions = {}): Promise<T> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await callBaleOnce<T>(method, body, options.timeoutMs ?? config.bale.apiTimeoutMs);
+    } catch (error: unknown) {
+      const waitMs = options.retry === false ? null : retryDelay(error, method, attempt);
+      if (waitMs === null) throw error;
+      logger.warn("[Bale] Retrying", {
+        method: method.split("?")[0],
+        attempt: attempt + 1,
+        waitMs,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      await new Promise((resolve) => setTimeout(resolve, waitMs));
+    }
+  }
+}
+
+async function callBaleOnce<T>(method: string, body: Record<string, unknown> | undefined, timeoutMs: number): Promise<T> {
   const response = await fetch(`${BASE_URL}/${method}`, {
     method: body ? "POST" : "GET",
     headers: {
       "Content-Type": "application/json",
     },
     ...(body ? { body: JSON.stringify(body) } : {}),
-    signal: AbortSignal.timeout(config.bale.apiTimeoutMs),
+    signal: AbortSignal.timeout(timeoutMs),
   });
 
   let data: BaleResponse<T>;
@@ -137,9 +191,7 @@ async function callBale<T>(
   try {
     data = (await response.json()) as BaleResponse<T>;
   } catch {
-    throw new Error(
-      `Bale API returned an invalid response: HTTP ${response.status}`,
-    );
+    throw new BaleApiError(`Bale API returned an invalid response: HTTP ${response.status}`, response.status);
   }
 
   if (!response.ok || data.ok !== true) {
@@ -183,19 +235,27 @@ export async function sendMessage(
   return lastId;
 }
 
-/** Replaces the text (and buttons) of a sent message; no buttons removes them. */
+/**
+ * Replaces the text (and buttons) of a sent message; no buttons removes them.
+ * `retry: false` fails at once instead of waiting (live edits of a streamed answer).
+ */
 export async function editMessageText(
   chatId: number,
   messageId: number,
   text: string,
   buttons?: InlineButton[][],
+  options: { retry?: boolean } = {},
 ): Promise<void> {
-  await callBale("editMessageText", {
-    chat_id: chatId,
-    message_id: messageId,
-    text,
-    reply_markup: { inline_keyboard: buttons ?? [] },
-  });
+  await callBale(
+    "editMessageText",
+    {
+      chat_id: chatId,
+      message_id: messageId,
+      text,
+      reply_markup: { inline_keyboard: buttons ?? [] },
+    },
+    options,
+  );
 }
 
 /** Shows "typing…" in the chat header; Bale shows it for up to about 6 seconds. */
@@ -232,10 +292,18 @@ export async function removeButtons(chatId: number, messageId: number): Promise<
   });
 }
 
+/**
+ * Long polling: Bale holds the request until an update arrives or `timeout`
+ * passes. Measured 2026-11-14: without it Bale holds 5 s (12 polls a minute
+ * while idle); it honours up to about 25 s (30 also returned at 25 s).
+ */
 export async function getUpdates(offset?: number): Promise<BaleUpdate[]> {
-  const query = offset === undefined ? "" : `?offset=${offset}`;
+  const params = new URLSearchParams({ timeout: String(config.bale.pollTimeoutSeconds) });
+  if (offset !== undefined) params.set("offset", String(offset));
 
-  return callBale<BaleUpdate[]>("getUpdates" + query);
+  return callBale<BaleUpdate[]>(`getUpdates?${params}`, undefined, {
+    timeoutMs: (config.bale.pollTimeoutSeconds + 10) * 1000,
+  });
 }
 
 async function saveResponseToFile(

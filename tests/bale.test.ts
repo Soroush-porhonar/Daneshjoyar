@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { editMessageText, keepTyping, sendMessage } from "../src/bale.js";
+import { editMessageText, getUpdates, keepTyping, sendMessage } from "../src/bale.js";
+import { BaleApiError } from "../src/errors.js";
+import { logger } from "../src/logger.js";
 
 const fetchMock = vi.fn();
 let nextId = 100;
@@ -75,5 +77,92 @@ describe("keepTyping", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe("retries", () => {
+  const ok = () => new Response(JSON.stringify({ ok: true, result: { message_id: 1 } }));
+  const failure = (status: number, extra: object = {}) =>
+    new Response(JSON.stringify({ ok: false, error_code: status, description: "nope", ...extra }), { status });
+  const networkError = (code: string) => Object.assign(new TypeError("fetch failed"), { cause: { code } });
+  const timeout = () => new DOMException("The operation was aborted due to timeout", "TimeoutError");
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.spyOn(logger, "warn").mockImplementation(() => {});
+  });
+  afterEach(() => vi.useRealTimers());
+
+  it("waits retry_after on a rate limit, then succeeds", async () => {
+    fetchMock.mockResolvedValueOnce(failure(429, { parameters: { retry_after: 3 } })).mockResolvedValueOnce(ok());
+
+    const sent = sendMessage(1, "سلام");
+    await vi.advanceTimersByTimeAsync(2_999);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1);
+
+    await expect(sent).resolves.toBe(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("repeats a server error with growing delays, then gives up", async () => {
+    fetchMock.mockImplementation(async () => failure(502));
+
+    const edit = editMessageText(1, 2, "متن").catch((error: unknown) => error);
+    await vi.advanceTimersByTimeAsync(7_000);
+
+    expect(await edit).toBeInstanceOf(BaleApiError);
+    expect(fetchMock).toHaveBeenCalledTimes(4); // the call and three repeats (1, 2, 4 s)
+  });
+
+  it("does not repeat a client error", async () => {
+    fetchMock.mockResolvedValueOnce(failure(400));
+
+    await expect(editMessageText(1, 2, "متن")).rejects.toThrow("nope");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("repeats a message that never reached Bale", async () => {
+    fetchMock.mockRejectedValueOnce(networkError("ECONNREFUSED")).mockResolvedValueOnce(ok());
+
+    const sent = sendMessage(1, "سلام");
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    await expect(sent).resolves.toBe(1);
+  });
+
+  it("does not repeat a message that timed out: it may have been delivered", async () => {
+    fetchMock.mockRejectedValueOnce(timeout());
+
+    await expect(sendMessage(1, "سلام")).rejects.toThrow("timeout");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("repeats an edit that timed out (editing twice is harmless)", async () => {
+    fetchMock.mockRejectedValueOnce(timeout()).mockResolvedValueOnce(ok());
+
+    const edit = editMessageText(1, 2, "متن");
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    await expect(edit).resolves.toBeUndefined();
+  });
+
+  it("fails at once when asked not to retry", async () => {
+    fetchMock.mockResolvedValueOnce(failure(429, { parameters: { retry_after: 3 } }));
+
+    await expect(editMessageText(1, 2, "متن", undefined, { retry: false })).rejects.toMatchObject({ status: 429 });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("getUpdates", () => {
+  it("long-polls with Bale's 25-second cap", async () => {
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ ok: true, result: [] })));
+
+    await getUpdates(42);
+
+    const url = new URL(String(fetchMock.mock.calls[0]![0]));
+    expect(url.searchParams.get("timeout")).toBe("25");
+    expect(url.searchParams.get("offset")).toBe("42");
   });
 });

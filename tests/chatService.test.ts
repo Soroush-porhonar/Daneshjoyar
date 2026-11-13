@@ -411,10 +411,14 @@ describe("handleMessage", () => {
       await expect(handleMessage(CHAT_ID, "یه جوک بگو")).resolves.toBe(true);
 
       // The text so far, with the cancel button still on it.
-      expect(editMessageText).toHaveBeenCalledWith(CHAT_ID, 901, partial, [
-        [expect.objectContaining({ callback_data: "cancel" })],
-      ]);
-      expect(vi.mocked(editMessageText).mock.calls.at(-1)).toEqual([CHAT_ID, 901, "جواب عمومی", feedbackButtons(77)]);
+      expect(editMessageText).toHaveBeenCalledWith(
+        CHAT_ID,
+        901,
+        partial,
+        [[expect.objectContaining({ callback_data: "cancel" })]],
+        { retry: false },
+      );
+      expect(vi.mocked(editMessageText).mock.calls.at(-1)).toEqual([CHAT_ID, 901, "جواب عمومی", feedbackButtons(77), {}]);
       expect(sendMessage).toHaveBeenCalledTimes(1); // only the notice
       expect(saveMessage).toHaveBeenLastCalledWith(11, "assistant", "جواب عمومی");
     });
@@ -431,6 +435,7 @@ describe("handleMessage", () => {
         905,
         messages.NO_RELEVANT_CONTENT_TEXT,
         feedbackButtons(77),
+        {},
       ]);
       expect(sendMessage).toHaveBeenCalledTimes(1);
     });

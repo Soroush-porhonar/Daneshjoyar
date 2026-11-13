@@ -302,6 +302,12 @@ export const config = {
     maxFileSize: 20 * 1024 * 1024,
     maxMessageLength: 4000,
     apiTimeoutMs: 30_000,
+    /** getUpdates long-poll wait; Bale caps it at about 25 s (see getUpdates). */
+    pollTimeoutSeconds: 25,
+    /** Waits before each repeat of a failed call (callBale); three repeats at most. */
+    retryDelaysMs: [1_000, 2_000, 4_000],
+    /** A longer retry_after is cut to this, so a student is not kept waiting for minutes. */
+    maxRetryAfterMs: 30_000,
     downloadTimeoutMs: 60_000,
   },
 } as const;
