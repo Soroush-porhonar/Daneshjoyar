@@ -25,11 +25,14 @@ const cmd = (command: string): string => `${LRM}${command}${LRM}`;
 export const MENU_DOCUMENTS = "📚 جزوه‌های من";
 export const MENU_HELP = "❓ راهنما";
 export const MENU_ABOUT = "ℹ️ درباره";
+export const MENU_NEW_TOPIC = "🆕 موضوع جدید";
 
 export const MAIN_MENU: string[][] = [
-  [MENU_DOCUMENTS],
+  [MENU_DOCUMENTS, MENU_NEW_TOPIC],
   [MENU_HELP, MENU_ABOUT],
 ];
+
+export const NEW_TOPIC_TEXT = `🆕 باشه، از اینجا موضوع جدید شروع می‌شه. سؤال بعدی‌ت رو به گفت‌وگوی قبلی ربط نمی‌دم.`;
 
 // --- Info commands -----------------------------------------------------------
 
@@ -64,6 +67,9 @@ export const HELP_TEXT = `📚 **راهنمای دانشجویار**
 
 📚 **۴. مدیریت جزوه‌ها**
 دکمه «${MENU_DOCUMENTS}» رو بزن؛ زیر فهرست، برای حذف هر جزوه دکمه هست.
+
+🆕 **موضوع جدید**
+سؤال‌های کوتاهی مثل «بیشتر توضیح بده» رو به گفت‌وگوی قبلی ربط می‌دم. برای شروع یک موضوع تازه دکمه «${MENU_NEW_TOPIC}» رو بزن یا ${cmd("/new")} رو بفرست؛ گفت‌وگوی قدیمی‌تر از یک ساعت هم خودش کنار گذاشته می‌شه.
 
 🌐 **۵. سؤال‌های عمومی**
 اگه سؤالت به جزوه‌هات ربطی نداشته باشه، مثل یک دستیار هوشمند معمولی جوابت رو می‌دم.`;
@@ -241,6 +247,8 @@ export const NO_RELEVANT_CONTENT_TEXT =
 
 /** First line of a summary: the bot picked the document, so it says which. */
 export const summaryHeaderText = (filename: string): string => `📄 خلاصه «${filename}»:`;
+
+export const documentInfoHeaderText = (filename: string): string => `📄 درباره «${filename}»:`;
 
 export const SOURCES_HEADING = "**منابع:**";
 

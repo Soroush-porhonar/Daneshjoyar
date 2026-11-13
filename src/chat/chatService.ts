@@ -17,12 +17,15 @@ import { logDatabaseError } from "../errors.js";
 import { askAI } from "../llm/generalChat.js";
 import { logger } from "../logger.js";
 import { answerFromDocuments, prefetchCandidates } from "../rag/answer.js";
+import { answerDocumentInfo, isDocumentInfoQuestion } from "../rag/documentInfo.js";
+import { answerTransform, isTransformRequest } from "../rag/transform.js";
 import type { AnswerTrace } from "../rag/answer.js";
 import { createAnswerLog, getLastAnswerHits } from "../db/answerLogs.js";
 import type { NewAnswerLog } from "../db/answerLogs.js";
 import { feedbackButtons } from "../bot/feedback.js";
 import { needsRewrite, rewriteQuestion } from "../rag/rewrite.js";
 import { resolveRoute, routeMessage } from "../rag/router.js";
+import type { MessageClassification } from "../rag/router.js";
 import { startForegroundWork } from "../llm/priority.js";
 
 interface Session {
@@ -89,6 +92,20 @@ async function answerQuestion(
   }
 }
 
+/** What an answer drew on, for the answer log. */
+function traceLog(trace: AnswerTrace): Pick<AnswerLogInfo, "documentIds" | "context"> {
+  return {
+    documentIds: trace.documentIds ?? [],
+    context: (trace.context ?? []).map((chunk) => ({
+      page: chunk.pageNumber,
+      pageEnd: chunk.pageEnd ?? null,
+      documentId: chunk.documentId,
+      chunkIndex: chunk.chunkIndex,
+      isHit: chunk.isHit,
+    })),
+  };
+}
+
 /** Answers using documents when the router says so, otherwise as general chat. */
 async function composeAnswer(
   { userId, conversationId }: Session,
@@ -111,47 +128,70 @@ async function composeAnswer(
   // The current message is already saved, so it is the last history entry.
   const previous = history.slice(0, -1);
 
-  // A standalone question can be searched while the router decides (saves the
-  // search time). Follow-ups are searched only after they are rewritten.
-  const followUp = needsRewrite(text, previous);
-  const prefetch = followUp ? undefined : prefetchCandidates(userId, text);
-  const routed = await routeMessage(text, documentNames, previous);
-  // The search ran in parallel; if it clearly found the answer, keep the notes.
+  // "Shorter", "in three sentences" right after an answer from the notes:
+  // rewrite that answer from its own sources (no router, no search).
+  const lastReply = previous.at(-1);
+  const transformSources =
+    lastReply?.role === "assistant" && isTransformRequest(text)
+      ? await getLastAnswerHits(userId).catch(() => [])
+      : [];
+  if (lastReply && transformSources.length > 0) {
+    const trace: AnswerTrace = {};
+    const answer = await answerTransform(userId, text, lastReply.content, transformSources, {
+      ...(signal ? { signal } : {}),
+      trace,
+    });
+    return {
+      answer,
+      log: { question: text, rewrittenQuestion: null, route: "transform", retrievalMode: null, ...traceLog(trace) },
+    };
+  }
+
+  // The message is searched as typed while the router decides (saves the search
+  // time for standalone questions, which most are).
+  const prefetch = prefetchCandidates(userId, text);
+  prefetch.catch(() => undefined); // may go unused (follow-ups); its failure is handled where it is awaited
+  // A question about a document itself is recognised by a rule, without the router.
+  const routed: MessageClassification = isDocumentInfoQuestion(text)
+    ? { route: "document_info", retrievalMode: "focused", dependsOnHistory: false, standaloneQuestion: null }
+    : await routeMessage(text, documentNames, previous);
+  // The router decides whether the message depends on the conversation. The
+  // length rule (needsRewrite) is only the fallback when it gave no decision: it
+  // rewrote every short standalone question (20 of 20, eval:router 2026-11-12).
+  const followUp = routed.dependsOnHistory ?? needsRewrite(text, previous);
+  // If the search clearly found the answer, keep the notes (not for follow-ups:
+  // "explain more" searched as typed says nothing).
   const classification =
-    routed.route === "chat" && prefetch
+    routed.route === "chat" && !followUp
       ? resolveRoute(routed, (await prefetch.catch(() => null))?.ranked[0]?.rerankScore)
       : routed;
 
-  if (classification.route === "document") {
-    const question = await rewriteQuestion(text, previous, signal);
+  if (classification.route !== "chat") {
+    const question = followUp
+      ? (routed.standaloneQuestion ?? (await rewriteQuestion(text, previous, signal, true)))
+      : text;
+    if (followUp) logger.info("[RAG] Follow-up:", { rewritten: question !== text, byRouter: Boolean(routed.standaloneQuestion) });
     // A follow-up is usually about the pages of the previous answer, so its
     // chunks compete with the search results (the reranker decides).
     const search = followUp
       ? prefetchCandidates(userId, question, await getLastAnswerHits(userId).catch(() => null))
       : prefetch;
     const trace: AnswerTrace = {};
-    const answer = await answerFromDocuments(
-      userId,
-      question,
-      classification.retrievalMode,
-      { ...(signal ? { signal } : {}), ...(search ? { prefetch: search } : {}), trace },
-    );
+    const options = { ...(signal ? { signal } : {}), prefetch: search, trace };
+    // Questions about a document itself are answered from its profile and opening page.
+    const answer =
+      classification.route === "document_info"
+        ? await answerDocumentInfo(userId, question, options)
+        : await answerFromDocuments(userId, question, classification.retrievalMode, options);
 
     return {
       answer,
       log: {
         question: text,
         rewrittenQuestion: question === text ? null : question,
-        route: "document",
-        retrievalMode: classification.retrievalMode,
-        documentIds: trace.documentIds ?? [],
-        context: (trace.context ?? []).map((chunk) => ({
-          page: chunk.pageNumber,
-          pageEnd: chunk.pageEnd ?? null,
-          documentId: chunk.documentId,
-          chunkIndex: chunk.chunkIndex,
-          isHit: chunk.isHit,
-        })),
+        route: classification.route,
+        retrievalMode: classification.route === "document" ? classification.retrievalMode : null,
+        ...traceLog(trace),
       },
     };
   }

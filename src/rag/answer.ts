@@ -43,7 +43,7 @@ const GENERATION_OPTIONS = {
 };
 
 /** With a `trace`, the call's token counts and timings are recorded on it. */
-function generate(
+export function generate(
   system: string,
   user: string,
   signal?: AbortSignal,
@@ -133,9 +133,13 @@ export function citedNumbers(answer: string): Set<number> {
   return cited;
 }
 
-/** Phrases of an answer saying the sources don't cover the question (also used by eval:answers). */
+/**
+ * Phrases of an answer saying the sources don't cover the question (also used by
+ * eval:answers). The words between "اشاره‌ای به … نشده" and "توضیحی درباره … ندارد"
+ * name the topic: 4 of 5 missed near-miss refusals on 2026-11-12 had them.
+ */
 export const REFUSAL_PATTERN =
-  /(پیدا نکردم|اطلاعاتی (در|درباره)|وجود ندارد|نیامده|اشاره‌ای نشده|ذکر نشده|کافی نیست|در منابع .*نیست)/;
+  /(پیدا نکردم|اطلاعاتی (در|درباره)|وجود ندارد|نیامده|اشاره[‌ ]?ای (به .{0,150})?نشده|ذکر نشده|کافی نیست|در منابع .*نیست|توضیحی (درباره|در مورد|برای) .{0,150}(ندارد|ندارند|نشده)|نمی[‌ ]?توان(م)? .{0,60}پاسخ)/;
 
 /**
  * The answer says the sources don't cover the question. Judged by its first

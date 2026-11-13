@@ -45,6 +45,19 @@ describe("scoreRoute (eval:router labels)", () => {
     });
   });
 
+  it("labels questions about the document itself 'info' and ignores their mode", () => {
+    expect(scoreRoute({ route: "document_info" }, { route: "document_info", retrievalMode: "broad" })).toMatchObject({
+      routeOk: true,
+      exactOk: true,
+      expectedLabel: "info",
+      actualLabel: "info",
+    });
+    expect(scoreRoute({ route: "document_info" }, said("document", "broad"))).toMatchObject({
+      routeOk: false,
+      actualLabel: "doc:broad",
+    });
+  });
+
   it("scores only the route when no mode is labelled", () => {
     expect(scoreRoute({ route: "document" }, said("document", "broad")).exactOk).toBe(true);
     expect(scoreRoute({ route: "document" }, said("chat"))).toMatchObject({

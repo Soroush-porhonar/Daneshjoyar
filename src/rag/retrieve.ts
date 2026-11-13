@@ -5,6 +5,7 @@ import { generateEmbedding } from "./embeddings.js";
 import { rerankChunks } from "./rerank.js";
 import { PERSIAN_STOPWORDS } from "./stopwords.js";
 import { normalizeText } from "./textQuality.js";
+import { extractConcepts } from "./concepts.js";
 import { PHOTO_FILENAME_PATTERN } from "./documentKind.js";
 
 /**
@@ -374,7 +375,8 @@ async function chunksByRef(
  * `documentId`): vector search, plus keyword search fused with RRF when hybrid
  * search is on. Keyword hits skip the distance cutoff, since an exact term
  * match is evidence of its own. `include` adds specific chunks after them
- * (follow-ups: the previous answer's hits).
+ * (follow-ups: the previous answer's hits). `fusedLimit` keeps more of the
+ * fused list than each search returns (P1: the reranker sees the union).
  */
 export async function searchCandidates(
   userId: number,
@@ -383,6 +385,7 @@ export async function searchCandidates(
   documentId?: number,
   maxDistance: number = config.rag.maxCosineDistance,
   include: ChunkRef[] = [],
+  fusedLimit: number = limit,
 ): Promise<RetrievedChunk[]> {
   checkLimit(limit);
   const embedding = await generateEmbedding(question);
@@ -396,7 +399,7 @@ export async function searchCandidates(
       ? [await questionSearch(userId, embedding, limit, documentId, maxDistance)]
       : []),
   ];
-  const hits = lists.length > 1 ? fuseRankings(lists).slice(0, limit) : vectorHits;
+  const hits = lists.length > 1 ? fuseRankings(lists).slice(0, Math.max(limit, fusedLimit)) : vectorHits;
 
   const wanted = include.filter((ref) => documentId === undefined || ref.documentId === documentId);
   if (wanted.length === 0) return hits;
@@ -405,6 +408,14 @@ export async function searchCandidates(
   const extra = await chunksByRef(userId, embedding, wanted);
 
   return [...hits, ...extra.filter((chunk) => !found.has(chunkKey(chunk)))];
+}
+
+/** Specific chunks of the user's documents, by position (a previous answer's sources). */
+export async function getChunksByRef(userId: number, refs: ChunkRef[]): Promise<ContextChunk[]> {
+  const order = new Map(refs.map((ref, index) => [refKey(ref), index]));
+  return (await getNeighbours(userId, refs, []))
+    .map((chunk) => ({ ...chunk, isHit: true }))
+    .sort((a, b) => (order.get(refKey(a)) ?? 0) - (order.get(refKey(b)) ?? 0));
 }
 
 /** Chunks by position, plus every chunk of the given sections (of the user's documents). */
@@ -515,19 +526,26 @@ export async function rankedCandidates(
   question: string,
   { documentId, include = [] }: SearchScope = {},
 ): Promise<RetrievedChunk[]> {
+  const text = config.rag.normalizeQuestion ? normalizeText(question) : question;
   // With a reranker: fetch more candidates and let it pick the best.
   const limit = config.reranker.enabled
     ? Math.max(config.rag.retrievalLimits.multi_part, config.reranker.candidates)
     : config.rag.retrievalLimits.multi_part;
-  const candidates = await searchCandidates(
-    userId,
-    question,
-    limit,
-    documentId,
-    config.rag.maxCosineDistance,
-    include,
-  );
-  return rerankChunks(question, candidates);
+  const fusedLimit = config.reranker.enabled ? config.reranker.maxCandidates : limit;
+  const search = (query: string, extra: ChunkRef[]) =>
+    searchCandidates(userId, query, limit, documentId, config.rag.candidateMaxDistance, extra, fusedLimit);
+
+  // A question naming several concepts: each is searched too, and the reranker
+  // judges every candidate against the whole question.
+  const concepts = config.rag.conceptSearch ? extractConcepts(text) : [];
+  const candidates =
+    concepts.length === 0
+      ? await search(text, include)
+      : fuseRankings(await Promise.all([search(text, include), ...concepts.map((concept) => search(concept, []))])).slice(
+          0,
+          Math.max(fusedLimit, limit),
+        );
+  return rerankChunks(text, candidates);
 }
 
 /**

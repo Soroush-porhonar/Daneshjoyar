@@ -17,6 +17,11 @@ export interface AnswerQuestion {
   filename: string;
   expectedPages: number[];
   mustInclude?: Keyword[];
+  /**
+   * "document_info": a question about the file itself, answered without citations.
+   * "transform": the previous answer reshaped from its sources (cited as usual).
+   */
+  route?: "document_info" | "transform";
 }
 
 /** An answer with less Persian than this (of its Persian + Latin letters) fails. */
@@ -232,8 +237,10 @@ export interface AnswerScore {
 export function scoreAnswer(question: AnswerQuestion, answer: string): AnswerScore {
   const body = answer.split(SOURCES_HEADING)[0]!;
   const negative = question.type === "negative";
+  // Answers about a file itself carry no citations (src/rag/documentInfo.ts).
+  const uncited = negative || question.route === "document_info";
   // The right page of the right file (other files may be cited too).
-  const cites = negative
+  const cites = uncited
     ? null
     : citedPages(answer, question.filename).some((page) => question.expectedPages.includes(page));
   const missing = negative ? [] : missingKeywords(body, question.mustInclude);
@@ -242,10 +249,12 @@ export function scoreAnswer(question: AnswerQuestion, answer: string): AnswerSco
 
   return {
     cites,
-    inline: negative || refused ? null : citedNumbers(body).size > 0,
+    inline: uncited || refused ? null : citedNumbers(body).size > 0,
     missing,
     persian,
     refused,
-    passed: negative ? refused : Boolean(cites) && missing.length === 0 && persian >= MIN_PERSIAN_SHARE,
+    passed: negative
+      ? refused
+      : (cites ?? true) && missing.length === 0 && persian >= MIN_PERSIAN_SHARE,
   };
 }

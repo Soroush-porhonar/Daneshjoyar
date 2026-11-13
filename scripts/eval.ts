@@ -37,7 +37,7 @@
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { performance } from "node:perf_hooks";
 import { bootstrapInterval, pairedInterval } from "./bootstrap.js";
-import { previousHits } from "./evalHelpers.js";
+import { evalUser, previousHits } from "./evalHelpers.js";
 import { config } from "../src/config.js";
 import { pool } from "../src/db/pool.js";
 import {
@@ -48,6 +48,8 @@ import {
 } from "../src/rag/retrieve.js";
 import { rerankChunks } from "../src/rag/rerank.js";
 import { needsRewrite, rewriteQuestion } from "../src/rag/rewrite.js";
+import { routeMessage } from "../src/rag/router.js";
+import { listCompletedFilenames } from "../src/db/documents.js";
 import type { HistoryMessage } from "../src/rag/rewrite.js";
 
 type QuestionType = "exact_term" | "paraphrase" | "multi_page" | "follow_up" | "standalone_history" | "negative";
@@ -63,6 +65,11 @@ interface EvalQuestion {
   parts?: number[][];
   tags?: string[];
   holdout?: boolean;
+  /**
+   * Not searched by the bot, so not retrieval questions: "document_info" (answered
+   * from the file's profile) and "transform" (the previous answer reshaped).
+   */
+  route?: "document_info" | "transform";
 }
 
 interface Row {
@@ -121,8 +128,6 @@ const threshold = config.rag.maxCosineDistance;
  * --user 42: use that user's copies of the eval documents (the distractor run: the
  * eval PDFs ingested with many other documents under a separate user).
  */
-const evalUserIndex = args.indexOf("--user");
-const evalUser = evalUserIndex >= 0 ? Number(args[evalUserIndex + 1]) : null;
 
 /** --doc "name.pdf=12": use that document version instead of the newest one (before/after comparisons). */
 const pinned = new Map(
@@ -134,9 +139,14 @@ const pinned = new Map(
     }),
 );
 
-const questions = (
-  JSON.parse(await readFile("eval/questions.json", "utf-8")) as EvalQuestion[]
-).filter((q) => !only || q.id.includes(only));
+const allQuestions = JSON.parse(await readFile("eval/questions.json", "utf-8")) as EvalQuestion[];
+// Questions about a file itself and transform requests are not searched (eval:answers covers them).
+const questions = allQuestions.filter((q) => q.route === undefined && (!only || q.id.includes(only)));
+/** Whose copies of the eval documents are searched (--user 42 for the distractor run). */
+const evalUserId = await evalUser(args, allQuestions.map((q) => q.filename));
+console.log(`Eval user: ${evalUserId}`);
+/** What the router sees, as in the bot. */
+const documentNames = await listCompletedFilenames(evalUserId);
 
 async function findDocument(filename: string) {
   const found = await pool.query<{ id: number; user_id: number }>(
@@ -145,7 +155,7 @@ async function findDocument(filename: string) {
        AND ($2::integer IS NULL OR id = $2)
        AND ($3::integer IS NULL OR user_id = $3)
      ORDER BY id DESC LIMIT 1`,
-    [filename, pinned.get(filename) ?? null, evalUser],
+    [filename, pinned.get(filename) ?? null, evalUserId],
   );
   return found.rows[0];
 }
@@ -185,10 +195,16 @@ for (const q of questions) {
     continue;
   }
 
-  // Like production: a short message after an earlier exchange is rewritten
-  // before searching, and the previous answer's hits compete with the results.
-  const followUp = q.history !== undefined && needsRewrite(q.question, q.history);
-  const rewritten = followUp && useRewrite ? await rewriteQuestion(q.question, q.history!) : undefined;
+  // Like production: after an earlier exchange the router decides whether the
+  // message depends on it (the length rule only if it gives no decision); a
+  // follow-up is searched as the standalone question, and the previous
+  // answer's hits compete with the results.
+  const routed = q.history?.length ? await routeMessage(q.question, documentNames, q.history).catch(() => null) : null;
+  const followUp = q.history !== undefined && (routed?.dependsOnHistory ?? needsRewrite(q.question, q.history));
+  const rewritten =
+    followUp && useRewrite
+      ? (routed?.standaloneQuestion ?? (await rewriteQuestion(q.question, q.history!, undefined, true)))
+      : undefined;
   const text = rewritten ?? q.question;
   // Like the bot: all of the user's documents, unless --per-doc.
   const scopeId = perDocument ? document.id : undefined;

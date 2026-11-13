@@ -24,6 +24,16 @@ vi.mock("../src/rag/answer.js", () => ({
   answerFromDocuments: vi.fn(),
   prefetchCandidates: vi.fn(),
 }));
+// Keep the real rule that recognises questions about a document itself; fake the answer.
+vi.mock("../src/rag/documentInfo.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/rag/documentInfo.js")>()),
+  answerDocumentInfo: vi.fn(),
+}));
+// Keep the real rule for "shorter" / "in three sentences"; fake the answer.
+vi.mock("../src/rag/transform.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/rag/transform.js")>()),
+  answerTransform: vi.fn(),
+}));
 // Keep the real needsRewrite (which messages count as follow-ups); fake the LLM call.
 vi.mock("../src/rag/rewrite.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/rag/rewrite.js")>()),
@@ -44,6 +54,8 @@ const { listCompletedFilenames } = await import("../src/db/documents.js");
 const { askAI } = await import("../src/llm/generalChat.js");
 const { answerFromDocuments, prefetchCandidates } = await import("../src/rag/answer.js");
 const { createAnswerLog, getLastAnswerHits } = await import("../src/db/answerLogs.js");
+const { answerDocumentInfo } = await import("../src/rag/documentInfo.js");
+const { answerTransform } = await import("../src/rag/transform.js");
 const { needsRewrite, rewriteQuestion } = await import("../src/rag/rewrite.js");
 const { routeMessage } = await import("../src/rag/router.js");
 const { logger } = await import("../src/logger.js");
@@ -93,10 +105,12 @@ describe("handleMessage", () => {
 
     await expect(handleMessage(CHAT_ID, current.content)).resolves.toBe(true);
 
-    expect(rewriteQuestion).toHaveBeenCalledWith(current.content, earlier, undefined);
-    // Searched only once rewritten, never with the bare follow-up text.
-    expect(prefetchCandidates).toHaveBeenCalledTimes(1);
-    expect(prefetchCandidates).toHaveBeenCalledWith(USER_ID, `بازنویسی: ${current.content}`, previousHits);
+    // The router gave no follow-up decision, so the length rule decides (fallback).
+    expect(rewriteQuestion).toHaveBeenCalledWith(current.content, earlier, undefined, true);
+    // The text as typed is searched early; the answer uses the rewritten search.
+    expect(prefetchCandidates).toHaveBeenCalledTimes(2);
+    expect(prefetchCandidates).toHaveBeenNthCalledWith(1, USER_ID, current.content);
+    expect(prefetchCandidates).toHaveBeenNthCalledWith(2, USER_ID, `بازنویسی: ${current.content}`, previousHits);
     expect(answerFromDocuments).toHaveBeenCalledWith(
       USER_ID,
       `بازنویسی: ${current.content}`,
@@ -105,6 +119,104 @@ describe("handleMessage", () => {
     );
     expect(saveMessage).toHaveBeenLastCalledWith(11, "assistant", "جواب از جزوه");
     expect(lastReply()).toBe("جواب از جزوه");
+  });
+
+  it("uses the router's standalone question for a follow-up, without the rewrite call", async () => {
+    vi.mocked(getLastAnswerHits).mockResolvedValue([]);
+    vi.mocked(routeMessage).mockResolvedValue({
+      route: "document",
+      retrievalMode: "focused",
+      dependsOnHistory: true,
+      standaloneQuestion: "مرتبه اجرایی الگوریتم پریم چیست؟",
+    });
+
+    await expect(handleMessage(CHAT_ID, current.content)).resolves.toBe(true);
+
+    expect(rewriteQuestion).not.toHaveBeenCalled();
+    expect(prefetchCandidates).toHaveBeenLastCalledWith(USER_ID, "مرتبه اجرایی الگوریتم پریم چیست؟", []);
+    expect(answerFromDocuments).toHaveBeenCalledWith(USER_ID, "مرتبه اجرایی الگوریتم پریم چیست؟", "focused", expect.anything());
+  });
+
+  it("falls back to the rewrite call when the router's standalone question is unusable", async () => {
+    vi.mocked(getLastAnswerHits).mockResolvedValue([]);
+    vi.mocked(routeMessage).mockResolvedValue({
+      route: "document",
+      retrievalMode: "focused",
+      dependsOnHistory: true,
+      standaloneQuestion: null,
+    });
+
+    await expect(handleMessage(CHAT_ID, current.content)).resolves.toBe(true);
+
+    expect(rewriteQuestion).toHaveBeenCalledWith(current.content, earlier, undefined, true);
+    expect(answerFromDocuments).toHaveBeenCalledWith(USER_ID, `بازنویسی: ${current.content}`, "focused", expect.anything());
+  });
+
+  it("searches a short standalone question after history as typed when the router says it stands alone", async () => {
+    const early = Promise.resolve({ question: current.content, ranked: [] });
+    vi.mocked(prefetchCandidates).mockReturnValue(early);
+    vi.mocked(routeMessage).mockResolvedValue({
+      route: "document",
+      retrievalMode: "focused",
+      dependsOnHistory: false,
+      standaloneQuestion: null,
+    });
+
+    await expect(handleMessage(CHAT_ID, current.content)).resolves.toBe(true);
+
+    expect(rewriteQuestion).not.toHaveBeenCalled();
+    expect(prefetchCandidates).toHaveBeenCalledTimes(1);
+    expect(answerFromDocuments).toHaveBeenCalledWith(
+      USER_ID,
+      current.content,
+      "focused",
+      expect.objectContaining({ prefetch: early }),
+    );
+  });
+
+  it("answers a question about the document itself from its profile, and logs that route", async () => {
+    const question = "نویسنده این جزوه کیه؟";
+    vi.mocked(getRecentMessages).mockResolvedValue([{ role: "user", content: question }]);
+    vi.mocked(answerDocumentInfo).mockResolvedValue("درباره جزوه");
+
+    await expect(handleMessage(CHAT_ID, question)).resolves.toBe(true);
+
+    expect(routeMessage).not.toHaveBeenCalled();
+
+    expect(answerDocumentInfo).toHaveBeenCalledWith(USER_ID, question, expect.objectContaining({ trace: expect.anything() }));
+    expect(answerFromDocuments).not.toHaveBeenCalled();
+    expect(createAnswerLog).toHaveBeenCalledWith(
+      expect.objectContaining({ route: "document_info", retrievalMode: null, answer: "درباره جزوه" }),
+    );
+    expect(lastReply()).toBe("درباره جزوه");
+  });
+
+  it("reshapes the previous answer from its sources for 'shorter', without the router or a search", async () => {
+    const request = { role: "user" as const, content: "کوتاه‌ترش کن" };
+    const hits = [{ documentId: 5, chunkIndex: 12 }];
+    vi.mocked(getRecentMessages).mockResolvedValue([...earlier, request]);
+    vi.mocked(getLastAnswerHits).mockResolvedValue(hits);
+    vi.mocked(answerTransform).mockResolvedValue("کوتاه‌تر [1]");
+
+    await expect(handleMessage(CHAT_ID, request.content)).resolves.toBe(true);
+
+    expect(answerTransform).toHaveBeenCalledWith(USER_ID, "کوتاه‌ترش کن", earlier[1]!.content, hits, expect.anything());
+    expect(routeMessage).not.toHaveBeenCalled();
+    expect(prefetchCandidates).not.toHaveBeenCalled();
+    expect(createAnswerLog).toHaveBeenCalledWith(expect.objectContaining({ route: "transform" }));
+    expect(lastReply()).toBe("کوتاه‌تر [1]");
+  });
+
+  it("treats 'shorter' as a normal message when the previous answer was not from the notes", async () => {
+    const request = { role: "user" as const, content: "کوتاه‌ترش کن" };
+    vi.mocked(getRecentMessages).mockResolvedValue([...earlier, request]);
+    vi.mocked(getLastAnswerHits).mockResolvedValue([]);
+    vi.mocked(routeMessage).mockResolvedValue({ route: "chat", retrievalMode: "focused" });
+
+    await expect(handleMessage(CHAT_ID, request.content)).resolves.toBe(true);
+
+    expect(answerTransform).not.toHaveBeenCalled();
+    expect(routeMessage).toHaveBeenCalled();
   });
 
   it("still answers a follow-up when the previous answer cannot be read", async () => {

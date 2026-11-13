@@ -15,9 +15,36 @@ describe("parseClassification", () => {
     ).toEqual({ route: "chat", retrievalMode: "focused" });
   });
 
+  it("reads the follow-up decision and the standalone question", () => {
+    expect(
+      parseClassification(
+        '{"route":"document","retrievalMode":"focused","dependsOnHistory":true,"standaloneQuestion":"«مرتبه اجرایی پریم چیست؟»"}',
+      ),
+    ).toEqual({
+      route: "document",
+      retrievalMode: "focused",
+      dependsOnHistory: true,
+      standaloneQuestion: "مرتبه اجرایی پریم چیست؟",
+    });
+  });
+
+  it("ignores the standalone question of a message that stands alone", () => {
+    expect(
+      parseClassification('{"route":"document","retrievalMode":"focused","dependsOnHistory":false,"standaloneQuestion":"x"}'),
+    ).toEqual({ route: "document", retrievalMode: "focused", dependsOnHistory: false, standaloneQuestion: null });
+  });
+
+  it("drops an unusable standalone question (several lines), so the caller rewrites", () => {
+    const parsed = parseClassification(
+      '{"route":"chat","retrievalMode":"focused","dependsOnHistory":true,"standaloneQuestion":"خط اول\\nخط دوم"}',
+    );
+    expect(parsed).toEqual({ route: "chat", retrievalMode: "focused", dependsOnHistory: true, standaloneQuestion: null });
+  });
+
   it.each([
     "not json",
     '{"route":"other","retrievalMode":"focused"}',
+    '{"route":"document_info","retrievalMode":"focused"}',
     '{"route":"document","retrievalMode":"huge"}',
     '{"route":"document"}',
   ])("rejects %s", (content) => {

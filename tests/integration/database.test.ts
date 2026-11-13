@@ -24,12 +24,14 @@ vi.mock("../../src/rag/pdf.js", () => ({ openPdf: vi.fn() }));
 
 const { pool } = await import("../../src/db/pool.js");
 const { findOrCreateUser } = await import("../../src/db/users.js");
-const { findOrCreateConversation } = await import("../../src/db/conversations.js");
+const { findOrCreateConversation, startNewTopic } = await import("../../src/db/conversations.js");
+const { getRecentMessages } = await import("../../src/db/messages.js");
 const {
   deleteDocument,
   failInterruptedDocuments,
   findDocumentFilename,
   findDuplicateDocument,
+  getDocumentProfile,
   listCompletedDocuments,
   listCompletedFilenames,
 } = await import(
@@ -37,7 +39,7 @@ const {
 );
 const { isUpdateProcessed, markUpdateProcessed } = await import("../../src/db/updates.js");
 const { createAnswerLog, getLastAnswerHits, setFeedback } = await import("../../src/db/answerLogs.js");
-const { getDocumentChunks, retrieveContext, retrieveRelevantChunks, searchCandidates } = await import(
+const { getChunksByRef, getDocumentChunks, retrieveContext, retrieveRelevantChunks, searchCandidates } = await import(
   "../../src/rag/retrieve.js"
 );
 const {
@@ -128,6 +130,36 @@ describe("user isolation (one student must never see another's documents)", () =
     expect(await findDocumentFilename(alice, bobsDocument)).toBeNull();
     expect(await deleteDocument(alice, bobsDocument)).toBe(false);
     expect(await findDocumentFilename(bob, bobsDocument)).toBe("bob.pdf");
+  });
+
+  it("cannot load another user's chunks by position (reshaping a previous answer)", async () => {
+    const alice = await addUser("alice");
+    const bob = await addUser("bob");
+    const alicesDocument = await addDocument(alice, "alice.pdf", [1, 2]);
+    const bobsDocument = await addDocument(bob, "bob.pdf", [1]);
+
+    const chunks = await getChunksByRef(alice, [
+      { documentId: alicesDocument, chunkIndex: 1 },
+      { documentId: bobsDocument, chunkIndex: 0 },
+      { documentId: alicesDocument, chunkIndex: 0 },
+    ]);
+
+    expect(chunks.map((chunk) => [chunk.filename, chunk.chunkIndex, chunk.isHit])).toEqual([
+      ["alice.pdf", 1, true],
+      ["alice.pdf", 0, true],
+    ]);
+  });
+
+  it("cannot read another user's document profile (questions about a document itself)", async () => {
+    const alice = await addUser("alice");
+    const bob = await addUser("bob");
+    const bobsDocument = await addDocument(bob, "bob.pdf", [1]);
+    await pool.query(`UPDATE documents SET title = 'جزوه باب', summary = 'خلاصه', topics = '{پشته}' WHERE id = $1`, [
+      bobsDocument,
+    ]);
+
+    expect(await getDocumentProfile(alice, bobsDocument)).toBeNull();
+    expect(await getDocumentProfile(bob, bobsDocument)).toEqual({ title: "جزوه باب", summary: "خلاصه", topics: ["پشته"] });
   });
 });
 
@@ -534,6 +566,40 @@ describe("follow-ups: the previous answer's chunks as candidates", () => {
     await addDocument(bob, "bob.pdf", [1]);
 
     await expect(retrieveContext(alice, "#1", "focused")).resolves.toEqual([]);
+  });
+});
+
+describe("conversation history (what the models see of earlier turns)", () => {
+  async function addMessage(conversationId: number, role: "user" | "assistant", content: string, minutesAgo = 0) {
+    await pool.query(
+      `INSERT INTO messages (conversation_id, role, content, created_at) VALUES ($1, $2, $3, NOW() - make_interval(mins => $4))`,
+      [conversationId, role, content, minutesAgo],
+    );
+  }
+
+  it("leaves out turns older than the age limit", async () => {
+    const alice = await addUser("alice");
+    const conversation = await findOrCreateConversation(alice);
+    await addMessage(conversation, "user", "سؤال دیروز", 24 * 60);
+    await addMessage(conversation, "assistant", "جواب دیروز", 24 * 60);
+    await addMessage(conversation, "user", "سؤال الان");
+
+    expect(await getRecentMessages(conversation, 10, 60)).toEqual([{ role: "user", content: "سؤال الان" }]);
+  });
+
+  it("starts afresh after a new topic, only in that student's conversation", async () => {
+    const alice = await addUser("alice");
+    const bob = await addUser("bob");
+    const alices = await findOrCreateConversation(alice);
+    const bobs = await findOrCreateConversation(bob);
+    await addMessage(alices, "user", "قبلی آلیس", 1);
+    await addMessage(bobs, "user", "قبلی باب", 1);
+
+    await startNewTopic(alices);
+    await addMessage(alices, "user", "تازه");
+
+    expect((await getRecentMessages(alices)).map((m) => m.content)).toEqual(["تازه"]);
+    expect((await getRecentMessages(bobs)).map((m) => m.content)).toEqual(["قبلی باب"]);
   });
 });
 

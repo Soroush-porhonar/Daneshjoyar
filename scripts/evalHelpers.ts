@@ -1,6 +1,7 @@
 /** Shared by the eval scripts. */
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { config } from "../src/config.js";
+import { pool } from "../src/db/pool.js";
 import { SOURCES_HEADING } from "../src/messages.js";
 import { rankedCandidates, relevantHits } from "../src/rag/retrieve.js";
 import type { ChunkRef } from "../src/rag/retrieve.js";
@@ -37,7 +38,7 @@ export interface RouterCase {
   id: string;
   message: string;
   history?: HistoryMessage[];
-  route: "document" | "chat";
+  route: "document" | "document_info" | "transform" | "chat";
   /**
    * Document cases: the right retrieval mode, or several acceptable ones.
    * Left out when only the route matters (questions about the handout itself).
@@ -49,7 +50,8 @@ export interface RouterCase {
   dependsOnHistory?: boolean;
 }
 
-const routeLabel = (route: string, mode?: string) => (route === "chat" ? "chat" : `doc:${mode}`);
+const routeLabel = (route: string, mode?: string) =>
+  route === "chat" || route === "transform" ? route : route === "document_info" ? "info" : `doc:${mode}`;
 
 /**
  * Compares the router's decision with a case's label. With several accepted
@@ -58,7 +60,7 @@ const routeLabel = (route: string, mode?: string) => (route === "chat" ? "chat" 
  */
 export function scoreRoute(
   expected: Pick<RouterCase, "route" | "mode">,
-  actual: { route: "document" | "chat"; retrievalMode: RouterMode },
+  actual: { route: "document" | "document_info" | "transform" | "chat"; retrievalMode: RouterMode },
 ): { routeOk: boolean; exactOk: boolean; expectedLabel: string; actualLabel: string } {
   const accepted = expected.mode === undefined ? [] : [expected.mode].flat();
   const modeOk = accepted.length === 0 || accepted.includes(actual.retrievalMode);
@@ -66,7 +68,7 @@ export function scoreRoute(
 
   return {
     routeOk,
-    exactOk: routeOk && (expected.route === "chat" || modeOk),
+    exactOk: routeOk && (expected.route !== "document" || modeOk),
     expectedLabel: routeLabel(
       expected.route,
       actual.route === "document" && modeOk ? actual.retrievalMode : (accepted[0] ?? "focused"),
@@ -111,4 +113,29 @@ export function citedPages(answer: string, filename: string): number[] {
     const last = Number(match[3] ?? match[2]);
     return Array.from({ length: last - first + 1 }, (_, i) => first + i);
   });
+}
+
+/**
+ * Whose documents an eval uses: `--user <id>` when given, otherwise the user that
+ * owns the most of the eval's files. ("The user with the most documents" broke
+ * once someone uploaded more files than the eval set has.)
+ */
+/** Chat id of the eval-only distractor user (scripts/eval-distractors.ts). */
+export const DISTRACTOR_CHAT_ID = "eval-distractors";
+
+export async function evalUser(args: string[], filenames: Iterable<string>): Promise<number> {
+  const index = args.indexOf("--user");
+  if (index >= 0) return Number(args[index + 1]);
+
+  const result = await pool.query<{ user_id: number }>(
+    // The distractor user holds copies of the eval documents; it is used only when --user names it.
+    `SELECT user_id FROM documents
+     WHERE status = 'completed' AND filename = ANY($1)
+       AND user_id NOT IN (SELECT id FROM users WHERE bale_chat_id = $2)
+     GROUP BY user_id ORDER BY count(DISTINCT filename) DESC, max(id) DESC LIMIT 1`,
+    [[...new Set(filenames)], DISTRACTOR_CHAT_ID],
+  );
+  const user = result.rows[0]?.user_id;
+  if (user === undefined) throw new Error("No user owns any of the eval documents");
+  return user;
 }

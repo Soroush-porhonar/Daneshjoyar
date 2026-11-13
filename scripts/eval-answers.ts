@@ -4,11 +4,12 @@
  *
  *   npm run eval:answers
  *   npm run eval:answers -- --only lisbon
- *   npm run eval:answers -- --judge         # also ask the LLM to grade each answer (off by default)
  *   npm run eval:answers -- --doc "x.pdf=12" # pin a document version (before/after)
  *   npm run eval:answers -- --per-doc       # search only each question's own document
  *   npm run eval:answers -- --rescore       # re-check the newest saved run, no model calls
  *   npm run eval:answers -- --rescore eval/results/answers-2026-11-03T01-58-00.json
+ *   npm run eval:answers -- --rescore --judge   # also judge every cited sentence (scripts/judge.ts, CPU, ~30 s per sentence)
+ *   npm run eval:answers -- --rescore --judge --reuse-judged  # keep the newest judge run's single-source verdicts
  *
  * Like the bot, questions search all documents of their document's owner;
  * "cites" needs the right page of the right file.
@@ -30,10 +31,13 @@
  *               (scripts/citationCheck.ts). A topic check only: measured, it
  *               cannot tell a supported claim from an invented one. Reported,
  *               not part of pass/fail.
- *   judge     - with --judge, a second LLM call grades faithfulness. Weak
- *               evidence: the model grades itself (it once passed all 54
- *               answers including a wrong refusal, then failed 4 correct
- *               refusals), so it is off by default.
+ *   judge     - with --rescore --judge, gpt-oss:20b (scripts/judge.ts) checks
+ *               every cited sentence against its source, fact by fact.
+ *               Calibrated on 30 labelled pairs: 26/30 right, 5/6 unsupported
+ *               caught, 3/16 supported claims wrongly rejected, so the number
+ *               is a slight underestimate. Reported, not part of pass/fail.
+ *               (Qwen grading its own answers was dropped: it passed a wrong
+ *               refusal and failed correct ones.)
  *
  * --rescore applies today's checks and eval/questions.json to the answers of
  * a saved run, and lists every verdict that changes: the way to prove a change
@@ -42,17 +46,21 @@
 import { readFile } from "node:fs/promises";
 import { performance } from "node:perf_hooks";
 import { pool } from "../src/db/pool.js";
-import { chat } from "../src/llm/ollamaClient.js";
 import { NO_RELEVANT_CONTENT_TEXT, SOURCES_HEADING } from "../src/messages.js";
 import { coversPage, scoreAnswer } from "./answerChecks.js";
 import type { AnswerQuestion, AnswerScore } from "./answerChecks.js";
 import { CITATION_SUPPORT_SCORE, checkCitations, isSupported, numberedSources } from "./citationCheck.js";
+import { JUDGE_MODEL, judgeClaims, unloadAnswerModel } from "./judge.js";
 import type { CitationCheck, NumberedSource } from "./citationCheck.js";
-import { RESULTS_DIR, previousHits, previousResult, saveResult } from "./evalHelpers.js";
-import { answerFromDocuments, formatChunks, isRefusal, numberSources } from "../src/rag/answer.js";
+import { RESULTS_DIR, evalUser, previousHits, previousResult, saveResult } from "./evalHelpers.js";
+import { answerFromDocuments, isRefusal } from "../src/rag/answer.js";
 import type { AnswerTrace } from "../src/rag/answer.js";
+import { answerDocumentInfo } from "../src/rag/documentInfo.js";
 import { rankedCandidates } from "../src/rag/retrieve.js";
-import { rewriteQuestion } from "../src/rag/rewrite.js";
+import { needsRewrite, rewriteQuestion } from "../src/rag/rewrite.js";
+import { routeMessage } from "../src/rag/router.js";
+import { answerTransform, isTransformRequest } from "../src/rag/transform.js";
+import { listCompletedFilenames } from "../src/db/documents.js";
 import type { HistoryMessage } from "../src/rag/rewrite.js";
 
 interface EvalQuestion extends AnswerQuestion {
@@ -62,19 +70,12 @@ interface EvalQuestion extends AnswerQuestion {
   tags?: string[];
 }
 
-interface Judgement {
-  faithful: boolean;
-  answersQuestion: boolean;
-  reason: string;
-}
-
 type Row = Record<string, string | number>;
 
 interface Detail {
   id: string;
   question: string;
   answer: string;
-  judgement: Judgement | null;
   /**
    * Was an expected page among the sources? Null for unanswerable questions
    * and whole-document summaries; missing in runs saved before the citation check.
@@ -94,7 +95,7 @@ interface SavedRun {
 const args = process.argv.slice(2);
 const onlyIndex = args.indexOf("--only");
 const only = onlyIndex >= 0 ? args[onlyIndex + 1] : undefined;
-/** The LLM judge is opt-in (--no-judge is still accepted and changes nothing). */
+/** Judge the cited sentences of a saved run (only with --rescore: the judge and Qwen must not share a run). */
 const useJudge = args.includes("--judge");
 /** Search only each question's own document instead of all of its owner's documents. */
 const perDocument = args.includes("--per-doc");
@@ -107,8 +108,6 @@ const rescoreFile = rescore && !args[rescoreIndex + 1]?.startsWith("--") ? args[
  * --user 42: use that user's copies of the eval documents (the distractor run: the
  * eval PDFs ingested with many other documents under a separate user).
  */
-const evalUserIndex = args.indexOf("--user");
-const evalUser = evalUserIndex >= 0 ? Number(args[evalUserIndex + 1]) : null;
 
 /** --doc "name.pdf=12": use that document version instead of the newest one. */
 const pinned = new Map(
@@ -120,48 +119,16 @@ const pinned = new Map(
     }),
 );
 
-const questions = (
-  JSON.parse(await readFile("eval/questions.json", "utf-8")) as EvalQuestion[]
-).filter(
+const allQuestions = JSON.parse(await readFile("eval/questions.json", "utf-8")) as EvalQuestion[];
+const questions = allQuestions.filter(
   (q) => (q.mustInclude || q.type === "negative") && (!only || q.id.includes(only)),
 );
+/** Whose copies of the eval documents are used (--user 42 for the distractor run). */
+const evalUserId = await evalUser(args, allQuestions.map((q) => q.filename));
+/** What the router sees, as in the bot. */
+const documentNames = await listCompletedFilenames(evalUserId);
 
 const nearMissIds = new Set(questions.filter((q) => q.tags?.includes("near_miss")).map((q) => q.id));
-
-const JUDGE_SCHEMA = {
-  type: "object",
-  properties: {
-    faithful: { type: "boolean" },
-    answersQuestion: { type: "boolean" },
-    reason: { type: "string" },
-  },
-  required: ["faithful", "answersQuestion", "reason"],
-};
-
-async function judge(question: string, sources: string, answer: string): Promise<Judgement> {
-  const output = await chat({
-    think: false,
-    format: JUDGE_SCHEMA,
-    options: { temperature: 0, num_predict: 200 },
-    messages: [
-      {
-        role: "system",
-        content:
-          "You are a strict grader of a study assistant. " +
-          "faithful = every fact in the ANSWER is supported by the SOURCES (saying the sources do not cover something is faithful). " +
-          "answersQuestion = the ANSWER actually answers the QUESTION; when the SOURCES do not contain the answer, " +
-          "clearly saying so is the correct answer and counts as true. " +
-          "Numbers like [2] in the ANSWER cite the numbered SOURCES. " +
-          "reason = one short English sentence.",
-      },
-      {
-        role: "user",
-        content: `SOURCES:\n${sources}\n\nQUESTION:\n${question}\n\nANSWER:\n${answer}`,
-      },
-    ],
-  });
-  return JSON.parse(output) as Judgement;
-}
 
 async function findDocument(filename: string) {
   const found = await pool.query<{ id: number; user_id: number }>(
@@ -170,7 +137,7 @@ async function findDocument(filename: string) {
        AND ($2::integer IS NULL OR id = $2)
        AND ($3::integer IS NULL OR user_id = $3)
      ORDER BY id DESC LIMIT 1`,
-    [filename, pinned.get(filename) ?? null, evalUser],
+    [filename, pinned.get(filename) ?? null, evalUserId],
   );
   return found.rows[0];
 }
@@ -200,7 +167,7 @@ function citationCounts(detail: Detail): { supported: number; scored: number } {
 
 function toRow(q: EvalQuestion, score: AnswerScore, detail: Detail, seconds: number): Row {
   const negative = q.type === "negative";
-  const { judgement } = detail;
+  const judged = (detail.citations ?? []).filter((check) => typeof check.judged === "boolean");
   const { supported, scored } = citationCounts(detail);
 
   return {
@@ -215,8 +182,8 @@ function toRow(q: EvalQuestion, score: AnswerScore, detail: Detail, seconds: num
     refused: negative ? yesNo(score.refused) : "",
     refusal: wrongRefusal(detail) ? "WRONG" : "",
     citations: scored === 0 ? "" : `${supported}/${scored}`,
-    faithful: judgement ? yesNo(judgement.faithful) : "-",
-    answers: judgement ? yesNo(judgement.answersQuestion) : "-",
+    // Every judged claim of the answer supported by its source.
+    faithful: judged.length === 0 ? "-" : yesNo(judged.every((check) => check.judged)),
     pass: score.passed && !wrongRefusal(detail) ? "PASS" : "FAIL",
     s: Math.round(seconds),
   };
@@ -228,13 +195,27 @@ function report(rows: Row[], details: Detail[]): void {
 
   for (const detail of details.filter((_, i) => rows[i]!.pass === "FAIL")) {
     console.log(`\n--- ${detail.id} ---\n${detail.question}\n\n${detail.answer}`);
-    if (detail.judgement) console.log("judge:", detail.judgement);
   }
 
   const count = (key: string, value: string) => rows.filter((r) => r[key] === value).length;
   const positives = rows.filter((r) => r.type !== "negative").length;
   const negatives = rows.length - positives;
   const judged = rows.filter((r) => r.faithful !== "-").length;
+  // One verdict per cited sentence (a sentence citing [1][2] is judged against both together).
+  const sentences = details.flatMap((detail) =>
+    citedSentenceGroups(detail).map((group) => ({ id: detail.id, numbers: group.map((c) => c.number), ...group[0]! })),
+  );
+  const judgedSentences = sentences.filter((sentence) => typeof sentence.judged === "boolean");
+
+  const rejected = judgedSentences.filter((sentence) => !sentence.judged);
+  if (rejected.length > 0) {
+    console.log("\nSentences the judge found unsupported by their cited sources:");
+    for (const sentence of rejected) {
+      console.log(
+        `  ${sentence.id} [${sentence.numbers.join("][")}] ${sentence.sentence.slice(0, 120)}\n      ${sentence.judgeReason ?? ""}`,
+      );
+    }
+  }
 
   // Every citation to an off-topic source, weakest first: read these.
   const unsupported = details
@@ -265,7 +246,7 @@ function report(rows: Row[], details: Detail[]): void {
           `wrong refusals ${count("refusal", "WRONG")}  `
         : "") +
       (scored > 0 ? `citations on topic ${supported}/${scored} (${Math.round((supported / scored) * 100)}%)  ` : "") +
-      `cites ${count("cites", "yes")}/${positives}  ` +
+      `cites ${count("cites", "yes")}/${count("cites", "yes") + count("cites", "NO")}  ` +
       `inline [n] ${count("inline", "yes")}/${count("inline", "yes") + count("inline", "NO")}  ` +
       `keywords ${count("keywords", "yes")}/${positives}  ` +
       `refused negatives ${count("refused", "yes")}/${negatives}  ` +
@@ -273,7 +254,7 @@ function report(rows: Row[], details: Detail[]): void {
         ? `of them near-miss ${nearMiss.filter((row) => row.refused === "yes").length}/${nearMiss.length}  `
         : "") +
       (judged > 0
-        ? `judge faithful ${count("faithful", "yes")}/${judged}  judge answers ${count("answers", "yes")}/${judged}  `
+        ? `judge: sentences supported ${judgedSentences.length - rejected.length}/${judgedSentences.length}, answers faithful ${count("faithful", "yes")}/${judged}  `
         : "") +
       `avg ${Math.round(rows.reduce((s, r) => s + (r.s as number), 0) / Math.max(rows.length, 1))}s`,
   );
@@ -282,7 +263,76 @@ function report(rows: Row[], details: Detail[]): void {
 const rows: Row[] = [];
 const details: Detail[] = [];
 
+if (useJudge && !rescore) {
+  throw new Error("--judge works on a saved run: npm run eval:answers -- --rescore --judge");
+}
+
+/** An answer's citations grouped by sentence, in order. */
+function citedSentenceGroups(detail: Detail): CitationCheck[][] {
+  const groups = new Map<string, CitationCheck[]>();
+  for (const check of detail.citations ?? []) {
+    const group = groups.get(check.sentence) ?? [];
+    group.push(check);
+    groups.set(check.sentence, group);
+  }
+  return [...groups.values()];
+}
+
+/**
+ * --reuse-judged: verdicts on single-source sentences from the newest judge run
+ * (the same sentence and source put the same question to the judge).
+ */
+const reusable = new Map<string, CitationCheck>();
+if (useJudge && args.includes("--reuse-judged")) {
+  const previous = await previousResult<SavedRun>("judge");
+  for (const detail of previous?.data.details ?? []) {
+    for (const group of citedSentenceGroups(detail)) {
+      const check = group[0]!;
+      if (group.length === 1 && typeof check.judged === "boolean") {
+        reusable.set(`${detail.id}|${check.number}|${check.sentence}`, check);
+      }
+    }
+  }
+}
+
+/**
+ * The judge's verdict on each cited sentence of an answer, against all the
+ * sources that sentence cites together; one call per sentence, null when it fails.
+ */
+async function judgeCitations(detail: Detail): Promise<void> {
+  for (const group of citedSentenceGroups(detail)) {
+    const sentence = group[0]!.sentence;
+    const setAll = (judged: boolean | null, reason?: string) =>
+      group.forEach((check) => {
+        check.judged = judged;
+        if (reason !== undefined) check.judgeReason = reason;
+      });
+
+    // Citing a source number that was not given is unsupported without asking.
+    if (group.some((check) => !check.known)) {
+      setAll(false, "cites a source number that was not given");
+      continue;
+    }
+    const reused = group.length === 1 ? reusable.get(`${detail.id}|${group[0]!.number}|${sentence}`) : undefined;
+    if (reused) {
+      setAll(reused.judged ?? null, reused.judgeReason);
+      continue;
+    }
+
+    const source = group.flatMap((check) => {
+      const chunks = detail.sources!.find((candidate) => candidate.number === check.number)!.chunks;
+      return group.length > 1 ? [`Source [${check.number}]:`, ...chunks] : chunks;
+    });
+    const verdict = await judgeClaims([{ sentence, source }]).catch((error: unknown) => {
+      console.warn(`\nJudge failed on ${detail.id}: ${error instanceof Error ? error.message : String(error)}`);
+      return null;
+    });
+    setAll(verdict ? verdict[0]!.supported : null, verdict?.[0]!.reason);
+  }
+}
+
 if (rescore) {
+  if (useJudge) await unloadAnswerModel();
   const saved = rescoreFile
     ? { file: rescoreFile, data: JSON.parse(await readFile(rescoreFile, "utf-8")) as SavedRun }
     : await previousResult<SavedRun>("answers");
@@ -302,6 +352,10 @@ if (rescore) {
     const detail: Detail = saved_.sources
       ? { ...saved_, citations: await citationsOf(saved_.answer, saved_.sources, q.mode) }
       : saved_;
+    if (useJudge) {
+      await judgeCitations(detail);
+      process.stdout.write(".");
+    }
     const row = toRow(q, scoreAnswer(q, detail.answer), detail, Number(old.s));
     rows.push(row);
     details.push(detail);
@@ -312,7 +366,9 @@ if (rescore) {
     }
   }
 
+  if (useJudge) console.log();
   report(rows, details);
+  if (useJudge && !only) console.log(`Saved ${await saveResult("judge", { source: saved.file, judge: JUDGE_MODEL, rows, details })}`);
   console.log(`\nRe-scored ${saved.file} (${rows.length} answers); verdicts that changed:`);
   console.log(changes.length > 0 ? changes.join("\n") : "none");
 
@@ -329,23 +385,40 @@ for (const q of questions) {
 
   console.log(`... ${q.id}`);
   const start = performance.now();
-  const question = q.history ? await rewriteQuestion(q.question, q.history) : q.question;
+  // Like the bot: "shorter" after an answer reshapes it; otherwise, after an
+  // earlier exchange, the router decides whether the message is a follow-up
+  // (the length rule only when it gives no decision).
+  const previousReply = q.history?.at(-1);
+  const transform = previousReply?.role === "assistant" && isTransformRequest(q.question);
+  const routed =
+    q.history?.length && !transform ? await routeMessage(q.question, documentNames, q.history).catch(() => null) : null;
+  const followUp = q.history !== undefined && !transform && (routed?.dependsOnHistory ?? needsRewrite(q.question, q.history));
+  const question = followUp
+    ? (routed?.standaloneQuestion ?? (await rewriteQuestion(q.question, q.history!, undefined, true)))
+    : q.question;
   const mode = q.mode;
   // Like the bot: all of the user's documents, unless --per-doc.
   const scope = perDocument ? { documentId: document.id } : {};
-  // Like production: a follow-up's search also reranks the previous answer's hits.
-  const include = q.history ? await previousHits(document, q.history, scope.documentId) : [];
+  // Like production: a follow-up's search also reranks the previous answer's hits,
+  // and a transform request is answered from them.
+  const include = followUp || transform ? await previousHits(document, q.history!, scope.documentId) : [];
   const ranked =
-    include.length > 0
+    followUp && include.length > 0
       ? await rankedCandidates(document.user_id, question, { ...scope, include })
       : undefined;
   // The trace holds the chunks the model was really given (none for a whole-document summary).
   const trace: AnswerTrace = {};
-  const answer = await answerFromDocuments(document.user_id, question, mode, {
-    ...scope,
-    ...(ranked ? { prefetch: Promise.resolve({ question, ranked }) } : {}),
-    trace,
-  });
+  // A question about the file itself goes to its own route, pinned to that file
+  // ("this handout" names no file; the student means this one).
+  const answer = transform
+    ? await answerTransform(document.user_id, q.question, previousReply!.content, include, { trace })
+    : q.route === "document_info"
+      ? await answerDocumentInfo(document.user_id, question, { documentId: document.id, trace })
+      : await answerFromDocuments(document.user_id, question, mode, {
+          ...scope,
+          ...(ranked ? { prefetch: Promise.resolve({ question, ranked }) } : {}),
+          trace,
+        });
   const seconds = (performance.now() - start) / 1000;
 
   const context = trace.context ?? [];
@@ -353,16 +426,10 @@ for (const q of questions) {
   const sources = numberedSources(context);
   const focused = mode !== "broad";
 
-  let judgement: Judgement | null = null;
-  if (useJudge && answer !== NO_RELEVANT_CONTENT_TEXT && focused) {
-    judgement = await judge(question, formatChunks(context, numberSources(context)), body).catch(() => null);
-  }
-
   const detail: Detail = {
     id: q.id,
     question,
     answer,
-    judgement,
     inContext: q.type === "negative" || !focused ? null : coversPage(context, document.id, q.expectedPages),
     sources,
     citations: await citationsOf(answer, sources, mode),

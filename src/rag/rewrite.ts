@@ -34,13 +34,16 @@ export function cleanRewrite(output: string): string | null {
 /**
  * Turns a follow-up like "explain more" into a standalone question using the
  * recent conversation. Falls back to the original text on any problem.
+ * `force`: the router already decided the message is a follow-up, so the
+ * length rule is skipped (it is only the fallback when the router did not say).
  */
 export async function rewriteQuestion(
   text: string,
   previous: HistoryMessage[],
   signal?: AbortSignal,
+  force = false,
 ): Promise<string> {
-  if (!needsRewrite(text, previous)) return text;
+  if (previous.length === 0 || (!force && !needsRewrite(text, previous))) return text;
 
   try {
     const transcript = previous

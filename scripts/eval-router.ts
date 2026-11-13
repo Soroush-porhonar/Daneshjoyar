@@ -26,7 +26,7 @@
  */
 import { readFile } from "node:fs/promises";
 import { performance } from "node:perf_hooks";
-import { previousResult, saveResult, scoreRoute } from "./evalHelpers.js";
+import { evalUser, previousResult, saveResult, scoreRoute } from "./evalHelpers.js";
 import type { RouterCase } from "./evalHelpers.js";
 import { config } from "../src/config.js";
 import { pool } from "../src/db/pool.js";
@@ -34,6 +34,9 @@ import { listCompletedFilenames } from "../src/db/documents.js";
 import { rankedCandidates } from "../src/rag/retrieve.js";
 import { needsRewrite } from "../src/rag/rewrite.js";
 import { resolveRoute, routeMessage } from "../src/rag/router.js";
+import type { MessageClassification } from "../src/rag/router.js";
+import { isDocumentInfoQuestion } from "../src/rag/documentInfo.js";
+import { isTransformRequest } from "../src/rag/transform.js";
 
 interface Row {
   id: string;
@@ -64,16 +67,10 @@ const onlyIndex = args.indexOf("--only");
 const only = onlyIndex >= 0 ? args[onlyIndex + 1] : undefined;
 const withSearch = args.includes("--with-search");
 const save = !args.includes("--no-save");
-const userIndex = args.indexOf("--user");
-
-/** Whose documents the early search uses: --user, or the user with the most documents. */
+/** Whose documents the early search uses: --user, or the owner of the retrieval eval's documents. */
 async function searchUser(): Promise<number> {
-  if (userIndex >= 0) return Number(args[userIndex + 1]);
-  const result = await pool.query<{ user_id: number }>(
-    `SELECT user_id FROM documents WHERE status = 'completed'
-     GROUP BY user_id ORDER BY count(*) DESC LIMIT 1`,
-  );
-  return result.rows[0]!.user_id;
+  const questions = JSON.parse(await readFile("eval/questions.json", "utf-8")) as { filename: string }[];
+  return evalUser(args, questions.map((q) => q.filename));
 }
 
 const userId = withSearch ? await searchUser() : null;
@@ -85,24 +82,38 @@ const cases = (
   JSON.parse(await readFile("eval/router.json", "utf-8")) as RouterCase[]
 ).filter((c) => !only || c.id.includes(only));
 
-const labels = ["chat", "doc:focused", "doc:multi_part", "doc:broad"];
+const labels = ["chat", "info", "transform", "doc:focused", "doc:multi_part", "doc:broad"];
 const matrix = new Map<string, Map<string, number>>(
   labels.map((row) => [row, new Map(labels.map((col) => [col, 0]))]),
 );
 
 const rows: Row[] = [];
 let totalMs = 0;
+/** Per case: did the bot treat the message as a follow-up (router decision, or the length rule as fallback)? */
+const decisions = new Map<string, boolean>();
 
 for (const c of cases) {
   const history = c.history ?? [];
-  // Like production: a short message after an earlier exchange is rewritten, and not searched early.
-  const rewrites = needsRewrite(c.message, history);
+  // Like production: the router decides whether the message depends on the
+  // conversation (the length rule only when it gives no decision); a follow-up
+  // does not get the early-search override.
+  let rewrites = needsRewrite(c.message, history);
   const start = performance.now();
   let outcome = { routeOk: false, exactOk: false, expectedLabel: scoreRoute(c, { route: c.route, retrievalMode: "focused" }).expectedLabel, actualLabel: "error" };
 
   try {
-    let result = await routeMessage(c.message, documents, history);
+    // Like the bot: reshaping the previous answer, and questions about a document
+    // itself, are decided by rules, not the router. (The bot also checks that the
+    // previous answer came from the notes; every eval history's answer does.)
+    let result: MessageClassification =
+      history.at(-1)?.role === "assistant" && isTransformRequest(c.message)
+        ? { route: "transform", retrievalMode: "focused", dependsOnHistory: true, standaloneQuestion: null }
+        : isDocumentInfoQuestion(c.message)
+          ? { route: "document_info", retrievalMode: "focused", dependsOnHistory: false, standaloneQuestion: null }
+          : await routeMessage(c.message, documents, history);
     const routerSaid = result.route;
+    rewrites = result.dependsOnHistory ?? rewrites;
+    decisions.set(c.id, rewrites);
 
     if (userId !== null && !rewrites) {
       const score = (await rankedCandidates(userId, c.message))[0]?.rerankScore;
@@ -166,16 +177,18 @@ const byKind = Object.fromEntries(
 console.log("\nBy kind of message:");
 console.table(byKind);
 
-// The rewrite rule against the labels: a standalone question that is rewritten
+// The follow-up decision against the labels: a standalone question that is rewritten
 // costs a model call and can change its meaning; a follow-up that is not is searched as typed.
+const rewritten = (c: RouterCase) => decisions.get(c.id) ?? needsRewrite(c.message, c.history ?? []);
 const labelled = cases.filter((c) => c.dependsOnHistory !== undefined);
-const wronglyRewritten = labelled.filter((c) => !c.dependsOnHistory && needsRewrite(c.message, c.history ?? []));
-const missedFollowUps = labelled.filter((c) => c.dependsOnHistory && !needsRewrite(c.message, c.history ?? []));
+const wronglyRewritten = labelled.filter((c) => !c.dependsOnHistory && rewritten(c));
+const missedFollowUps = labelled.filter((c) => c.dependsOnHistory && !rewritten(c));
 const standalone = labelled.filter((c) => !c.dependsOnHistory).length;
+const lengthRuleRight = labelled.filter((c) => needsRewrite(c.message, c.history ?? []) === c.dependsOnHistory).length;
 
 if (labelled.length > 0) {
   console.log(
-    `\nRewrite rule (needsRewrite) on ${labelled.length} messages with history: ` +
+    `\nFollow-up decision (router; length rule alone: ${lengthRuleRight}/${labelled.length} right) on ${labelled.length} messages with history: ` +
       `${labelled.length - wronglyRewritten.length - missedFollowUps.length} right; ` +
       `standalone messages rewritten ${wronglyRewritten.length}/${standalone}; ` +
       `follow-ups not rewritten ${missedFollowUps.length}/${labelled.length - standalone}`,
