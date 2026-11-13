@@ -24,7 +24,8 @@
 | OCR — scanned handout vs hand-typed reference | character error rate **37.0% → 4.0%** |
 | Latency | answers stream into the chat: first text 7.7 s median in the benchmark (stages in sequence; the bot runs router and search in parallel), whole answer 10.6 s median, 11.1 s p95 (router 2.5 s, retrieval + CPU rerank 2.3 s, generation 4.9 s at ~37 tokens/s); router after a long conversation 18.5 → 5.2 s with a trimmed history |
 | Whole-document summary | 21–44 s from stored section summaries vs 129 s – 31 min map-reduce |
-| Tests | 725 unit, 43 integration (real Postgres), CI |
+| Load — 10 students at once | 10/10 answered, none timed out, each told their place in line; longest 94.5 s, 6.3 answers per minute (one GPU) |
+| Tests | 818 unit, 48 integration (real Postgres), CI |
 
 ## Features
 
@@ -37,6 +38,7 @@
 - History older than an hour is ignored; «🆕 موضوع جدید» or `/new` starts a fresh topic.
 - Answers appear while they are written (the "thinking" message becomes the answer).
 - Buttons for navigation, cancel and 👍/👎 feedback; slow work runs in the background and is cancellable.
+- Fair use of the one GPU: questions wait in a queue that tells each student their place; a long scan is confirmed first; one upload at a time and 50 questions a day per student.
 
 ## Architecture
 
@@ -88,13 +90,17 @@ flowchart LR
 - Explicit `num_ctx` 8192 (Ollama's default 4096 silently truncated prompts), temperature 0.2, thinking off (chat 49 → 22 s), `keep_alive` to avoid ~10 s reloads; models loaded at startup.
 - Streaming: the thinking notice is edited as text arrives, at most every 1.5 s and after 40+ new characters, with citations numbered as in the final answer; a Bale rate limit (429) waits `retry_after` and doubles the interval. `STREAM_MODE=parts` sends 2–3 messages at paragraph ends instead; `off` sends the whole answer at the end.
 - Output caps per mode (focused 1000 tokens, multi-part 2000, chat 1000) stop a runaway answer and say so; they sit above every real answer. The router reads the last 6 turns, 600 characters each, without source lists.
-- Tried and not kept: a prompt rule to write only sentences that can carry a citation (supported sentences 88.6 → 89.3%, within noise, 2 fewer passes); a shorter-answer prompt (answers were already short, median 532 characters); an answer cache (exact repeats were mostly retries after an unsatisfying answer); fixed replies to greetings without the model (felt artificial next to real answers).
+- Tried and not kept: a prompt rule to write only sentences that can carry a citation (supported sentences 88.6 → 89.3%, within noise, 2 fewer passes); a shorter-answer prompt (answers were already short, median 532 characters); an answer cache (exact repeats were mostly retries after an unsatisfying answer); fixed replies to greetings without the model (felt artificial next to real answers); content hashes to drop duplicate chunks at upload (none among 2,310 chunks; the search's de-duplication costs nothing measurable, 10–11 ms either way).
 
 **Background enrichment**
 - Per document: title, summary, topics; per chunk: the questions it answers, embedded into the question index. One document at a time, yields the single GPU to answers, resumes after a restart.
 
 **Reliability**
-- Idempotent update processing (marked done only after the handler succeeds), per-chat cancellation, typed errors mapped to user messages, transactional ingestion with crash recovery, duplicate-upload detection, nightly backups.
+- Inbox: every Bale update is stored before its work starts and marked done or failed after; a sweeper retries failed updates and work cut off by a restart (3 attempts), and asks the student to resend a message too old to answer late. Nothing is lost when the bot dies mid-answer.
+- Graceful shutdown on SIGTERM: no new updates, 15 s for running answers, the rest handed back to the inbox and answered after the restart.
+- Bale client: long polling (Bale holds up to ~25 s), retries after rate limits (`retry_after`), server and network errors with growing delays; a `sendMessage` that timed out is never repeated (it may have been delivered).
+- One GPU queue for every model call: answers first (oldest question first), upload OCR next, enrichment only when no question is running; timeouts count from the job's turn; a busy message above 12 questions at once; queue wait, first-text time and generation stored per answer.
+- Per-chat cancellation, typed errors mapped to user messages, transactional ingestion, duplicate-upload detection, nightly backups.
 
 ## Evaluation
 
@@ -152,7 +158,7 @@ npm run enrich -- --all       # enrich documents uploaded before enrichment exis
 npm run ingest -- <chatId> <absolute pdf paths>   # ingest without the bot
 ```
 
-`.env`: `BALE_TOKEN`, `DATABASE_URL`, `LLM_URL`, `LLM_MODEL`, `EMBEDDING_MODEL`, `PORT`, Postgres credentials. Feature switches, and the measurement behind every default, are in `src/config.ts`. On a machine that serves only the bot, set `LLM_KEEP_ALIVE=-1` to keep the model in GPU memory for good (the default, 30m, frees it on a shared machine). `STREAM_MODE` is `edit` (default), `parts` or `off`.
+`.env`: `BALE_TOKEN`, `DATABASE_URL`, `LLM_URL`, `LLM_MODEL`, `EMBEDDING_MODEL`, `PORT`, Postgres credentials. Feature switches, and the measurement behind every default, are in `src/config.ts`. On a machine that serves only the bot, set `LLM_KEEP_ALIVE=-1` to keep the model in GPU memory for good (the default, 30m, frees it on a shared machine). `STREAM_MODE` is `edit` (default), `parts` or `off`. `DAILY_QUESTION_LIMIT` (default 50) sets the questions a student may ask per day.
 
 ### Docker
 
