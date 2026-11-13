@@ -1,11 +1,13 @@
-import { removeButtons, sendMessage } from "../bale.js";
+import { editMessageText, removeButtons, sendMessage } from "../bale.js";
 import { plainMath } from "../rag/plainMath.js";
 import type { Markup } from "../bale.js";
 import { cancelButton } from "../bot/buttons.js";
 import { parseCommand } from "../bot/commands/index.js";
 import {
   PROCESSING_FAILED_TEXT,
+  REQUEST_CANCELLED_TEXT,
   SAVE_MESSAGE_FAILED_TEXT,
+  THINKING_DONE_TEXT,
   THINKING_NOTICE_TEXT,
 } from "../messages.js";
 import { config } from "../config.js";
@@ -64,7 +66,8 @@ const chatLog = (question: string): AnswerLogInfo => ({
 
 /**
  * Answers a plain-text message. While it works, a "thinking" notice with a
- * ⏹️ cancel button is shown; the button is removed when the work ends.
+ * ⏹️ cancel button is shown; when the work ends the notice is replaced by a
+ * short line (done or cancelled), so no stale "press cancel" stays in the chat.
  */
 async function answerQuestion(
   chatId: number,
@@ -76,17 +79,23 @@ async function answerQuestion(
   // Background enrichment pauses until this answer is done (one GPU).
   const finished = startForegroundWork();
 
+  let answered = false;
   try {
     const reply = await composeAnswer(session, text, signal);
+    answered = true;
     // Bale shows LaTeX as raw text; formulas go out as Unicode.
     return { ...reply, answer: plainMath(reply.answer) };
   } finally {
     finished();
     if (noticeId !== undefined) {
+      // Done or cancelled: the notice says so (editing the text also drops the button).
+      // On a failure the error message follows, so only the button goes.
+      const outcome = signal?.aborted ? REQUEST_CANCELLED_TEXT : answered ? THINKING_DONE_TEXT : null;
       try {
-        await removeButtons(chatId, noticeId);
+        await (outcome ? editMessageText(chatId, noticeId, outcome) : removeButtons(chatId, noticeId));
       } catch {
-        // Not critical (e.g. already removed by the cancel press).
+        // Not critical: the notice may already be gone; at least try to remove its button.
+        if (outcome) await removeButtons(chatId, noticeId).catch(() => undefined);
       }
     }
   }

@@ -210,7 +210,9 @@ describe("answerFromDocuments", () => {
     const answer = await answerFromDocuments(8, "سؤال", "focused");
 
     expect(prompt(0)).toContain("منبع 3 — فایل: notes.pdf، صفحه PDF 5");
-    expect(answer).toContain(`- [3] ${messages.sourceLineText("notes.pdf", 5)}`);
+    // Shown renumbered from 1: the student never sees a gap.
+    expect(answer).toContain("پشته LIFO است [1].");
+    expect(answer).toContain(`- [1] ${messages.sourceLineText("notes.pdf", 5)}`);
     expect(answer).not.toContain(messages.sourceLineText("notes.pdf", 4));
   });
 

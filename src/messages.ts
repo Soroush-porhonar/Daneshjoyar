@@ -232,6 +232,9 @@ export const THINKING_NOTICE_TEXT =
   "⏳ دارم سؤالت رو بررسی می‌کنم و جواب رو آماده می‌کنم...\n\n" +
   `برای توقف، دکمه «${CANCEL_BUTTON}» رو بزن.`;
 
+/** The thinking notice once the answer is sent (no stale "press cancel" line). */
+export const THINKING_DONE_TEXT = "✅ جوابت آماده شد 👇";
+
 export const REQUEST_CANCELLED_TEXT = "⏹️ درخواستت لغو شد.";
 
 export const NO_REQUEST_TO_CANCEL_TEXT =
@@ -252,14 +255,25 @@ export const documentInfoHeaderText = (filename: string): string => `📄 درب
 
 export const SOURCES_HEADING = "**منابع:**";
 
+/** First-strong isolate … pop directional isolate (invisible). */
+const FSI = "⁨";
+const PDI = "⁩";
+
+/**
+ * A file name inside Persian text: without ".pdf", and isolated so a Latin
+ * name keeps its own direction (otherwise "chapter.pdf — صفحه 12" shows as
+ * "12 صفحه — pdf.chapter", roadmap 2.4).
+ */
+const isolatedFilename = (filename: string): string => `${FSI}${String(filename).replace(/\.pdf$/i, "")}${PDI}`;
+
 export const sourceLineText = (
   filename: string,
   pageNumber: number,
   pageEnd?: number | null,
 ): string =>
   pageEnd && pageEnd > pageNumber
-    ? `${filename} — صفحه ${pageNumber} تا ${pageEnd}`
-    : `${filename} — صفحه ${pageNumber}`;
+    ? `${isolatedFilename(filename)} — صفحه ${pageNumber} تا ${pageEnd}`
+    : `${isolatedFilename(filename)} — صفحه ${pageNumber}`;
 
 // --- Feedback on answers ---------------------------------------------------------
 

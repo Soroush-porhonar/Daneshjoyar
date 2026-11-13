@@ -12,6 +12,7 @@
  * not whether the source states the claim. Whether an answer invents facts is
  * still unmeasured; that needs a stronger judge model.
  */
+import { SOURCES_HEADING } from "../src/messages.js";
 import { numberSources, sourceLine } from "../src/rag/answer.js";
 import { scoreTexts } from "../src/rag/rerank.js";
 import { citedSentences } from "./answerChecks.js";
@@ -49,6 +50,21 @@ interface ContextChunk {
   pageNumber: number | null;
   pageEnd?: number | null;
   content: string;
+}
+
+/**
+ * The sources an answer lists, with the numbers it shows ("- [1] name — صفحه 3"):
+ * the bot renumbers the cited sources 1..n, so these differ from the prompt's.
+ */
+export function answerSources(answer: string, context: ContextChunk[]): NumberedSource[] {
+  const byLine = new Map(numberedSources(context).map((source) => [source.line, source]));
+  const list = answer.split(SOURCES_HEADING)[1] ?? "";
+
+  return list.split("\n").flatMap((row) => {
+    const match = /^- \[(\d+)\] (.+)$/.exec(row.trim());
+    const source = match ? byLine.get(match[2]!) : undefined;
+    return source ? [{ ...source, number: Number(match![1]) }] : [];
+  });
 }
 
 /** The numbered sources of a context, exactly as the answer prompt numbers them. */

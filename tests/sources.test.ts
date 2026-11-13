@@ -7,7 +7,12 @@ import {
   isRefusal,
   numberSources,
   pagesMentioned,
+  renumberCitations,
 } from "../src/rag/answer.js";
+import { sourceLineText } from "../src/messages.js";
+
+/** How a page of notes.pdf is shown in a sources list. */
+const line = (page: number) => sourceLineText("notes.pdf", page);
 
 const chunk = (pageNumber: number | null) => ({
   filename: "notes.pdf",
@@ -18,8 +23,8 @@ const chunk = (pageNumber: number | null) => ({
 describe("sources", () => {
   it("deduplicates pages and skips unknown ones", () => {
     expect(buildSourceList([chunk(2), chunk(2), chunk(null), chunk(5)])).toEqual([
-      "notes.pdf — صفحه 2",
-      "notes.pdf — صفحه 5",
+      line(2),
+      line(5),
     ]);
   });
 
@@ -29,7 +34,7 @@ describe("sources", () => {
         { ...chunk(3), isHit: true },
         { ...chunk(4), isHit: false },
       ]),
-    ).toEqual(["notes.pdf — صفحه 3"]);
+    ).toEqual([line(3)]);
   });
 
   it("cites an enriched photo by its title, with no page (a photo has one)", () => {
@@ -37,7 +42,7 @@ describe("sources", () => {
 
     expect(buildSourceList([photo, chunk(2), { ...photo, documentTitle: null, filename: "photo-2.jpg" }])).toEqual([
       "عکس «معیارهای ارزیابی رگرسیون»",
-      "notes.pdf — صفحه 2",
+      line(2),
       "photo-2.jpg",
     ]);
   });
@@ -47,7 +52,7 @@ describe("sources", () => {
   });
 
   it("appends a sources section", () => {
-    expect(appendSources("answer", [chunk(1)])).toContain("- notes.pdf — صفحه 1");
+    expect(appendSources("answer", [chunk(1)])).toContain(`- ${line(1)}`);
   });
 });
 
@@ -65,25 +70,30 @@ describe("numbered sources", () => {
     expect(formatChunks(context, numbers)).toContain("[منبع 2 — فایل: notes.pdf، صفحه PDF 4]");
   });
 
-  it("lists only the sources the answer cites, neighbours included", () => {
+  it("lists only the sources the answer cites, renumbered 1..n in order of first citation", () => {
     const answer = appendSources("پشته LIFO است [3]. مثالش [1، 3] است.", context, numbers);
 
-    expect(answer).toContain("- [1] notes.pdf — صفحه 3");
-    expect(answer).toContain("- [3] notes.pdf — صفحه 5");
+    expect(answer).toContain("پشته LIFO است [1]. مثالش [2][1] است.");
+    expect(answer).toContain(`- [1] ${line(5)}`);
+    expect(answer).toContain(`- [2] ${line(3)}`);
     expect(answer).not.toContain("صفحه 4");
   });
 
   it("reads Persian digits and ignores unknown numbers and code", () => {
     expect(citedNumbers("نکته [۲]. کد `a[1]` و arr[3] و [9]")).toEqual(new Set([2, 9]));
-    expect(appendSources("نکته [9]", context, numbers)).toContain("- [2] notes.pdf — صفحه 4");
+    // [9] names no source: it is dropped and the real hits are listed.
+    const answer = appendSources("نکته [9].", context, numbers);
+    expect(answer).toMatch(/^نکته\./);
+    expect(answer).toContain(`- ${line(4)}`);
   });
 
-  it("falls back to the real hits when nothing is cited", () => {
+  it("falls back to the real hits, without numbers, when nothing is cited", () => {
     const answer = appendSources("پاسخ بدون شماره", context, numbers);
 
-    expect(answer).toContain("- [2] notes.pdf — صفحه 4");
-    expect(answer).toContain("- [3] notes.pdf — صفحه 5");
+    expect(answer).toContain(`- ${line(4)}`);
+    expect(answer).toContain(`- ${line(5)}`);
     expect(answer).not.toContain("صفحه 3");
+    expect(answer).not.toContain("[");
   });
 
   it("adds no sources to a refusal", () => {
@@ -135,7 +145,35 @@ describe("numbered sources", () => {
     const partial = "پشته LIFO است [2]، اما درباره صف اطلاعاتی در منابع نیامده.";
 
     expect(isRefusal(partial)).toBe(false);
-    expect(appendSources(partial, context, numbers)).toContain("- [2] notes.pdf — صفحه 4");
+    expect(appendSources(partial, context, numbers)).toContain(`- [1] ${line(4)}`);
+  });
+});
+
+describe("renumberCitations", () => {
+  const known = new Set([2, 4, 5, 7]);
+
+  it("closes the gaps: [2], [4], [5] become [1], [2], [3]", () => {
+    expect(renumberCitations("الف [2]. ب [4]. ج [5] و دوباره [2].", known).text).toBe("الف [1]. ب [2]. ج [3] و دوباره [1].");
+  });
+
+  it("numbers by first appearance, reads Persian digits and comma lists", () => {
+    const { text, renumbered } = renumberCitations("اول [۷]، بعد [2، 7].", known);
+
+    expect(text).toBe("اول [1]، بعد [2][1].");
+    expect([...renumbered]).toEqual([
+      [7, 1],
+      [2, 2],
+    ]);
+  });
+
+  it("drops numbers that name no source, without leaving a gap", () => {
+    expect(renumberCitations("نکته [9]. بعدی [4][9].", known).text).toBe("نکته. بعدی [1].");
+  });
+
+  it("leaves code alone", () => {
+    expect(renumberCitations("آرایه `a[4]` و\n```\nx[5] = 1\n```\nمنبع [5]", known).text).toBe(
+      "آرایه `a[4]` و\n```\nx[5] = 1\n```\nمنبع [1]",
+    );
   });
 });
 

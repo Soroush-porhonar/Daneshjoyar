@@ -104,10 +104,12 @@ export async function previousHits(
  */
 export function citedPages(answer: string, filename: string): number[] {
   const sources = answer.split(SOURCES_HEADING)[1] ?? "";
+  // Source lines show the name without ".pdf" and between direction isolates (older runs: the plain file name).
+  const bare = (name: string) => name.replace(/[⁦-⁩]/g, "").replace(/\.pdf$/i, "");
 
   return sources.split("\n").flatMap((line) => {
     const match = /^- (?:\[\d+\] )?(.+) — صفحه (\d+)(?: تا (\d+))?$/.exec(line.trim());
-    if (!match || match[1] !== filename) return [];
+    if (!match || bare(match[1]!) !== bare(filename)) return [];
 
     const first = Number(match[2]);
     const last = Number(match[3] ?? match[2]);

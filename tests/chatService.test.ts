@@ -1,7 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // Fakes for the database, Bale and every AI step, so only the flow is tested.
-vi.mock("../src/bale.js", () => ({ sendMessage: vi.fn(), removeButtons: vi.fn() }));
+vi.mock("../src/bale.js", () => ({
+  sendMessage: vi.fn(),
+  removeButtons: vi.fn(),
+  editMessageText: vi.fn(),
+}));
 vi.mock("../src/db/users.js", () => ({ findOrCreateUser: vi.fn() }));
 vi.mock("../src/db/conversations.js", () => ({
   findOrCreateConversation: vi.fn(),
@@ -46,7 +50,7 @@ vi.mock("../src/rag/router.js", async (importOriginal) => ({
 }));
 
 const { handleMessage } = await import("../src/chat/chatService.js");
-const { removeButtons, sendMessage } = await import("../src/bale.js");
+const { editMessageText, removeButtons, sendMessage } = await import("../src/bale.js");
 const { findOrCreateUser } = await import("../src/db/users.js");
 const { findOrCreateConversation } = await import("../src/db/conversations.js");
 const { saveMessage, getRecentMessages } = await import("../src/db/messages.js");
@@ -323,10 +327,10 @@ describe("handleMessage", () => {
   it("logs chat answers too", async () => {
     vi.mocked(routeMessage).mockResolvedValue({ route: "chat", retrievalMode: "focused" });
 
-    await handleMessage(CHAT_ID, "سلام");
+    await handleMessage(CHAT_ID, "یه جوک بگو");
 
     expect(createAnswerLog).toHaveBeenCalledWith(
-      expect.objectContaining({ route: "chat", question: "سلام", context: [] }),
+      expect.objectContaining({ route: "chat", question: "یه جوک بگو", context: [] }),
     );
   });
 
@@ -337,26 +341,50 @@ describe("handleMessage", () => {
     expect(vi.mocked(sendMessage).mock.calls.at(-1)?.[2]).toEqual({ keyboard: messages.MAIN_MENU });
   });
 
-  it("shows a cancel button while answering and removes it afterwards", async () => {
+  it("shows a cancel button while answering, then replaces the notice with a short 'done' line", async () => {
     vi.mocked(sendMessage).mockResolvedValueOnce(901); // the thinking notice
     vi.mocked(routeMessage).mockResolvedValue({ route: "chat", retrievalMode: "focused" });
 
-    await handleMessage(CHAT_ID, "سلام");
+    await handleMessage(CHAT_ID, "یه جوک بگو");
 
     const [, noticeText, noticeMarkup] = vi.mocked(sendMessage).mock.calls[0]!;
     expect(noticeText).toBe(messages.THINKING_NOTICE_TEXT);
     expect(noticeMarkup).toEqual({ inline: [[expect.objectContaining({ callback_data: "cancel" })]] });
-    expect(removeButtons).toHaveBeenCalledWith(CHAT_ID, 901);
+    expect(editMessageText).toHaveBeenCalledWith(CHAT_ID, 901, messages.THINKING_DONE_TEXT);
   });
 
-  it("removes the cancel button even when answering fails", async () => {
+  it("only removes the cancel button when answering fails (the error message follows)", async () => {
     vi.mocked(sendMessage).mockResolvedValueOnce(902);
     vi.mocked(routeMessage).mockRejectedValue(new Error("ollama down"));
 
-    await handleMessage(CHAT_ID, "سلام");
+    await handleMessage(CHAT_ID, "یه جوک بگو");
 
+    expect(editMessageText).not.toHaveBeenCalled();
     expect(removeButtons).toHaveBeenCalledWith(CHAT_ID, 902);
     expect(lastReply()).toBe(messages.PROCESSING_FAILED_TEXT);
+  });
+
+  it("says 'cancelled' on the notice when the request was cancelled", async () => {
+    vi.mocked(sendMessage).mockResolvedValueOnce(903);
+    const controller = new AbortController();
+    vi.mocked(routeMessage).mockImplementation(async () => {
+      controller.abort();
+      throw new Error("aborted");
+    });
+
+    await handleMessage(CHAT_ID, "یه جوک بگو", controller.signal);
+
+    expect(editMessageText).toHaveBeenCalledWith(CHAT_ID, 903, messages.REQUEST_CANCELLED_TEXT);
+  });
+
+  it("falls back to removing the button when the notice cannot be edited", async () => {
+    vi.mocked(sendMessage).mockResolvedValueOnce(904);
+    vi.mocked(editMessageText).mockRejectedValueOnce(new Error("message not found"));
+    vi.mocked(routeMessage).mockResolvedValue({ route: "chat", retrievalMode: "focused" });
+
+    await handleMessage(CHAT_ID, "یه جوک بگو");
+
+    expect(removeButtons).toHaveBeenCalledWith(CHAT_ID, 904);
   });
 
   it("still sends the answer, without buttons, when logging fails", async () => {
@@ -364,7 +392,7 @@ describe("handleMessage", () => {
     vi.mocked(createAnswerLog).mockRejectedValue(new Error("db down"));
     vi.spyOn(logger, "warn").mockImplementation(() => {});
 
-    await expect(handleMessage(CHAT_ID, "سلام")).resolves.toBe(true);
+    await expect(handleMessage(CHAT_ID, "یه جوک بگو")).resolves.toBe(true);
 
     expect(lastReply()).toBe("جواب عمومی");
     expect(vi.mocked(sendMessage).mock.calls.at(-1)?.[2]).toBeUndefined();
@@ -393,7 +421,7 @@ describe("handleMessage", () => {
   it("uses general chat when the router says chat", async () => {
     vi.mocked(routeMessage).mockResolvedValue({ route: "chat", retrievalMode: "focused" });
 
-    await handleMessage(CHAT_ID, "سلام");
+    await handleMessage(CHAT_ID, "یه جوک بگو");
 
     expect(askAI).toHaveBeenCalled();
     expect(answerFromDocuments).not.toHaveBeenCalled();
@@ -403,7 +431,7 @@ describe("handleMessage", () => {
   it("skips the router when the user has no documents", async () => {
     vi.mocked(listCompletedFilenames).mockResolvedValue([]);
 
-    await handleMessage(CHAT_ID, "سلام");
+    await handleMessage(CHAT_ID, "یه جوک بگو");
 
     expect(routeMessage).not.toHaveBeenCalled();
     expect(askAI).toHaveBeenCalled();
@@ -419,7 +447,7 @@ describe("handleMessage", () => {
   it("tells the user when the message could not be saved", async () => {
     vi.mocked(saveMessage).mockRejectedValueOnce(new Error("db down"));
 
-    await expect(handleMessage(CHAT_ID, "سلام")).resolves.toBe(true);
+    await expect(handleMessage(CHAT_ID, "یه جوک بگو")).resolves.toBe(true);
 
     expect(lastReply()).toBe(messages.SAVE_MESSAGE_FAILED_TEXT);
     expect(routeMessage).not.toHaveBeenCalled();
@@ -451,6 +479,6 @@ describe("handleMessage", () => {
       .mockResolvedValueOnce(undefined) // thinking notice
       .mockRejectedValueOnce(new Error("bale down")); // the answer
 
-    await expect(handleMessage(CHAT_ID, "سلام")).resolves.toBe(false);
+    await expect(handleMessage(CHAT_ID, "یه جوک بگو")).resolves.toBe(false);
   });
 });

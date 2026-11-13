@@ -155,10 +155,50 @@ export function isRefusal(answer: string): boolean {
   );
 }
 
+/** A run of citation brackets: [2], [1][3], [1، 3], [۲]; not after a name or bracket (code: a[1]). */
+const CITATION_RUN = /(?<![\w)\]])(?:\[[\d۰-۹\s,،]+\])+/g;
+
+/**
+ * Renumbers the answer's citations 1..n in order of first appearance, so the
+ * student sees [1], [2], [3] instead of the context's numbers with gaps
+ * ([2], [4], [5], roadmap 2.4). Numbers that name no source are dropped from
+ * the text. Code is left alone. Returns the text and old -> new numbers.
+ */
+export function renumberCitations(
+  answer: string,
+  known: Set<number>,
+): { text: string; renumbered: Map<number, number> } {
+  const renumbered = new Map<number, number>();
+  for (const number of citedNumbers(answer)) {
+    if (known.has(number)) renumbered.set(number, renumbered.size + 1);
+  }
+
+  const rewrite = (prose: string) =>
+    prose.replace(CITATION_RUN, (run) => {
+      const numbers = [...new Set(toAsciiDigits(run).split(/[^\d]+/).filter(Boolean).map(Number))];
+      const kept = numbers
+        .map((number) => renumbered.get(number))
+        .filter((number): number is number => number !== undefined)
+        .map((number) => `[${number}]`)
+        .join("");
+      // A dropped run leaves no gap before the punctuation that followed it.
+      return kept || "\u0000";
+    }).replace(/ *\u0000/g, "");
+
+  // Odd parts are code (```…``` or `…`) and keep their brackets.
+  const text = answer
+    .split(/(```[\s\S]*?```|`[^`\n]*`)/)
+    .map((part, index) => (index % 2 === 1 ? part : rewrite(part)))
+    .join("");
+
+  return { text, renumbered };
+}
+
 /**
  * Adds the sources section. With `numbers`, only the sources the model cited
- * inline are listed, numbered like in the answer; if it cited none, the real
- * hits are listed. A refusal gets no sources: nothing was taken from them.
+ * inline are listed, renumbered 1..n like the answer's citations; if it cited
+ * none, the real hits are listed without numbers. A refusal gets no sources:
+ * nothing was taken from them.
  */
 export function appendSources(
   answer: string,
@@ -167,15 +207,16 @@ export function appendSources(
 ): string {
   if (isRefusal(answer)) return answer;
 
-  const cited = numbers ? citedNumbers(answer) : new Set<number>();
-  const used = [...(numbers ?? [])].filter(([, number]) => cited.has(number));
+  const lineOf = new Map([...(numbers ?? [])].map(([line, number]) => [number, line]));
+  const { text, renumbered } = numbers
+    ? renumberCitations(answer, new Set(lineOf.keys()))
+    : { text: answer, renumbered: new Map<number, number>() };
+  answer = text;
+
   const sources =
-    used.length > 0
-      ? used.map(([line, number]) => `[${number}] ${line}`)
-      : buildSourceList(chunks).map((line) => {
-          const number = numbers?.get(line);
-          return number ? `[${number}] ${line}` : line;
-        });
+    renumbered.size > 0
+      ? [...renumbered].map(([old, number]) => `[${number}] ${lineOf.get(old)!}`)
+      : buildSourceList(chunks);
 
   if (sources.length === 0) {
     return answer;
