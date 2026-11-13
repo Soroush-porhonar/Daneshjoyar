@@ -1,3 +1,4 @@
+import { recordFailure } from "./alerts.js";
 import { logger } from "./logger.js";
 import {
   AI_UNAVAILABLE_TEXT,
@@ -93,4 +94,5 @@ export function logDatabaseError(
     ...context,
     error,
   });
+  recordFailure("database");
 }

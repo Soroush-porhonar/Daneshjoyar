@@ -7,7 +7,9 @@ services:
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_HOST_AUTH_METHOD: trust
+      # No POSTGRES_HOST_AUTH_METHOD: network connections need the password
+      # (scram-sha-256). It only applies when the data directory is created; on
+      # the existing volume pg_hba.conf was changed by hand (README, Backup and restore).
     ports:
       - "127.0.0.1:5433:5432"
     volumes:
@@ -44,19 +46,23 @@ services:
         condition: service_healthy
       reranker:
         condition: service_started
+    # /ready: "healthy" means it can answer (database, Ollama, reranker), not just that it runs.
     healthcheck:
       test:
         - CMD
         - node
         - -e
-        - "fetch('http://localhost:' + process.env.PORT + '/health').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"
+        - "fetch('http://localhost:' + process.env.PORT + '/ready').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 30s
 
-  # Nightly database dump at 03:00 (Tehran time) into ./backups, kept 14 days.
+  # Daily database dump after 03:00 (Tehran time) into ./backups, kept 14 days.
   # Same image as postgres, so pg_dump matches the server version.
+  # It checks every 10 minutes whether today's dump exists, instead of sleeping
+  # until 03:00: the Docker VM is suspended while Windows sleeps, and one long
+  # sleep then stretched over days (only 2 dumps from 11-03 to 11-13).
   # Restore: README, "Backup and restore".
   backup:
     image: pgvector/pgvector:pg18
@@ -77,18 +83,18 @@ services:
     command:
       - |
         while true; do
-          now=$$(date +%s)
-          next=$$(date -d '03:00' +%s)
-          [ "$$next" -le "$$now" ] && next=$$(date -d 'tomorrow 03:00' +%s)
-          sleep $$((next - now))
-          # Write to a temporary name first, so a failed dump never looks like a backup.
-          if pg_dump -Fc -f /backups/.partial.dump; then
-            mv /backups/.partial.dump "/backups/daneshjo-$$(date +%F).dump"
-            echo "backup written: daneshjo-$$(date +%F).dump"
-          else
-            echo "backup FAILED" >&2
+          today="/backups/daneshjo-$$(date +%F).dump"
+          if [ ! -f "$$today" ] && [ "$$(date +%H)" -ge 3 ]; then
+            # Write to a temporary name first, so a failed dump never looks like a backup.
+            if pg_dump -Fc -f /backups/.partial.dump; then
+              mv /backups/.partial.dump "$$today"
+              echo "backup written: $$(basename "$$today")"
+            else
+              echo "backup FAILED" >&2
+            fi
+            find /backups -name 'daneshjo-*.dump' -mtime +14 -delete
           fi
-          find /backups -name 'daneshjo-*.dump' -mtime +14 -delete
+          sleep 600
         done
 
   # Cross-encoder reranker (bge-reranker-v2-m3) on llama.cpp server, CPU only so

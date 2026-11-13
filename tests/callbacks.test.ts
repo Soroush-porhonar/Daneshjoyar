@@ -33,7 +33,7 @@ beforeEach(() => {
   vi.mocked(findOrCreateUser).mockResolvedValue({ id: 3 } as never);
   vi.mocked(listDocuments).mockResolvedValue([{ id: 5, filename: "notes.pdf", status: "completed" }]);
   vi.mocked(findDocumentFilename).mockResolvedValue("notes.pdf");
-  vi.mocked(deleteDocument).mockResolvedValue(true);
+  vi.mocked(deleteDocument).mockResolvedValue({ filePath: null });
 });
 
 describe("parseCallback", () => {
@@ -45,8 +45,9 @@ describe("parseCallback", () => {
     ["docs", { action: "documents" }],
     ["cancel", { action: "cancel" }],
     ["info:7", { action: "info", documentId: 7 }],
-    ["ocr:0a1b2c3d:y", { action: "ocr", token: "0a1b2c3d", yes: true }],
-    ["ocr:0a1b2c3d:n", { action: "ocr", token: "0a1b2c3d", yes: false }],
+    ["cf:0a1b2c3d:y", { action: "confirm", token: "0a1b2c3d", yes: true }],
+    ["cf:0a1b2c3d:n", { action: "confirm", token: "0a1b2c3d", yes: false }],
+    ["ocr:0a1b2c3d:n", { action: "confirm", token: "0a1b2c3d", yes: false }],
     ["ocr:xyz:y", null],
     ["sel:abc", null],
     ["toString", null],

@@ -42,6 +42,9 @@ let nextOrder = 0;
 let busy = false;
 let waiting: Waiter[] = [];
 let activeQuestions = 0;
+/** No job starts before this time (after a GPU crash pattern, pauseGpu). */
+let pausedUntil = 0;
+let resumeTimer: NodeJS.Timeout | null = null;
 const lastPlace = new WeakMap<JobContext, number>();
 
 /** Runs `work` with its model calls queued as `context.kind`. */
@@ -107,6 +110,14 @@ function announcePlaces(): void {
 
 function pump(): void {
   if (busy) return;
+  const pauseLeft = pausedUntil - Date.now();
+  if (pauseLeft > 0) {
+    resumeTimer ??= setTimeout(() => {
+      resumeTimer = null;
+      pump();
+    }, pauseLeft);
+    return;
+  }
   const next = pick();
   if (!next) return;
   waiting = waiting.filter((waiter) => waiter !== next);
@@ -166,6 +177,11 @@ export async function onGpu<T>(run: () => Promise<T>, signal?: AbortSignal): Pro
   }
 }
 
+/** Starts no job for `ms` (the GPU driver recovering after a crash); jobs wait meanwhile. */
+export function pauseGpu(ms: number): void {
+  pausedUntil = Math.max(pausedUntil, Date.now() + ms);
+}
+
 /** For tests: forget all state. */
 export function resetScheduler(): void {
   busy = false;
@@ -173,4 +189,7 @@ export function resetScheduler(): void {
   activeQuestions = 0;
   nextOrder = 0;
   idleWaiters = [];
+  pausedUntil = 0;
+  if (resumeTimer) clearTimeout(resumeTimer);
+  resumeTimer = null;
 }

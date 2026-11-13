@@ -30,6 +30,9 @@ vi.mock("../src/db/answerLogs.js", () => ({
   countQuestionsToday: vi.fn(async () => 0),
 }));
 vi.mock("../src/llm/generalChat.js", () => ({ askAI: vi.fn() }));
+vi.mock("../src/bot/commands/privacy.js", () => ({
+  deleteMyDataCommand: vi.fn(async () => ({ text: "داده‌هات پاک شد", forgotUser: true })),
+}));
 vi.mock("../src/rag/answer.js", () => ({
   answerFromDocuments: vi.fn(),
   prefetchCandidates: vi.fn(),
@@ -398,6 +401,14 @@ describe("handleMessage", () => {
     await handleMessage(CHAT_ID, "یه جوک بگو");
 
     expect(removeButtons).toHaveBeenCalledWith(CHAT_ID, 904);
+  });
+
+  it("sends the reply to 'delete my data' without saving or logging it (the user is gone)", async () => {
+    await expect(handleMessage(CHAT_ID, "/deletemydata")).resolves.toBe(true);
+
+    expect(lastReply()).toBe("داده‌هات پاک شد");
+    expect(saveMessage).toHaveBeenCalledTimes(1); // only the student's own message, before the wipe
+    expect(createAnswerLog).not.toHaveBeenCalled();
   });
 
   describe("daily limit", () => {

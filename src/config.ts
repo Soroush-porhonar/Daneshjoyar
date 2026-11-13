@@ -280,6 +280,30 @@ export const config = {
    */
   shutdown: { graceMs: 15_000, cleanupMs: 3_000 },
 
+  /** Admin alerts (src/alerts.ts, roadmap 8.11). */
+  alerts: {
+    /** Bale chat id that gets alerts (ADMIN_CHAT_ID); without it alerts are only logged. */
+    adminChatId: process.env.ADMIN_CHAT_ID ? Number(process.env.ADMIN_CHAT_ID) : null,
+    /** Failures are counted over this window. */
+    windowMs: 10 * 60_000,
+    /** At most one alert per kind this often. */
+    quietMs: 30 * 60_000,
+    /** After a GPU crash pattern the queue pauses this long, then the job is tried once more. */
+    gpuPauseMs: 20_000,
+  },
+
+  /** How long student data is kept (src/db/retention.ts, roadmap 8.10; periods chosen by the owner). */
+  retention: {
+    /** Inbox rows (they hold whole messages); retries end long before. */
+    updatesDays: 7,
+    /** Then the words of questions and answers are blanked in answer_logs; the numbers stay. */
+    answerTextDays: 90,
+    /** Older messages of a conversation are deleted (history uses the last few anyway). */
+    messagesPerConversation: 200,
+    firstRunDelayMs: 60_000,
+    intervalMs: 24 * 60 * 60_000,
+  },
+
   /** Per-student limits (roadmap Q3). */
   limits: {
     /** Questions a day (Tehran day); commands, buttons and uploads do not count. Chosen by the owner. */

@@ -1,7 +1,8 @@
 import { config } from "../config.js";
 import { OllamaError, OllamaTimeoutError } from "../errors.js";
 import { logger } from "../logger.js";
-import { onGpu } from "./scheduler.js";
+import { onGpu, pauseGpu } from "./scheduler.js";
+import { recordFailure } from "../alerts.js";
 
 export interface ChatMessage {
   role: "system" | "user" | "assistant";
@@ -64,6 +65,12 @@ function withTimeout(timeoutMs: number, signal?: AbortSignal): AbortSignal {
   return signal ? AbortSignal.any([signal, timeout]) : timeout;
 }
 
+/** Ollama's words when the GPU or its runner crashed (seen with the Vulkan backend on this machine). */
+const GPU_CRASH = /device lost|ErrorDeviceLost|vk::|vulkan|runner has unexpectedly stopped|runner process has terminated/i;
+
+export const isGpuCrash = (error: unknown): boolean =>
+  error instanceof OllamaError && !(error instanceof OllamaTimeoutError) && GPU_CRASH.test(error.message);
+
 /** A timeout becomes OllamaTimeoutError; user cancellation and network errors pass through. */
 function rethrow(error: unknown, label: string): never {
   if (error instanceof Error && error.name === "TimeoutError") {
@@ -87,8 +94,10 @@ async function send(url: string, body: unknown, signal: AbortSignal, label: stri
   }
 
   if (!response.ok) {
+    // The body says why (a crashed runner, a lost GPU device): kept for the logs and isGpuCrash.
+    const detail = (await response.text().catch(() => "")).slice(0, 300);
     throw new OllamaError(
-      `Ollama ${label} error: ${response.status} ${response.statusText}`,
+      `Ollama ${label} error: ${response.status} ${response.statusText}${detail ? ` ${detail}` : ""}`,
     );
   }
 
@@ -177,12 +186,26 @@ export async function chat(request: ChatRequest): Promise<string> {
     ...(request.format ? { format: request.format } : {}),
     options: { num_ctx: config.llm.numCtx, ...request.options },
   };
-  const data = await onGpu(() => {
-    const signal = withTimeout(request.timeoutMs ?? config.llm.timeoutMs, request.signal);
-    return request.onDelta
-      ? postStreamed(config.llm.url, body, signal, request.onDelta)
-      : post<OllamaChatResponse>(config.llm.url, body, signal, "chat");
-  }, request.signal);
+  const run = () =>
+    onGpu(() => {
+      const signal = withTimeout(request.timeoutMs ?? config.llm.timeoutMs, request.signal);
+      return request.onDelta
+        ? postStreamed(config.llm.url, body, signal, request.onDelta)
+        : post<OllamaChatResponse>(config.llm.url, body, signal, "chat");
+    }, request.signal);
+
+  let data: OllamaChatResponse;
+  try {
+    data = await run();
+  } catch (error: unknown) {
+    if (!(error instanceof OllamaError)) throw error; // a cancellation or a network error
+    recordFailure(isGpuCrash(error) ? "gpu" : "ollama");
+    if (!isGpuCrash(error)) throw error;
+    // The Vulkan driver loses the device now and then: give it time, then try once more (roadmap 8.11).
+    logger.error("[LLM] GPU crash pattern; pausing the queue and retrying once", { error: error.message });
+    pauseGpu(config.alerts.gpuPauseMs);
+    data = await run();
+  }
 
   logger.debug("[LLM] chat finished", {
     doneReason: data.done_reason,

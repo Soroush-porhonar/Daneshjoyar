@@ -1,3 +1,4 @@
+import { removeUploadedFile } from "../../files.js";
 import {
   deleteDocument,
   findDocumentFilename,
@@ -84,8 +85,11 @@ export const confirmDeleteCommand: CommandHandler = async ({
 
   const deleted = await deleteDocument(userId, documentId);
   clearPendingDeletion(chatId);
+  if (!deleted) return DELETE_FAILED_TEXT;
 
-  return deleted ? deleteSucceededText(documentId) : DELETE_FAILED_TEXT;
+  // The uploaded file goes too (roadmap 8.10).
+  await removeUploadedFile(deleted.filePath);
+  return deleteSucceededText(documentId);
 };
 
 export const cancelDeleteCommand: CommandHandler = async ({ chatId }) => {

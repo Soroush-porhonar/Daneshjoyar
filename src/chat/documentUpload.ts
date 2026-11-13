@@ -114,7 +114,7 @@ async function processDocument(chatId: number, document: BaleDocument): Promise<
 
     if (!kind) {
       logger.info(
-        `[Upload] Unsupported file from chat ${chatId}: ${document.file_name} (${document.mime_type})`,
+        `[Upload] Unsupported file from chat ${chatId} (${document.mime_type})`,
       );
       await sendMessage(chatId, UNSUPPORTED_FILE_TEXT);
       return true;
@@ -196,6 +196,8 @@ async function processDocument(chatId: number, document: BaleDocument): Promise<
         await sendDuplicateNotice(chatId, downloaded.filename, true);
         return true;
       }
+      // A failed upload keeps no file (its row stays "failed"; a retry downloads again).
+      await unlink(downloaded.filePath).catch(() => {});
       throw error;
     }
 

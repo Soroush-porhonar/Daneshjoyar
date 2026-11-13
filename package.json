@@ -11,6 +11,7 @@
     "start": "tsx src/main.ts",
     "typecheck": "tsc -p tsconfig.check.json",
     "eval": "tsx scripts/eval.ts",
+    "backfill:files": "tsx scripts/backfill-file-paths.ts",
     "reset-data": "tsx scripts/reset-data.ts",
     "ingest": "tsx scripts/ingest-files.ts",
     "eval:router": "tsx scripts/eval-router.ts",

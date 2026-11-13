@@ -1,3 +1,4 @@
+import { recordFailure } from "../alerts.js";
 import { editMessageText, keepTyping, removeButtons, sendMessage } from "../bale.js";
 import { plainMath } from "../rag/plainMath.js";
 import type { Markup } from "../bale.js";
@@ -89,6 +90,7 @@ async function answerQuestion(
   // Too many questions at once: say so now rather than keep the student waiting minutes.
   if (activeQuestionCount() >= config.queue.maxActiveQuestions) {
     logger.warn("[Queue] Busy; question refused", { chatId, active: activeQuestionCount() });
+    recordFailure("queue");
     return { answer: BUSY_TEXT };
   }
 
@@ -369,7 +371,15 @@ export async function handleMessage(
 
     if (command) {
       const result = await command.handler({ chatId, userId: session.userId, args: command.args });
-      reply = typeof result === "string" ? { answer: result } : { answer: result.text, markup: result.markup };
+      if (typeof result !== "string" && result.forgotUser) {
+        // "Delete my data": nothing is left to save the reply into or log it against.
+        await sendMessage(chatId, result.text);
+        return true;
+      }
+      reply =
+        typeof result === "string"
+          ? { answer: result }
+          : { answer: result.text, ...(result.markup ? { markup: result.markup } : {}) };
     } else if ((await countQuestionsToday(session.userId)) >= config.limits.dailyQuestions) {
       // The daily limit keeps one student from holding the single GPU (roadmap Q3).
       logger.info("Daily question limit reached:", { chatId });

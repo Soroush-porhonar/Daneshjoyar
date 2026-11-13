@@ -6,6 +6,7 @@ import {
 } from "./documents.js";
 import { aboutCommand, helpCommand, startCommand } from "./info.js";
 import { newTopicCommand } from "./topic.js";
+import { deleteMyDataCommand } from "./privacy.js";
 import type { CommandContext, CommandHandler, CommandReply } from "./types.js";
 import { MENU_ABOUT, MENU_DOCUMENTS, MENU_HELP, MENU_NEW_TOPIC } from "../../messages.js";
 
@@ -18,6 +19,7 @@ const COMMANDS: Record<string, CommandHandler> = {
   "/confirm_delete": confirmDeleteCommand,
   "/cancel_delete": cancelDeleteCommand,
   "/new": newTopicCommand,
+  "/deletemydata": deleteMyDataCommand,
   // Main menu keyboard buttons arrive as their label text.
   [MENU_DOCUMENTS]: documentsCommand,
   [MENU_HELP]: helpCommand,

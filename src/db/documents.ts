@@ -143,17 +143,53 @@ export async function listCompletedFilenames(userId: number): Promise<string[]> 
   return result.rows.map((row) => row.filename);
 }
 
+/**
+ * Deletes one of the user's documents (its chunks go with it). Returns the
+ * stored file path for the caller to remove (null if none was recorded), or
+ * undefined if the user has no such document.
+ */
 export async function deleteDocument(
   userId: number,
   documentId: number,
-): Promise<boolean> {
-  const result = await pool.query(
+): Promise<{ filePath: string | null } | undefined> {
+  const result = await pool.query<{ file_path: string | null }>(
     `DELETE FROM documents
      WHERE id = $1
        AND user_id = $2
-     RETURNING id`,
+     RETURNING file_path`,
     [documentId, userId],
   );
 
-  return result.rowCount === 1;
+  return result.rows[0] ? { filePath: result.rows[0].file_path } : undefined;
+}
+
+/**
+ * Deletes everything stored about a user (roadmap 8.10, "delete my data"):
+ * the user row, and with it documents, chunks, conversations, messages and
+ * answer logs (foreign keys cascade), plus the inbox rows of their chat
+ * (they hold message text). Returns the file paths to remove.
+ */
+export async function deleteUserData(userId: number, chatId: number): Promise<string[]> {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const files = await client.query<{ file_path: string }>(
+      `SELECT file_path FROM documents WHERE user_id = $1 AND file_path IS NOT NULL`,
+      [userId],
+    );
+    await client.query(
+      `DELETE FROM processed_updates
+       WHERE payload -> 'message' -> 'chat' ->> 'id' = $1
+          OR payload -> 'callback_query' -> 'message' -> 'chat' ->> 'id' = $1`,
+      [String(chatId)],
+    );
+    await client.query(`DELETE FROM users WHERE id = $1`, [userId]);
+    await client.query("COMMIT");
+    return files.rows.map((row) => row.file_path);
+  } catch (error: unknown) {
+    await client.query("ROLLBACK").catch(() => undefined);
+    throw error;
+  } finally {
+    client.release();
+  }
 }

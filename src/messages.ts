@@ -72,7 +72,30 @@ export const HELP_TEXT = `📚 **راهنمای دانشجویار**
 سؤال‌های کوتاهی مثل «بیشتر توضیح بده» رو به گفت‌وگوی قبلی ربط می‌دم. برای شروع یک موضوع تازه دکمه «${MENU_NEW_TOPIC}» رو بزن یا ${cmd("/new")} رو بفرست؛ گفت‌وگوی قدیمی‌تر از یک ساعت هم خودش کنار گذاشته می‌شه.
 
 🌐 **۵. سؤال‌های عمومی**
-اگه سؤالت به جزوه‌هات ربطی نداشته باشه، مثل یک دستیار هوشمند معمولی جوابت رو می‌دم.`;
+اگه سؤالت به جزوه‌هات ربطی نداشته باشه، مثل یک دستیار هوشمند معمولی جوابت رو می‌دم.
+
+🔒 **حریم خصوصی**
+با ${cmd("/deletemydata")} همه جزوه‌ها، پیام‌ها و سابقه‌ات برای همیشه پاک می‌شه.`;
+
+/** To the admin chat (ADMIN_CHAT_ID) when something keeps failing (src/alerts.ts). */
+const ALERT_KINDS: Record<string, string> = {
+  ollama: "مدل زبانی (Ollama) خطا می‌ده یا جواب نمی‌ده",
+  reranker: "سرویس رتبه‌بندی (reranker) در دسترس نیست",
+  database: "پایگاه داده خطا می‌ده",
+  queue: "صف سؤال‌ها پر شد و به دانشجوها گفته شد ربات شلوغه",
+  gpu: "کارت گرافیک از کار افتاد (الگوی خرابی GPU)؛ صف چند ثانیه متوقف شد",
+};
+export const adminAlertText = (kind: string, count: number, minutes: number): string =>
+  `🚨 هشدار دانشجویار: ${ALERT_KINDS[kind] ?? kind}. ${count} بار در ${minutes} دقیقه گذشته. لاگ ربات رو ببین.`;
+
+/** "Delete my data" (/deletemydata): the question, its buttons and the outcomes. */
+export const DELETE_MY_DATA_QUESTION =
+  "⚠️ همه جزوه‌ها، فایل‌ها، پیام‌ها و سابقه سؤال‌هات برای همیشه پاک می‌شه و برگشت‌پذیر نیست. مطمئنی؟";
+export const DELETE_MY_DATA_YES_BUTTON = "🗑️ بله، همه رو پاک کن";
+export const DELETE_MY_DATA_NO_BUTTON = "نه، نگهشون دار";
+export const MY_DATA_DELETED_TEXT =
+  "✅ همه اطلاعاتت پاک شد. نسخه‌های پشتیبان شبانه هم حداکثر ۱۴ روز دیگه خودبه‌خود پاک می‌شن. هر وقت خواستی، می‌تونی از نو شروع کنی.";
+export const MY_DATA_KEPT_TEXT = "باشه، چیزی پاک نشد.";
 
 export const ABOUT_TEXT = `🎓 **دانشجویار** | دستیار هوشمند مطالعه
 

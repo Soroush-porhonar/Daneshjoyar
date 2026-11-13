@@ -3,6 +3,7 @@
  * reads the question and each chunk together and scores how well the chunk
  * *answers* the question. Used to re-order the top search candidates.
  */
+import { recordFailure } from "../alerts.js";
 import { config } from "../config.js";
 import { logger } from "../logger.js";
 import { contextualText, withTitle } from "./chunk.js";
@@ -76,6 +77,7 @@ export async function scoreTexts(query: string, texts: string[]): Promise<number
     return scores as number[];
   } catch (error: unknown) {
     logger.warn("[RAG] Scoring texts failed:", error);
+    recordFailure("reranker");
     return null;
   }
 }
