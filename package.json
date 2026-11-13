@@ -19,6 +19,7 @@
     "eval:answers": "tsx scripts/eval-answers.ts",
     "eval:ocr": "tsx scripts/eval-ocr.ts",
     "eval:citations": "tsx scripts/eval-citations.ts",
+    "eval:distractors": "tsx scripts/eval-distractors.ts",
     "benchmark": "tsx scripts/benchmark.ts",
     "feedback": "tsx scripts/feedback-report.ts",
     "build:words": "tsx scripts/build-word-frequencies.ts",

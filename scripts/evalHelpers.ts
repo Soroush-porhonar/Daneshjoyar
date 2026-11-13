@@ -120,15 +120,20 @@ export function citedPages(answer: string, filename: string): number[] {
  * owns the most of the eval's files. ("The user with the most documents" broke
  * once someone uploaded more files than the eval set has.)
  */
+/** Chat id of the eval-only distractor user (scripts/eval-distractors.ts). */
+export const DISTRACTOR_CHAT_ID = "eval-distractors";
+
 export async function evalUser(args: string[], filenames: Iterable<string>): Promise<number> {
   const index = args.indexOf("--user");
   if (index >= 0) return Number(args[index + 1]);
 
   const result = await pool.query<{ user_id: number }>(
+    // The distractor user holds copies of the eval documents; it is used only when --user names it.
     `SELECT user_id FROM documents
      WHERE status = 'completed' AND filename = ANY($1)
+       AND user_id NOT IN (SELECT id FROM users WHERE bale_chat_id = $2)
      GROUP BY user_id ORDER BY count(DISTINCT filename) DESC, max(id) DESC LIMIT 1`,
-    [[...new Set(filenames)]],
+    [[...new Set(filenames)], DISTRACTOR_CHAT_ID],
   );
   const user = result.rows[0]?.user_id;
   if (user === undefined) throw new Error("No user owns any of the eval documents");
