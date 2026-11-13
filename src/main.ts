@@ -10,6 +10,7 @@ import { startRetentionJob } from "./bot/retentionJob.js";
 import { config } from "./config.js";
 import { preloadModels } from "./llm/ollamaClient.js";
 import { logger } from "./logger.js";
+import { checkReadiness } from "./readiness.js";
 
 const app = express();
 
@@ -18,6 +19,12 @@ app.get("/health", (_req, res) => {
     status: "ok",
     service: "daneshjohandbot",
   });
+});
+
+// Liveness is /health; /ready also checks the database, Ollama and the reranker (compose health check).
+app.get("/ready", async (_req, res) => {
+  const readiness = await checkReadiness();
+  res.status(readiness.ready ? 200 : 503).json(readiness);
 });
 
 const server = app.listen(config.port, () => {

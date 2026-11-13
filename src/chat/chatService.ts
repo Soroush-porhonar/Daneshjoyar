@@ -1,3 +1,4 @@
+import { recordFailure } from "../alerts.js";
 import { editMessageText, keepTyping, removeButtons, sendMessage } from "../bale.js";
 import { plainMath } from "../rag/plainMath.js";
 import type { Markup } from "../bale.js";
@@ -89,6 +90,7 @@ async function answerQuestion(
   // Too many questions at once: say so now rather than keep the student waiting minutes.
   if (activeQuestionCount() >= config.queue.maxActiveQuestions) {
     logger.warn("[Queue] Busy; question refused", { chatId, active: activeQuestionCount() });
+    recordFailure("queue");
     return { answer: BUSY_TEXT };
   }
 

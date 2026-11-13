@@ -46,12 +46,13 @@ services:
         condition: service_healthy
       reranker:
         condition: service_started
+    # /ready: "healthy" means it can answer (database, Ollama, reranker), not just that it runs.
     healthcheck:
       test:
         - CMD
         - node
         - -e
-        - "fetch('http://localhost:' + process.env.PORT + '/health').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"
+        - "fetch('http://localhost:' + process.env.PORT + '/ready').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"
       interval: 30s
       timeout: 5s
       retries: 3

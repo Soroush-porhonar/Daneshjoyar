@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { chat, embed, preloadModels } from "../src/llm/ollamaClient.js";
+import { chat, embed, isGpuCrash, preloadModels } from "../src/llm/ollamaClient.js";
+import { resetScheduler } from "../src/llm/scheduler.js";
 import { OllamaError, OllamaTimeoutError } from "../src/errors.js";
 import { logger } from "../src/logger.js";
 
@@ -162,6 +163,43 @@ describe("chat", () => {
     await chat({ messages });
 
     expect(logger.warn).not.toHaveBeenCalled();
+  });
+});
+
+describe("chat, GPU crash pattern", () => {
+  it("pauses the queue, retries once, and returns the retry's answer", async () => {
+    vi.useFakeTimers();
+    try {
+      fetchMock
+        .mockResolvedValueOnce(new Response("{\"error\":\"vk::Queue::submit: ErrorDeviceLost\"}", { status: 500 }))
+        .mockResolvedValueOnce(new Response(JSON.stringify({ message: { content: "جواب" } })));
+      vi.spyOn(logger, "error").mockImplementation(() => {});
+
+      const answer = chat({ messages });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(20_000);
+
+      await expect(answer).resolves.toBe("جواب");
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+      resetScheduler();
+    }
+  });
+
+  it("does not retry other Ollama errors, and keeps the reason", async () => {
+    fetchMock.mockResolvedValueOnce(new Response('{"error":"model not found"}', { status: 404 }));
+
+    await expect(chat({ messages })).rejects.toThrow("model not found");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("recognises the crash messages", () => {
+    expect(isGpuCrash(new OllamaError("Ollama chat error: 500 llama runner process has terminated: exit status 2"))).toBe(true);
+    expect(isGpuCrash(new OllamaError("Ollama chat error: 500 model runner has unexpectedly stopped"))).toBe(true);
+    expect(isGpuCrash(new OllamaTimeoutError("Ollama chat request timed out."))).toBe(false);
+    expect(isGpuCrash(new Error("vulkan"))).toBe(false);
   });
 });
 

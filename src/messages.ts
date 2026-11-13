@@ -77,6 +77,17 @@ export const HELP_TEXT = `📚 **راهنمای دانشجویار**
 🔒 **حریم خصوصی**
 با ${cmd("/deletemydata")} همه جزوه‌ها، پیام‌ها و سابقه‌ات برای همیشه پاک می‌شه.`;
 
+/** To the admin chat (ADMIN_CHAT_ID) when something keeps failing (src/alerts.ts). */
+const ALERT_KINDS: Record<string, string> = {
+  ollama: "مدل زبانی (Ollama) خطا می‌ده یا جواب نمی‌ده",
+  reranker: "سرویس رتبه‌بندی (reranker) در دسترس نیست",
+  database: "پایگاه داده خطا می‌ده",
+  queue: "صف سؤال‌ها پر شد و به دانشجوها گفته شد ربات شلوغه",
+  gpu: "کارت گرافیک از کار افتاد (الگوی خرابی GPU)؛ صف چند ثانیه متوقف شد",
+};
+export const adminAlertText = (kind: string, count: number, minutes: number): string =>
+  `🚨 هشدار دانشجویار: ${ALERT_KINDS[kind] ?? kind}. ${count} بار در ${minutes} دقیقه گذشته. لاگ ربات رو ببین.`;
+
 /** "Delete my data" (/deletemydata): the question, its buttons and the outcomes. */
 export const DELETE_MY_DATA_QUESTION =
   "⚠️ همه جزوه‌ها، فایل‌ها، پیام‌ها و سابقه سؤال‌هات برای همیشه پاک می‌شه و برگشت‌پذیر نیست. مطمئنی؟";

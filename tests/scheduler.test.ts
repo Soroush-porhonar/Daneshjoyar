@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import {
   activeQuestionCount,
   onGpu,
+  pauseGpu,
   questionsIdle,
   resetScheduler,
   runAs,
@@ -196,6 +197,15 @@ describe("GPU queue", () => {
     controller.abort();
 
     await expect(onGpu(async () => "ok", controller.signal)).rejects.toThrow();
+  });
+
+  it("starts nothing while paused after a GPU crash, then carries on", async () => {
+    pauseGpu(50);
+    const started = Date.now();
+
+    await onGpu(async () => "ok");
+
+    expect(Date.now() - started).toBeGreaterThanOrEqual(45);
   });
 
   it("frees the GPU when a job fails", async () => {
