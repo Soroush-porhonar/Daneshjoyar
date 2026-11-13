@@ -216,15 +216,23 @@ export async function chat(request: ChatRequest): Promise<string> {
 /**
  * Loads the chat and embedding models into memory at startup (roadmap S6):
  * otherwise the first question after a restart waited ~10 s for the load.
- * An empty request only loads a model. Failures are logged, never thrown:
- * the first real request loads the model anyway.
+ * A chat with no messages only loads the model, but it must carry the same
+ * num_ctx as real requests: without it Ollama loaded the model with its
+ * default context (262144, 16.8 GB, mostly on the CPU) and reloaded it for
+ * the first question. An embed with no input loads nothing, so one word is
+ * embedded. Failures are logged, never thrown: the first request loads anyway.
  */
 export async function preloadModels(): Promise<void> {
   const started = Date.now();
   const timeout = AbortSignal.timeout(config.llm.timeoutMs);
   const results = await Promise.allSettled([
-    post(config.llm.url, { model: config.llm.model, messages: [], keep_alive: config.llm.keepAlive }, timeout, "preload"),
-    post(config.embedding.url, { model: config.embedding.model, input: [], keep_alive: config.llm.keepAlive }, timeout, "preload"),
+    post(
+      config.llm.url,
+      { model: config.llm.model, messages: [], keep_alive: config.llm.keepAlive, options: { num_ctx: config.llm.numCtx } },
+      timeout,
+      "preload",
+    ),
+    post(config.embedding.url, { model: config.embedding.model, input: ["سلام"], keep_alive: config.llm.keepAlive }, timeout, "preload"),
   ]);
   const failed = results.filter((result) => result.status === "rejected");
   if (failed.length > 0) logger.warn("[LLM] Preloading models failed:", { errors: failed.map((f) => String(f.reason)) });

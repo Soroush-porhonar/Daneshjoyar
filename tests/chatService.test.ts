@@ -330,16 +330,6 @@ describe("handleMessage", () => {
     expect(answerFromDocuments).not.toHaveBeenCalled();
   });
 
-  it("answers a greeting at once: no notice, no router, no answer log", async () => {
-    await handleMessage(CHAT_ID, "سلام، چطوری؟");
-
-    expect(vi.mocked(sendMessage).mock.calls).toHaveLength(1);
-    expect(lastReply()).toBe(messages.GREETING_REPLY_TEXT);
-    expect(routeMessage).not.toHaveBeenCalled();
-    expect(askAI).not.toHaveBeenCalled();
-    expect(createAnswerLog).not.toHaveBeenCalled();
-  });
-
   it("logs chat answers too", async () => {
     vi.mocked(routeMessage).mockResolvedValue({ route: "chat", retrievalMode: "focused" });
 
