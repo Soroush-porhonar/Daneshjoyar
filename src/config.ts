@@ -34,6 +34,16 @@ export const config = {
      */
     keepAlive: parseKeepAlive(process.env.LLM_KEEP_ALIVE ?? "30m"),
     temperature: { rag: 0.2, router: 0, chat: 0.7 },
+    /**
+     * Output caps (tokens) against a runaway answer: at ~37 tokens/s the old
+     * 4096 let a looping answer run ~110 s. Set above every real answer in
+     * answer_logs (2026-11-13: longest focused 1436 chars, multi-part 2384,
+     * chat 2269, about 2.5 chars a token) and the benchmark (p95 241 tokens),
+     * so they cut nothing today. A shorter-answer prompt was not tried: answers
+     * are already short (focused p50 532 chars) and generation is ~5 s of ~11.
+     * Whole-document summaries keep `summary`.
+     */
+    maxTokens: { focused: 1000, multiPart: 2000, chat: 1000, summary: 4096 },
   },
 
   /** Cross-encoder reranker (llama.cpp server in compose.yaml, runs on the CPU). */

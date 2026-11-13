@@ -3,6 +3,7 @@ import { logger } from "../logger.js";
 import { listCompletedDocuments } from "../db/documents.js";
 import { getSectionSummaries } from "../db/enrichment.js";
 import type { CompletedDocument } from "../db/documents.js";
+import { markCut } from "../llm/cut.js";
 import {
   NO_DOCUMENT_CONTENT_TEXT,
   NO_RELEVANT_CONTENT_TEXT,
@@ -37,32 +38,35 @@ interface SourceChunk {
   isHit?: boolean;
 }
 
-const GENERATION_OPTIONS = {
-  num_predict: 4096,
-  temperature: config.llm.temperature.rag,
-};
-
-/** With a `trace`, the call's token counts and timings are recorded on it. */
-export function generate(
+/**
+ * With a `trace`, the call's token counts and timings are recorded on it.
+ * With a `limit` (a reply the student reads), output stops at that many tokens
+ * and a cut-off answer ends with a line saying so; without one (an internal
+ * batch summary) the summary cap applies and nothing is added.
+ */
+export async function generate(
   system: string,
   user: string,
   signal?: AbortSignal,
   trace?: AnswerTrace,
+  limit?: number,
 ): Promise<string> {
-  return chat({
+  let doneReason: string | undefined;
+  const answer = await chat({
     think: false,
-    options: GENERATION_OPTIONS,
+    options: { num_predict: limit ?? config.llm.maxTokens.summary, temperature: config.llm.temperature.rag },
     signal,
-    onStats: trace
-      ? (stats) => {
-          trace.generation = stats;
-        }
-      : undefined,
+    onStats: (stats) => {
+      doneReason = stats.doneReason;
+      if (trace) trace.generation = stats;
+    },
     messages: [
       { role: "system", content: system },
       { role: "user", content: user },
     ],
   });
+
+  return limit !== undefined ? markCut(answer, doneReason) : answer;
 }
 
 /**
@@ -292,6 +296,7 @@ async function answerBroadQuestion(
     buildBroadSynthesisPrompt(question, summaries),
     signal,
     trace,
+    config.llm.maxTokens.summary,
   );
 
   // Cite the pages the summaries drew on, not every page of the document
@@ -328,6 +333,7 @@ async function answerFocusedQuestion(
     buildFocusedUserPrompt(question, formatChunks(chunks, numbers)),
     signal,
     trace,
+    mode === "focused" ? config.llm.maxTokens.focused : config.llm.maxTokens.multiPart,
   );
 
   return appendSources(answer, chunks, numbers);

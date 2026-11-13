@@ -1,3 +1,4 @@
+import { config } from "../config.js";
 import { buildTransformPrompt, RAG_SYSTEM_PROMPT } from "../llm/prompts/rag.js";
 import { SOURCES_HEADING } from "../messages.js";
 import type { AnswerTrace } from "./answer.js";
@@ -67,6 +68,7 @@ export async function answerTransform(
     buildTransformPrompt(request, previousAnswerBody(previousAnswer), formatChunks(chunks, numbers)),
     signal,
     trace,
+    config.llm.maxTokens.multiPart,
   );
 
   return appendSources(answer, chunks, numbers);

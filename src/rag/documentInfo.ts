@@ -1,3 +1,4 @@
+import { config } from "../config.js";
 import { getDocumentProfile, listCompletedDocuments } from "../db/documents.js";
 import { buildDocumentInfoPrompt, RAG_SYSTEM_PROMPT } from "../llm/prompts/rag.js";
 import { documentDisplayName, documentInfoHeaderText, NO_DOCUMENT_CONTENT_TEXT } from "../messages.js";
@@ -82,6 +83,7 @@ export async function answerDocumentInfo(
     buildDocumentInfoPrompt(question, name, profile, formatChunks(opening)),
     signal,
     trace,
+    config.llm.maxTokens.focused,
   );
 
   // A citation marker the model writes anyway would point nowhere.

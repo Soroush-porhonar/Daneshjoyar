@@ -1,5 +1,6 @@
 import type { ChatHistoryMessage } from "../db/messages.js";
 import { config } from "../config.js";
+import { markCut } from "./cut.js";
 import { chat } from "./ollamaClient.js";
 import { CHAT_SYSTEM_PROMPT } from "./prompts/chat.js";
 
@@ -8,11 +9,17 @@ export async function askAI(
   history: ChatHistoryMessage[],
   signal?: AbortSignal,
 ): Promise<string> {
-  return chat({
+  let doneReason: string | undefined;
+  const answer = await chat({
     // Thinking first made chat answers 2.2x slower (49 s vs 22 s, measured) with similar answers.
     think: false,
     messages: [{ role: "system", content: CHAT_SYSTEM_PROMPT }, ...history],
-    options: { temperature: config.llm.temperature.chat },
+    options: { temperature: config.llm.temperature.chat, num_predict: config.llm.maxTokens.chat },
     signal,
+    onStats: (stats) => {
+      doneReason = stats.doneReason;
+    },
   });
+
+  return markCut(answer, doneReason);
 }

@@ -256,6 +256,10 @@ export const NO_DOCUMENT_CONTENT_TEXT =
 export const NO_RELEVANT_CONTENT_TEXT =
   "توی جزوه‌هات چیز مرتبطی با سؤالت پیدا نکردم.";
 
+/** After an answer the output cap cut off mid-way. */
+export const ANSWER_CUT_TEXT =
+  "✂️ جواب خیلی طولانی شد و همین‌جا قطع شد. اگه بقیه‌اش رو می‌خوای، سؤالت رو جزئی‌تر بپرس.";
+
 /** First line of a summary: the bot picked the document, so it says which. */
 export const summaryHeaderText = (filename: string): string => `📄 خلاصه «${filename}»:`;
 
