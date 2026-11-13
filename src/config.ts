@@ -273,6 +273,13 @@ export const config = {
   },
 
   /** Upload-time enrichment (src/rag/enrich.ts), in the background after a document is usable. */
+  /**
+   * Graceful shutdown (src/main.ts): running answers get `graceMs` to finish,
+   * then are stopped and get `cleanupMs` to say so. Together under the
+   * container's stop_grace_period (25 s in compose.yaml).
+   */
+  shutdown: { graceMs: 15_000, cleanupMs: 3_000 },
+
   /** The inbox sweeper (src/bot/sweeper.ts, roadmap 8.9). */
   inbox: {
     sweepIntervalMs: 60_000,

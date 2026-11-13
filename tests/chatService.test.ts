@@ -460,6 +460,26 @@ describe("handleMessage", () => {
       ]);
     });
 
+    it("says the bot is restarting, not 'cancelled', when a shutdown stops the answer", async () => {
+      vi.mocked(sendMessage).mockResolvedValueOnce(906);
+      vi.mocked(routeMessage).mockResolvedValue({ route: "chat", retrievalMode: "focused" });
+      const controller = new AbortController();
+      vi.mocked(askAI).mockImplementation(async (_history, _signal, onDelta) => {
+        onDelta?.(partial);
+        await pause();
+        controller.abort("shutdown");
+        throw new Error("aborted");
+      });
+
+      await handleMessage(CHAT_ID, "یه جوک بگو", controller.signal);
+
+      expect(vi.mocked(editMessageText).mock.calls.at(-1)).toEqual([
+        CHAT_ID,
+        906,
+        `${partial}\n\n${messages.RESTARTING_TEXT}`,
+      ]);
+    });
+
     it("sends the answer anew when the final edit is refused", async () => {
       vi.mocked(sendMessage).mockResolvedValueOnce(903);
       vi.mocked(editMessageText).mockRejectedValue(new Error("message to edit not found"));

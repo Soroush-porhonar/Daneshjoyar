@@ -6,6 +6,7 @@ import { parseCommand } from "../bot/commands/index.js";
 import {
   PROCESSING_FAILED_TEXT,
   REQUEST_CANCELLED_TEXT,
+  RESTARTING_TEXT,
   SAVE_MESSAGE_FAILED_TEXT,
   THINKING_DONE_TEXT,
   THINKING_NOTICE_TEXT,
@@ -105,12 +106,14 @@ async function answerQuestion(
   } finally {
     finished();
     stopTyping();
+    // Stopped by a shutdown: the inbox answers it after the restart, so it is not "cancelled".
+    const stoppedText = signal?.reason === "shutdown" ? RESTARTING_TEXT : REQUEST_CANCELLED_TEXT;
     if (live && (signal?.aborted || !answered)) {
-      await endLiveAnswer(chatId, live, signal?.aborted ? REQUEST_CANCELLED_TEXT : null);
+      await endLiveAnswer(chatId, live, signal?.aborted ? stoppedText : null);
     } else if (!live && noticeId !== undefined) {
       // Done or cancelled: the notice says so (editing the text also drops the button).
       // On a failure the error message follows, so only the button goes.
-      const outcome = signal?.aborted ? REQUEST_CANCELLED_TEXT : answered ? THINKING_DONE_TEXT : null;
+      const outcome = signal?.aborted ? stoppedText : answered ? THINKING_DONE_TEXT : null;
       try {
         await (outcome ? editMessageText(chatId, noticeId, outcome) : removeButtons(chatId, noticeId));
       } catch {
