@@ -23,7 +23,7 @@
  */
 import { writeFile } from "node:fs/promises";
 import { pool } from "../src/db/pool.js";
-import type { LoggedChunk } from "../src/db/answerLogs.js";
+import type { AnswerTimings, LoggedChunk } from "../src/db/answerLogs.js";
 import { byWeek, percentile, usageStats } from "./usageStats.js";
 
 const args = process.argv.slice(2);
@@ -40,6 +40,7 @@ interface Row {
   context: LoggedChunk[];
   answer: string;
   latency_ms: number;
+  timings: AnswerTimings | null;
   feedback: number | null;
   created_at: Date;
 }
@@ -48,7 +49,7 @@ const { rows } = await pool.query<Row>(
   `SELECT a.id, a.question, a.rewritten_question, a.route, a.retrieval_mode,
           (SELECT string_agg(d.filename, ', ') FROM documents d
            WHERE d.id = ANY(a.document_ids) OR d.id = a.document_id) AS filename,
-          a.context, a.answer, a.latency_ms, a.feedback, a.created_at
+          a.context, a.answer, a.latency_ms, a.timings, a.feedback, a.created_at
    FROM answer_logs a
    WHERE a.created_at > NOW() - make_interval(days => $1)
    ORDER BY a.created_at DESC`,
@@ -77,6 +78,19 @@ for (const route of ["document", "chat"]) {
   if (latencies.length > 0) {
     console.log(`  ${route} answer time: median ${seconds(percentile(latencies, 0.5))}, p95 ${seconds(percentile(latencies, 0.95))}`);
   }
+}
+
+// Stage timings from real use (answers logged since they were recorded).
+const stage = (name: string, values: number[]) =>
+  values.length > 0
+    ? console.log(`  ${name}: median ${seconds(percentile(values, 0.5))}, p95 ${seconds(percentile(values, 0.95))} (${values.length} answers)`)
+    : undefined;
+const timed = rows.map((r) => r.timings).filter((t): t is AnswerTimings => t !== null);
+if (timed.length > 0) {
+  console.log("Stages:");
+  stage("GPU queue wait", timed.map((t) => t.queueMs ?? 0));
+  stage("first text shown", timed.flatMap((t) => (t.firstTextMs === undefined ? [] : [t.firstTextMs])));
+  stage("answer generation", timed.flatMap((t) => (t.generationMs === undefined ? [] : [t.generationMs])));
 }
 
 // --- Live numbers, per week and for the whole period -----------------------------

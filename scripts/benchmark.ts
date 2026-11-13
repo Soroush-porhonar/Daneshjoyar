@@ -38,6 +38,8 @@ import { pool } from "../src/db/pool.js";
 import { OllamaError, OllamaTimeoutError } from "../src/errors.js";
 import { answerFromDocuments, prefetchCandidates } from "../src/rag/answer.js";
 import { liveText } from "../src/chat/streamEditor.js";
+import { runAs, startQuestion } from "../src/llm/scheduler.js";
+import type { JobContext } from "../src/llm/scheduler.js";
 import type { AnswerTrace } from "../src/rag/answer.js";
 import { generateEmbedding } from "../src/rag/embeddings.js";
 import { retrieveContext } from "../src/rag/retrieve.js";
@@ -153,8 +155,24 @@ if (concurrency !== null) {
     (q) => byName.has(q.filename),
   );
 
-  /** The bot's own order of work for a message that is answered from the notes. */
-  async function answerLikeBot(q: EvalQuestion): Promise<void> {
+  /**
+   * The bot's own order of work for a message that is answered from the
+   * notes, as a question on the GPU queue (scheduler.ts): returns the places
+   * in line it was told and how long its calls waited.
+   */
+  async function answerLikeBot(q: EvalQuestion): Promise<{ places: number[]; waitedMs: number }> {
+    const job: JobContext = { kind: "answer", onPosition: (place) => places.push(place) };
+    const places: number[] = [];
+    const finished = startQuestion();
+    try {
+      await runAs(job, () => answerQuestionLikeBot(q));
+    } finally {
+      finished();
+    }
+    return { places, waitedMs: job.waitedMs ?? 0 };
+  }
+
+  async function answerQuestionLikeBot(q: EvalQuestion): Promise<void> {
     const document = byName.get(q.filename)!;
     const history = q.history ?? [];
     const prefetch = prefetchCandidates(document.user_id, q.question);
@@ -178,16 +196,26 @@ if (concurrency !== null) {
     batch.map(async (q) => {
       const start = performance.now();
       try {
-        await answerLikeBot(q);
-        return { id: q.id, ms: performance.now() - start, failed: "" };
+        const { places, waitedMs } = await answerLikeBot(q);
+        // Told where it stands: it either waited under a second or was given a place.
+        const told = waitedMs < 1000 || places.some((place) => place > 0);
+        return { id: q.id, ms: performance.now() - start, failed: "", waitedMs, firstPlace: places[0] ?? 0, told };
       } catch (error: unknown) {
-        return { id: q.id, ms: performance.now() - start, failed: failureKind(error) };
+        return { id: q.id, ms: performance.now() - start, failed: failureKind(error), waitedMs: 0, firstPlace: 0, told: false };
       }
     }),
   );
   const wallMs = performance.now() - wallStart;
 
-  console.table(results.map((r) => ({ id: r.id, waited: seconds(r.ms), result: r.failed || "ok" })));
+  console.table(
+    results.map((r) => ({
+      id: r.id,
+      total: seconds(r.ms),
+      "GPU queue wait": seconds(r.waitedMs),
+      "first place told": r.firstPlace || "-",
+      result: r.failed || "ok",
+    })),
+  );
 
   const done = results.filter((r) => !r.failed).map((r) => r.ms);
   const failures = results.filter((r) => r.failed);
@@ -203,6 +231,7 @@ if (concurrency !== null) {
     maxMs: Math.round(Math.max(0, ...done)),
     wallMs: Math.round(wallMs),
     answersPerMinute: Number(((done.length / wallMs) * 60_000).toFixed(1)),
+    toldPlace: results.filter((r) => r.told).length,
   };
 
   console.log(
@@ -210,7 +239,8 @@ if (concurrency !== null) {
       (failures.length > 0 ? `, ${kinds.join(", ")}` : "") +
       `; wait p50 ${seconds(summary.p50Ms)}, p95 ${seconds(summary.p95Ms)}, longest ${seconds(summary.maxMs)}; ` +
       `${seconds(wallMs)} in all = ${summary.answersPerMinute} answers per minute ` +
-      `(request timeout ${config.llm.timeoutMs / 1000} s, counted from when the request is sent)`,
+      `(request timeout ${config.llm.timeoutMs / 1000} s, counted from the job's turn on the GPU); ` +
+      `told their place or served at once: ${summary.toldPlace}/${batch.length}`,
   );
 
   const previous = await previousResult<{ summary: typeof summary }>("concurrency");

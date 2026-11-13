@@ -215,6 +215,13 @@ export const ocrStartedText = (
 export const uploadInterruptedText = (filename: string): string =>
   `⚠️ پردازش فایل «${filename}» به‌خاطر راه‌اندازی دوباره ربات نیمه‌کاره موند. لطفاً دوباره بفرستش.`;
 
+/** On the thinking notice while the question waits behind others for the GPU. */
+export const queuePlaceText = (place: number): string =>
+  `⏳ الان ${place === 1 ? "نفر بعدی هستی" : `نفر ${place}م توی صف هستی`}؛ چند نفر دیگه هم همین الان سؤال پرسیدن. کمی صبر کن، جوابت میاد.`;
+
+/** Too many questions at once: the student is asked to come back instead of waiting minutes. */
+export const BUSY_TEXT = "😅 الان سرم خیلی شلوغه و سؤال‌های زیادی توی صف هست. چند دقیقه دیگه دوباره بپرس.";
+
 /** An answer stopped because the bot is restarting; the inbox answers it after the restart. */
 export const RESTARTING_TEXT = "🔄 ربات داره دوباره راه‌اندازی می‌شه؛ جوابت چند لحظه دیگه میاد.";
 

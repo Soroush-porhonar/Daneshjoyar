@@ -23,6 +23,8 @@ export interface LiveAnswer {
   update(text: string): void;
   /** True once part of the answer is on screen. */
   readonly started: boolean;
+  /** Milliseconds from creation to the first text shown; undefined if none yet. */
+  readonly firstTextMs: number | undefined;
   /** Stops showing new text (cancel or failure) and waits for a call in flight. */
   stop(): Promise<void>;
   /** What the last message shows of the answer ("" if nothing yet). */
@@ -58,6 +60,7 @@ export function createLiveAnswer(chatId: number, noticeId: number, options: Opti
   const liveButtons = options.liveButtons;
   // Created right after the notice is sent: the first edit's delay is the wait for the first text.
   const createdAt = Date.now();
+  let firstTextMs: number | undefined;
   const ids: number[] = [noticeId];
   // What each message shows now.
   const shown: { text: string; buttons: string }[] = [];
@@ -144,7 +147,10 @@ export function createLiveAnswer(chatId: number, noticeId: number, options: Opti
     const first = shown.length === 0;
     inFlight = call(async () => {
       await render(parts, liveButtons, true);
-      if (first) logger.info("[Stream] First text shown", { chatId, ms: Date.now() - createdAt });
+      if (first) {
+        firstTextMs = Date.now() - createdAt;
+        logger.info("[Stream] First text shown", { chatId, ms: firstTextMs });
+      }
     }).finally(() => {
       inFlight = null;
       schedule();
@@ -171,6 +177,9 @@ export function createLiveAnswer(chatId: number, noticeId: number, options: Opti
     },
     get started() {
       return shown.length > 0;
+    },
+    get firstTextMs() {
+      return firstTextMs;
     },
     get lastMessageText() {
       return shown.at(-1)?.text ?? "";

@@ -1,3 +1,4 @@
+import { runAs } from "../llm/scheduler.js";
 import path from "node:path";
 import { stat, unlink } from "node:fs/promises";
 import { downloadBaleDocument, sendMessage } from "../bale.js";
@@ -140,7 +141,8 @@ export async function handleDocument(
     let result;
 
     try {
-      result = await ingestDocument(
+      // OCR is the GPU queue's second class: students' answers go first.
+      result = await runAs({ kind: "ocr" }, () => ingestDocument(
         user.id,
         downloaded.filename,
         downloaded.filePath,
@@ -159,7 +161,7 @@ export async function handleDocument(
         },
         fileSize,
         kind,
-      );
+      ));
     } catch (error: unknown) {
       // The same file sent twice in quick succession: the database caught it.
       if (error instanceof DuplicateDocumentError) {

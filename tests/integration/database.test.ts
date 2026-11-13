@@ -464,6 +464,18 @@ describe("answer logs and feedback", () => {
     expect(row.rows[0]).toEqual({ feedback: -1, context: [{ page: 14, chunkIndex: 13, isHit: true }] });
   });
 
+  it("stores stage timings when given, and none otherwise", async () => {
+    const alice = await addUser("alice");
+    const timings = { queueMs: 4200, firstTextMs: 6100, generationMs: 4900, promptTokens: 1100, outputTokens: 90 };
+    const timed = await createAnswerLog({ ...log(alice), timings });
+    const untimed = await createAnswerLog(log(alice));
+
+    const { rows } = await pool.query("SELECT id, timings FROM answer_logs WHERE id = ANY($1) ORDER BY id", [
+      [timed, untimed],
+    ]);
+    expect(rows.map((row) => row.timings)).toEqual([timings, null]);
+  });
+
   it("nobody can vote on someone else's answer", async () => {
     const alice = await addUser("alice");
     const bob = await addUser("bob");

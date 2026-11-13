@@ -5,8 +5,10 @@ import { cancelButton } from "../bot/buttons.js";
 import { parseCommand } from "../bot/commands/index.js";
 import {
   PROCESSING_FAILED_TEXT,
+  BUSY_TEXT,
   REQUEST_CANCELLED_TEXT,
   RESTARTING_TEXT,
+  queuePlaceText,
   SAVE_MESSAGE_FAILED_TEXT,
   THINKING_DONE_TEXT,
   THINKING_NOTICE_TEXT,
@@ -29,7 +31,8 @@ import { feedbackButtons } from "../bot/feedback.js";
 import { needsRewrite, rewriteQuestion } from "../rag/rewrite.js";
 import { resolveRoute, routeMessage } from "../rag/router.js";
 import type { MessageClassification } from "../rag/router.js";
-import { startForegroundWork } from "../llm/priority.js";
+import { activeQuestionCount, runAs, startQuestion } from "../llm/scheduler.js";
+import type { JobContext } from "../llm/scheduler.js";
 import { createLiveAnswer } from "./streamEditor.js";
 import type { LiveAnswer } from "./streamEditor.js";
 
@@ -82,10 +85,22 @@ async function answerQuestion(
   text: string,
   signal?: AbortSignal,
 ): Promise<Reply> {
-  const noticeId = await sendMessage(chatId, THINKING_NOTICE_TEXT, { inline: cancelButton() });
+  // Too many questions at once: say so now rather than keep the student waiting minutes.
+  if (activeQuestionCount() >= config.queue.maxActiveQuestions) {
+    logger.warn("[Queue] Busy; question refused", { chatId, active: activeQuestionCount() });
+    return { answer: BUSY_TEXT };
+  }
+
+  // Counted for the busy limit; background enrichment waits until no question is left (one GPU).
+  const finished = startQuestion();
+  let noticeId: number | undefined;
+  try {
+    noticeId = await sendMessage(chatId, THINKING_NOTICE_TEXT, { inline: cancelButton() });
+  } catch (error: unknown) {
+    finished();
+    throw error;
+  }
   const stopTyping = keepTyping(chatId);
-  // Background enrichment pauses until this answer is done (one GPU).
-  const finished = startForegroundWork();
   const live =
     noticeId !== undefined && config.stream.mode !== "off"
       ? createLiveAnswer(chatId, noticeId, { liveButtons: cancelButton() })
@@ -96,13 +111,27 @@ async function answerQuestion(
         live.update(partial);
       }
     : undefined;
+  const job: JobContext = {
+    kind: "answer",
+    ...(noticeId === undefined ? {} : { onPosition: placeShower(chatId, noticeId, () => live?.started ?? false) }),
+  };
 
   let answered = false;
   try {
-    const reply = await composeAnswer(session, text, signal, onDelta);
+    const reply = await runAs(job, () => composeAnswer(session, text, signal, onDelta));
     answered = true;
+    const timings = {
+      ...reply.log?.timings,
+      ...(job.waitedMs ? { queueMs: job.waitedMs } : {}),
+      ...(live?.firstTextMs === undefined ? {} : { firstTextMs: live.firstTextMs }),
+    };
     // Bale shows LaTeX as raw text; formulas go out as Unicode.
-    return { ...reply, answer: plainMath(reply.answer), ...(live ? { live } : {}) };
+    return {
+      ...reply,
+      answer: plainMath(reply.answer),
+      ...(reply.log ? { log: { ...reply.log, timings } } : {}),
+      ...(live ? { live } : {}),
+    };
   } finally {
     finished();
     stopTyping();
@@ -141,9 +170,57 @@ async function endLiveAnswer(chatId: number, live: LiveAnswer, line: string | nu
   }
 }
 
-/** What an answer drew on, for the answer log. */
-function traceLog(trace: AnswerTrace): Pick<AnswerLogInfo, "documentIds" | "context"> {
+/**
+ * Shows the student's place in the GPU queue on the thinking notice: only
+ * when it changes, at most every placeEditIntervalMs (the latest place is
+ * shown when the interval ends), never once the answer itself is on it.
+ * Place 0 (the question's turn came) puts the thinking text back.
+ */
+function placeShower(chatId: number, noticeId: number, answerShown: () => boolean): (place: number) => void {
+  let shownPlace = 0;
+  let wanted = 0;
+  let lastEditAt = 0;
+  let timer: NodeJS.Timeout | null = null;
+
+  const show = () => {
+    timer = null;
+    if (answerShown() || wanted === shownPlace) return;
+    const text = wanted === 0 ? THINKING_NOTICE_TEXT : queuePlaceText(wanted);
+    shownPlace = wanted;
+    lastEditAt = Date.now();
+    // Only a hint: a failed edit must never reach the GPU queue that called this.
+    void (async () => {
+      try {
+        await editMessageText(chatId, noticeId, text, cancelButton(), { retry: false });
+      } catch {
+        // ignored
+      }
+    })();
+  };
+
+  return (place) => {
+    wanted = place;
+    if (timer) return;
+    // Back to the thinking text at once; places no more often than the interval.
+    const wait = place === 0 ? 0 : Math.max(0, lastEditAt + config.queue.placeEditIntervalMs - Date.now());
+    if (wait === 0) show();
+    else timer = setTimeout(show, wait);
+  };
+}
+
+/** What an answer drew on, and its generation numbers, for the answer log. */
+function traceLog(trace: AnswerTrace): Pick<AnswerLogInfo, "documentIds" | "context" | "timings"> {
+  const generation = trace.generation;
   return {
+    ...(generation
+      ? {
+          timings: {
+            generationMs: Math.round(generation.totalMs),
+            promptTokens: generation.promptTokens,
+            outputTokens: generation.outputTokens,
+          },
+        }
+      : {}),
     documentIds: trace.documentIds ?? [],
     context: (trace.context ?? []).map((chunk) => ({
       page: chunk.pageNumber,

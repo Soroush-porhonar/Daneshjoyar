@@ -280,6 +280,18 @@ export const config = {
    */
   shutdown: { graceMs: 15_000, cleanupMs: 3_000 },
 
+  /** The GPU queue (src/llm/scheduler.ts, roadmap Q2). */
+  queue: {
+    /**
+     * Questions answered at once, waiting included; the next student is told
+     * the bot is busy. A question takes ~8–10 s of GPU (benchmark 2026-11-13:
+     * router 2.5 s, generation 4.9 s), so the 12th waits about 2 minutes.
+     */
+    maxActiveQuestions: 12,
+    /** Place-in-line edits of the notice at most this often. */
+    placeEditIntervalMs: 3_000,
+  },
+
   /** The inbox sweeper (src/bot/sweeper.ts, roadmap 8.9). */
   inbox: {
     sweepIntervalMs: 60_000,

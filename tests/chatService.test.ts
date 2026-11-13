@@ -68,6 +68,7 @@ const { logger } = await import("../src/logger.js");
 const messages = await import("../src/messages.js");
 const { config } = await import("../src/config.js");
 const { feedbackButtons } = await import("../src/bot/feedback.js");
+const { onGpu, startQuestion } = await import("../src/llm/scheduler.js");
 const streamSettings = config.stream as { mode: string };
 
 const CHAT_ID = 42;
@@ -393,6 +394,44 @@ describe("handleMessage", () => {
     await handleMessage(CHAT_ID, "یه جوک بگو");
 
     expect(removeButtons).toHaveBeenCalledWith(CHAT_ID, 904);
+  });
+
+  describe("GPU queue", () => {
+    it("says the bot is busy, with no notice, when too many questions are being answered", async () => {
+      const running = Array.from({ length: config.queue.maxActiveQuestions }, () => startQuestion());
+      try {
+        await handleMessage(CHAT_ID, "یه جوک بگو");
+
+        expect(vi.mocked(sendMessage).mock.calls).toHaveLength(1);
+        expect(lastReply()).toBe(messages.BUSY_TEXT);
+        expect(routeMessage).not.toHaveBeenCalled();
+      } finally {
+        running.forEach((finish) => finish());
+      }
+    });
+
+    it("shows the student's place while the question waits, then the thinking text again", async () => {
+      vi.mocked(sendMessage).mockResolvedValueOnce(907);
+      vi.mocked(routeMessage).mockResolvedValue({ route: "chat", retrievalMode: "focused" });
+      vi.mocked(askAI).mockImplementation(() => onGpu(async () => "جواب عمومی"));
+      vi.mocked(prefetchCandidates).mockReturnValue(Promise.resolve({ question: "یه جوک بگو", ranked: [] }));
+      // Another student's call holds the GPU.
+      let release!: () => void;
+      const other = onGpu(() => new Promise<void>((resolve) => (release = resolve)));
+
+      const answering = handleMessage(CHAT_ID, "یه جوک بگو");
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(editMessageText).toHaveBeenCalledWith(CHAT_ID, 907, messages.queuePlaceText(1), expect.anything(), {
+        retry: false,
+      });
+
+      release();
+      await other;
+      await answering;
+      expect(editMessageText).toHaveBeenCalledWith(CHAT_ID, 907, messages.THINKING_NOTICE_TEXT, expect.anything(), {
+        retry: false,
+      });
+    });
   });
 
   describe("streamed", () => {

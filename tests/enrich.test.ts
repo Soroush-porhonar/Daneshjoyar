@@ -9,7 +9,6 @@ vi.mock("../src/rag/embeddings.js", () => ({ generateEmbeddings: vi.fn() }));
 
 const { enrichDocument, parseChunkContext, parseProfile } = await import("../src/rag/enrich.js");
 const { fitSummaries } = await import("../src/rag/batch.js");
-const { foregroundIdle, startForegroundWork } = await import("../src/llm/priority.js");
 const { loadDocumentForEnrichment, saveEnrichment } = await import("../src/db/enrichment.js");
 const { chat } = await import("../src/llm/ollamaClient.js");
 const { generateEmbeddings } = await import("../src/rag/embeddings.js");
@@ -29,28 +28,6 @@ beforeEach(() => {
   vi.spyOn(logger, "info").mockImplementation(() => {});
   vi.spyOn(logger, "warn").mockImplementation(() => {});
   vi.mocked(generateEmbeddings).mockImplementation(async (texts) => texts.map(() => [0.1]));
-});
-
-describe("priority (answers before background work)", () => {
-  it("background work waits until every running answer is done", async () => {
-    const first = startForegroundWork();
-    const second = startForegroundWork();
-    let idle = false;
-    const waiting = foregroundIdle().then(() => (idle = true));
-
-    first();
-    first(); // calling twice counts once
-    await Promise.resolve();
-    expect(idle).toBe(false);
-
-    second();
-    await waiting;
-    expect(idle).toBe(true);
-  });
-
-  it("is idle right away when nothing runs", async () => {
-    await expect(foregroundIdle()).resolves.toBeUndefined();
-  });
 });
 
 describe("parsers", () => {
