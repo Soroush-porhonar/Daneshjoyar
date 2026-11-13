@@ -8,6 +8,7 @@
  *   npm run eval:citations -- --export --include covid-commensal,covid-distancing
  *   npm run eval:citations -- --export --force  # overwrite labels that exist
  *   npm run eval:citations                      # score the labelled pairs: separation and the best cut-off
+ *   npm run eval:citations -- --judge           # the same pairs judged by the eval judge model (scripts/judge.ts)
  *
  * --export picks about 30 pairs: every pair of the answers named with
  * --include, the lowest-scoring pairs, and pairs spread over the rest of the
@@ -32,6 +33,7 @@ import type { NumberedSource } from "./citationCheck.js";
 import { SOURCES_HEADING } from "../src/messages.js";
 import { isRefusal } from "../src/rag/answer.js";
 import { previousResult } from "./evalHelpers.js";
+import { JUDGE_MODEL, judgeClaims, unloadAnswerModel } from "./judge.js";
 
 const LABELS_FILE = "eval/citation-labels.json";
 const REAL_PAIRS = 22;
@@ -192,8 +194,64 @@ async function calibrate(): Promise<void> {
   );
 }
 
+/**
+ * --judge: the same labelled pairs, judged by the eval judge model (scripts/judge.ts),
+ * one pair per call. Adopted for eval:answers if it rejects every mismatched pair,
+ * catches at least 5 of the 6 unsupported pairs from answers, and is right on at
+ * least 85% of all pairs.
+ */
+async function calibrateJudge(): Promise<void> {
+  const labels = (JSON.parse(await readFile(LABELS_FILE, "utf-8")) as Label[]).filter(
+    (label) => label.supported !== null,
+  );
+  await unloadAnswerModel();
+
+  const results: { label: Label; supported: boolean; reason: string; ms: number }[] = [];
+  for (const label of labels) {
+    const started = Date.now();
+    const [verdict] = await judgeClaims([{ sentence: label.sentence, source: label.chunks }]);
+    results.push({ label, supported: verdict!.supported, reason: verdict!.reason, ms: Date.now() - started });
+    process.stdout.write(".");
+  }
+  console.log();
+
+  console.table(
+    results.map(({ label, supported, reason, ms }) => ({
+      id: label.id.slice(0, 40),
+      kind: label.kind,
+      label: label.supported ? "yes" : "NO",
+      judge: supported ? "yes" : "NO",
+      right: supported === label.supported ? "" : "WRONG",
+      s: (ms / 1000).toFixed(0),
+      reason: reason.slice(0, 70),
+    })),
+  );
+
+  const count = (test: (r: (typeof results)[number]) => boolean) => results.filter(test).length;
+  const right = count((r) => r.supported === r.label.supported);
+  const mismatched = results.filter((r) => r.label.kind === "mismatched");
+  const unsupported = results.filter((r) => r.label.kind === "real" && !r.label.supported);
+  const supported = results.filter((r) => r.label.supported);
+  const mismatchedRejected = mismatched.filter((r) => !r.supported).length;
+  const unsupportedCaught = unsupported.filter((r) => !r.supported).length;
+  const accuracy = right / results.length;
+  const adopt =
+    mismatchedRejected === mismatched.length &&
+    unsupportedCaught >= Math.min(5, unsupported.length) &&
+    accuracy >= 0.85;
+
+  console.log(
+    `Judge ${JUDGE_MODEL}: ${right}/${results.length} right (${Math.round(accuracy * 100)}%); ` +
+      `mismatched rejected ${mismatchedRejected}/${mismatched.length}, ` +
+      `unsupported caught ${unsupportedCaught}/${unsupported.length}, ` +
+      `supported accepted ${supported.filter((r) => r.supported).length}/${supported.length}; ` +
+      `median ${(results.map((r) => r.ms).sort((a, b) => a - b)[Math.floor(results.length / 2)]! / 1000).toFixed(0)} s per pair`,
+  );
+  console.log(adopt ? "Meets the bar: usable as the faithfulness judge." : "Below the bar: not usable as the faithfulness judge.");
+}
+
 try {
-  await (args.includes("--export") ? exportPairs() : calibrate());
+  await (args.includes("--export") ? exportPairs() : args.includes("--judge") ? calibrateJudge() : calibrate());
 } finally {
   await pool.end();
 }
