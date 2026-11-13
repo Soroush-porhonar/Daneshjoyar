@@ -201,6 +201,28 @@ export const FILE_RECEIVED_TEXT =
 export const PHOTO_RECEIVED_TEXT =
   "📥 عکست رسید. دارم متنش رو می‌خونم؛ حدود یک دقیقه طول می‌کشه...";
 
+/** Asked before reading a long scan (config.limits.ocrConfirmPages). */
+export const ocrConfirmText = (pages: number, minutes: number): string =>
+  `🔍 ${pages} صفحه از این فایل اسکن‌شده‌ست و باید با هوش مصنوعی خونده بشه؛ این کار حدود ${minutes} دقیقه طول می‌کشه. ادامه بدم؟`;
+
+export const OCR_CONTINUE_BUTTON = "✅ ادامه بده";
+export const OCR_CANCEL_BUTTON = "❌ نه، لغو کن";
+
+/** The student said no to a long scan, or did not answer within an hour. */
+export const OCR_DECLINED_TEXT =
+  "باشه، این فایل رو نخوندم. اگه فقط چند صفحه‌اش رو لازم داری، همون صفحه‌ها رو جدا بفرست (یا عکسشون رو).";
+
+/** A ✅/❌ press on a question that is no longer waiting (answered, expired or asked before a restart). */
+export const CONFIRMATION_EXPIRED_TEXT = "این سؤال دیگه منتظر جواب نیست.";
+
+/** A second file while the first is still being read. */
+export const UPLOAD_IN_PROGRESS_TEXT =
+  "⏳ هنوز دارم فایل قبلیت رو می‌خونم. وقتی تموم شد خبرت می‌کنم؛ بعدش این یکی رو دوباره بفرست.";
+
+/** The daily question limit (config.limits.dailyQuestions) is reached. */
+export const dailyLimitText = (limit: number): string =>
+  `📵 امروز ${limit} تا سؤال پرسیدی که سقف روزانه‌ست. فردا (از ساعت ۰۰:۰۰) دوباره می‌تونی بپرسی.`;
+
 export const ocrStartedText = (
   total: number,
   skipped: number,
@@ -214,6 +236,20 @@ export const ocrStartedText = (
 
 export const uploadInterruptedText = (filename: string): string =>
   `⚠️ پردازش فایل «${filename}» به‌خاطر راه‌اندازی دوباره ربات نیمه‌کاره موند. لطفاً دوباره بفرستش.`;
+
+/** On the thinking notice while the question waits behind others for the GPU. */
+export const queuePlaceText = (place: number): string =>
+  `⏳ الان ${place === 1 ? "نفر بعدی هستی" : `نفر ${place}م توی صف هستی`}؛ چند نفر دیگه هم همین الان سؤال پرسیدن. کمی صبر کن، جوابت میاد.`;
+
+/** Too many questions at once: the student is asked to come back instead of waiting minutes. */
+export const BUSY_TEXT = "😅 الان سرم خیلی شلوغه و سؤال‌های زیادی توی صف هست. چند دقیقه دیگه دوباره بپرس.";
+
+/** An answer stopped because the bot is restarting; the inbox answers it after the restart. */
+export const RESTARTING_TEXT = "🔄 ربات داره دوباره راه‌اندازی می‌شه؛ جوابت چند لحظه دیگه میاد.";
+
+/** A message the bot could not answer (a restart or repeated failures) and will not answer late. */
+export const MESSAGE_NOT_ANSWERED_TEXT =
+  "⚠️ به پیام قبلیت به‌خاطر یه مشکل یا راه‌اندازی دوباره ربات نتونستم جواب بدم. لطفاً دوباره بفرستش.";
 
 export const ocrProgressText = (done: number, total: number): string =>
   `⏳ خوندن صفحه‌ها: ${done} از ${total}`;

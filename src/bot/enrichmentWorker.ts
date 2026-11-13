@@ -6,6 +6,7 @@ import {
 import { config } from "../config.js";
 import { logger } from "../logger.js";
 import { enrichDocument } from "../rag/enrich.js";
+import { runAs } from "../llm/scheduler.js";
 
 let wake: (() => void) | null = null;
 
@@ -24,8 +25,9 @@ const pause = (ms: number) =>
   });
 
 /**
- * Enriches queued documents one at a time, forever. Each model call waits
- * while students' answers run (src/llm/priority.ts). A failure marks only that
+ * Enriches queued documents one at a time, forever. Its model calls are the
+ * GPU queue's lowest class: they wait while any question is being answered
+ * (src/llm/scheduler.ts). A failure marks only that
  * document failed; the document stays usable without enrichment.
  */
 export async function runEnrichmentWorker(): Promise<never> {
@@ -47,7 +49,8 @@ export async function runEnrichmentWorker(): Promise<never> {
         continue;
       }
 
-      await enrichDocument(documentId);
+      const id = documentId;
+      await runAs({ kind: "enrich" }, () => enrichDocument(id));
     } catch (error: unknown) {
       logger.error("[Enrich] Enrichment failed:", { documentId, error });
       if (documentId !== null) {

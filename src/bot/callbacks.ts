@@ -9,12 +9,14 @@ import { findOrCreateUser } from "../db/users.js";
 import { logger } from "../logger.js";
 import { listDocuments } from "../db/documents.js";
 import {
+  CONFIRMATION_EXPIRED_TEXT,
   DELETE_NOT_FOUND_TEXT,
   NO_REQUEST_TO_CANCEL_TEXT,
   REQUEST_CANCELLED_TEXT,
   documentInfoText,
 } from "../messages.js";
 import { parseCallback } from "./buttons.js";
+import { answerConfirmation } from "../chat/confirmations.js";
 import { cancelRequest } from "./cancellation.js";
 import {
   cancelDeleteCommand,
@@ -61,6 +63,14 @@ export async function handleCallback(query: CallbackQuery): Promise<void> {
 
   if (!callback || chatId === undefined) {
     await answerCallbackQuery(query.id);
+    return;
+  }
+
+  if (callback.action === "ocr") {
+    // The upload waiting on this question goes on or stops; the buttons go either way.
+    const delivered = answerConfirmation(callback.token, chatId, callback.yes);
+    await answerCallbackQuery(query.id, delivered ? undefined : CONFIRMATION_EXPIRED_TEXT);
+    if (messageId !== undefined) await tryTo(() => removeButtons(chatId, messageId));
     return;
   }
 

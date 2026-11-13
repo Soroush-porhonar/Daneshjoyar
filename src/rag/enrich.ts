@@ -15,7 +15,7 @@ import {
 } from "../db/enrichment.js";
 import type { ChunkEnrichment, DocumentProfile, EnrichmentChunk, SectionSummary } from "../db/enrichment.js";
 import { chat } from "../llm/ollamaClient.js";
-import { foregroundIdle } from "../llm/priority.js";
+import { questionsIdle } from "../llm/scheduler.js";
 import {
   CHUNK_CONTEXT_SYSTEM_PROMPT,
   PROFILE_SYSTEM_PROMPT,
@@ -55,14 +55,13 @@ const CHUNK_SCHEMA = {
   required: ["context", "questions"],
 };
 
-/** A background model call: waits for students' answers to finish first. */
+/** A background model call; the GPU queue runs it only when no question is being answered (enrichmentWorker runs as "enrich"). */
 async function backgroundChat(
   system: string,
   user: string,
   options: { format?: Record<string, unknown>; numPredict: number },
   signal?: AbortSignal,
 ): Promise<string> {
-  await foregroundIdle();
   return chat({
     think: false,
     ...(options.format ? { format: options.format } : {}),
@@ -182,7 +181,7 @@ export async function enrichDocument(documentId: number, signal?: AbortSignal): 
   ]);
   const vectors: number[][] = [];
   for (let start = 0; start < texts.length; start += EMBED_BATCH_SIZE) {
-    await foregroundIdle();
+    await questionsIdle();
     vectors.push(...(await generateEmbeddings(texts.slice(start, start + EMBED_BATCH_SIZE))));
   }
 

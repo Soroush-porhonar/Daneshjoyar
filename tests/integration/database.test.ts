@@ -37,8 +37,12 @@ const {
 } = await import(
   "../../src/db/documents.js"
 );
-const { isUpdateProcessed, markUpdateProcessed } = await import("../../src/db/updates.js");
-const { createAnswerLog, getLastAnswerHits, setFeedback } = await import("../../src/db/answerLogs.js");
+const { receiveUpdate, finishUpdate, listUnfinishedUpdates, claimRetry, abandonUpdate, hasLaterMessage } = await import(
+  "../../src/db/updates.js"
+);
+const { countQuestionsToday, createAnswerLog, getLastAnswerHits, setFeedback } = await import(
+  "../../src/db/answerLogs.js"
+);
 const { getChunksByRef, getDocumentChunks, retrieveContext, retrieveRelevantChunks, searchCandidates } = await import(
   "../../src/rag/retrieve.js"
 );
@@ -462,6 +466,38 @@ describe("answer logs and feedback", () => {
     expect(row.rows[0]).toEqual({ feedback: -1, context: [{ page: 14, chunkIndex: 13, isHit: true }] });
   });
 
+  it("stores stage timings when given, and none otherwise", async () => {
+    const alice = await addUser("alice");
+    const timings = { queueMs: 4200, firstTextMs: 6100, generationMs: 4900, promptTokens: 1100, outputTokens: 90 };
+    const timed = await createAnswerLog({ ...log(alice), timings });
+    const untimed = await createAnswerLog(log(alice));
+
+    const { rows } = await pool.query("SELECT id, timings FROM answer_logs WHERE id = ANY($1) ORDER BY id", [
+      [timed, untimed],
+    ]);
+    expect(rows.map((row) => row.timings)).toEqual([timings, null]);
+  });
+
+  it("counts today's questions by the Tehran day, per user", async () => {
+    const alice = await addUser("alice");
+    const bob = await addUser("bob");
+    const today = await createAnswerLog(log(alice));
+    await createAnswerLog(log(alice));
+    const yesterday = await createAnswerLog(log(alice));
+    await createAnswerLog(log(bob));
+    await pool.query(
+      `UPDATE answer_logs SET created_at = (date_trunc('day', now() AT TIME ZONE 'Asia/Tehran') AT TIME ZONE 'Asia/Tehran') - interval '1 minute' WHERE id = $1`,
+      [yesterday],
+    );
+    await pool.query(
+      `UPDATE answer_logs SET created_at = (date_trunc('day', now() AT TIME ZONE 'Asia/Tehran') AT TIME ZONE 'Asia/Tehran') + interval '1 minute' WHERE id = $1`,
+      [today],
+    );
+
+    expect(await countQuestionsToday(alice)).toBe(2);
+    expect(await countQuestionsToday(bob)).toBe(1);
+  });
+
   it("nobody can vote on someone else's answer", async () => {
     const alice = await addUser("alice");
     const bob = await addUser("bob");
@@ -603,14 +639,48 @@ describe("conversation history (what the models see of earlier turns)", () => {
   });
 });
 
-describe("processed updates (no message is handled twice)", () => {
-  it("remembers processed updates and tolerates marking twice", async () => {
-    expect(await isUpdateProcessed(100)).toBe(false);
+describe("update inbox (no message lost, none handled twice)", () => {
+  const text = (updateId: number, chatId = 7) => ({ update_id: updateId, message: { chat: { id: chatId }, text: "سؤال" } });
 
-    await markUpdateProcessed(100);
-    await markUpdateProcessed(100);
+  it("records an update once; a repeat delivery is not new", async () => {
+    expect(await receiveUpdate(text(100))).toBe(true);
+    expect(await receiveUpdate(text(100))).toBe(false);
+  });
 
-    expect(await isUpdateProcessed(100)).toBe(true);
+  it("lists failed updates and stale received ones, not done, abandoned or running ones", async () => {
+    for (const id of [101, 102, 103, 104, 105]) await receiveUpdate(text(id));
+    await finishUpdate(101, true);
+    await finishUpdate(102, false);
+    await abandonUpdate(103);
+    await pool.query(`UPDATE processed_updates SET updated_at = now() - interval '10 minutes' WHERE update_id IN (104, 105)`);
+
+    const unfinished = await listUnfinishedUpdates(2 * 60_000, [105]);
+
+    expect(unfinished.map((update) => [update.updateId, update.status])).toEqual([
+      [102, "failed"],
+      [104, "received"],
+    ]);
+    expect(unfinished[0]!.payload).toEqual(text(102));
+    expect(await listUnfinishedUpdates(2 * 60_000, [])).toHaveLength(3); // 105 too, once it is not running
+  });
+
+  it("a claim counts the attempt and works once", async () => {
+    await receiveUpdate(text(106));
+    await finishUpdate(106, false);
+
+    expect(await claimRetry(106, "failed")).toBe(true);
+    expect(await claimRetry(106, "failed")).toBe(false);
+    const { rows } = await pool.query(`SELECT status, attempts FROM processed_updates WHERE update_id = 106`);
+    expect(rows[0]).toEqual({ status: "received", attempts: 2 });
+  });
+
+  it("knows when the same chat sent a newer text message", async () => {
+    await receiveUpdate(text(107, 70));
+    await receiveUpdate(text(108, 71));
+    expect(await hasLaterMessage(70, 107)).toBe(false);
+
+    await receiveUpdate(text(109, 70));
+    expect(await hasLaterMessage(70, 107)).toBe(true);
   });
 
   it("one conversation per user, however often it is requested", async () => {

@@ -1,6 +1,7 @@
 import { config } from "../config.js";
 import { OllamaError, OllamaTimeoutError } from "../errors.js";
 import { logger } from "../logger.js";
+import { onGpu } from "./scheduler.js";
 
 export interface ChatMessage {
   role: "system" | "user" | "assistant";
@@ -163,6 +164,8 @@ async function postStreamed(
 /**
  * Sends a chat request and returns the trimmed, non-empty answer. With
  * `onDelta` the answer is streamed and `onDelta` sees the text as it grows.
+ * The call waits its turn on the GPU queue (scheduler.ts); its timeout starts
+ * when its turn comes, so waiting behind other students is not a timeout.
  */
 export async function chat(request: ChatRequest): Promise<string> {
   const body = {
@@ -174,10 +177,12 @@ export async function chat(request: ChatRequest): Promise<string> {
     ...(request.format ? { format: request.format } : {}),
     options: { num_ctx: config.llm.numCtx, ...request.options },
   };
-  const signal = withTimeout(request.timeoutMs ?? config.llm.timeoutMs, request.signal);
-  const data = request.onDelta
-    ? await postStreamed(config.llm.url, body, signal, request.onDelta)
-    : await post<OllamaChatResponse>(config.llm.url, body, signal, "chat");
+  const data = await onGpu(() => {
+    const signal = withTimeout(request.timeoutMs ?? config.llm.timeoutMs, request.signal);
+    return request.onDelta
+      ? postStreamed(config.llm.url, body, signal, request.onDelta)
+      : post<OllamaChatResponse>(config.llm.url, body, signal, "chat");
+  }, request.signal);
 
   logger.debug("[LLM] chat finished", {
     doneReason: data.done_reason,

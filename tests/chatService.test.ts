@@ -24,7 +24,11 @@ vi.mock("../src/db/documents.js", () => ({
   findDocumentFilename: vi.fn(),
   deleteDocument: vi.fn(),
 }));
-vi.mock("../src/db/answerLogs.js", () => ({ createAnswerLog: vi.fn(), getLastAnswerHits: vi.fn() }));
+vi.mock("../src/db/answerLogs.js", () => ({
+  createAnswerLog: vi.fn(),
+  getLastAnswerHits: vi.fn(),
+  countQuestionsToday: vi.fn(async () => 0),
+}));
 vi.mock("../src/llm/generalChat.js", () => ({ askAI: vi.fn() }));
 vi.mock("../src/rag/answer.js", () => ({
   answerFromDocuments: vi.fn(),
@@ -59,7 +63,7 @@ const { saveMessage, getRecentMessages } = await import("../src/db/messages.js")
 const { listCompletedFilenames } = await import("../src/db/documents.js");
 const { askAI } = await import("../src/llm/generalChat.js");
 const { answerFromDocuments, prefetchCandidates } = await import("../src/rag/answer.js");
-const { createAnswerLog, getLastAnswerHits } = await import("../src/db/answerLogs.js");
+const { createAnswerLog, getLastAnswerHits, countQuestionsToday } = await import("../src/db/answerLogs.js");
 const { answerDocumentInfo } = await import("../src/rag/documentInfo.js");
 const { answerTransform } = await import("../src/rag/transform.js");
 const { needsRewrite, rewriteQuestion } = await import("../src/rag/rewrite.js");
@@ -68,6 +72,7 @@ const { logger } = await import("../src/logger.js");
 const messages = await import("../src/messages.js");
 const { config } = await import("../src/config.js");
 const { feedbackButtons } = await import("../src/bot/feedback.js");
+const { onGpu, startQuestion } = await import("../src/llm/scheduler.js");
 const streamSettings = config.stream as { mode: string };
 
 const CHAT_ID = 42;
@@ -395,6 +400,67 @@ describe("handleMessage", () => {
     expect(removeButtons).toHaveBeenCalledWith(CHAT_ID, 904);
   });
 
+  describe("daily limit", () => {
+    it("stops answering at the limit, with a message and no model call", async () => {
+      vi.mocked(countQuestionsToday).mockResolvedValueOnce(config.limits.dailyQuestions);
+
+      await handleMessage(CHAT_ID, "LIFO چیه؟");
+
+      expect(lastReply()).toBe(messages.dailyLimitText(config.limits.dailyQuestions));
+      expect(routeMessage).not.toHaveBeenCalled();
+      expect(createAnswerLog).not.toHaveBeenCalled();
+    });
+
+    it("still runs commands at the limit", async () => {
+      vi.mocked(countQuestionsToday).mockResolvedValue(config.limits.dailyQuestions);
+      try {
+        await handleMessage(CHAT_ID, "/help");
+
+        expect(lastReply()).not.toBe(messages.dailyLimitText(config.limits.dailyQuestions));
+      } finally {
+        vi.mocked(countQuestionsToday).mockResolvedValue(0);
+      }
+    });
+  });
+
+  describe("GPU queue", () => {
+    it("says the bot is busy, with no notice, when too many questions are being answered", async () => {
+      const running = Array.from({ length: config.queue.maxActiveQuestions }, () => startQuestion());
+      try {
+        await handleMessage(CHAT_ID, "یه جوک بگو");
+
+        expect(vi.mocked(sendMessage).mock.calls).toHaveLength(1);
+        expect(lastReply()).toBe(messages.BUSY_TEXT);
+        expect(routeMessage).not.toHaveBeenCalled();
+      } finally {
+        running.forEach((finish) => finish());
+      }
+    });
+
+    it("shows the student's place while the question waits, then the thinking text again", async () => {
+      vi.mocked(sendMessage).mockResolvedValueOnce(907);
+      vi.mocked(routeMessage).mockResolvedValue({ route: "chat", retrievalMode: "focused" });
+      vi.mocked(askAI).mockImplementation(() => onGpu(async () => "جواب عمومی"));
+      vi.mocked(prefetchCandidates).mockReturnValue(Promise.resolve({ question: "یه جوک بگو", ranked: [] }));
+      // Another student's call holds the GPU.
+      let release!: () => void;
+      const other = onGpu(() => new Promise<void>((resolve) => (release = resolve)));
+
+      const answering = handleMessage(CHAT_ID, "یه جوک بگو");
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(editMessageText).toHaveBeenCalledWith(CHAT_ID, 907, messages.queuePlaceText(1), expect.anything(), {
+        retry: false,
+      });
+
+      release();
+      await other;
+      await answering;
+      expect(editMessageText).toHaveBeenCalledWith(CHAT_ID, 907, messages.THINKING_NOTICE_TEXT, expect.anything(), {
+        retry: false,
+      });
+    });
+  });
+
   describe("streamed", () => {
     const partial = "این یه جواب نیمه‌کاره است که داره نوشته می‌شه و بیشتر از چهل حرف داره";
     const pause = () => new Promise((resolve) => setTimeout(resolve, 20));
@@ -411,10 +477,14 @@ describe("handleMessage", () => {
       await expect(handleMessage(CHAT_ID, "یه جوک بگو")).resolves.toBe(true);
 
       // The text so far, with the cancel button still on it.
-      expect(editMessageText).toHaveBeenCalledWith(CHAT_ID, 901, partial, [
-        [expect.objectContaining({ callback_data: "cancel" })],
-      ]);
-      expect(vi.mocked(editMessageText).mock.calls.at(-1)).toEqual([CHAT_ID, 901, "جواب عمومی", feedbackButtons(77)]);
+      expect(editMessageText).toHaveBeenCalledWith(
+        CHAT_ID,
+        901,
+        partial,
+        [[expect.objectContaining({ callback_data: "cancel" })]],
+        { retry: false },
+      );
+      expect(vi.mocked(editMessageText).mock.calls.at(-1)).toEqual([CHAT_ID, 901, "جواب عمومی", feedbackButtons(77), {}]);
       expect(sendMessage).toHaveBeenCalledTimes(1); // only the notice
       expect(saveMessage).toHaveBeenLastCalledWith(11, "assistant", "جواب عمومی");
     });
@@ -431,6 +501,7 @@ describe("handleMessage", () => {
         905,
         messages.NO_RELEVANT_CONTENT_TEXT,
         feedbackButtons(77),
+        {},
       ]);
       expect(sendMessage).toHaveBeenCalledTimes(1);
     });
@@ -452,6 +523,26 @@ describe("handleMessage", () => {
         CHAT_ID,
         902,
         `${partial}\n\n${messages.REQUEST_CANCELLED_TEXT}`,
+      ]);
+    });
+
+    it("says the bot is restarting, not 'cancelled', when a shutdown stops the answer", async () => {
+      vi.mocked(sendMessage).mockResolvedValueOnce(906);
+      vi.mocked(routeMessage).mockResolvedValue({ route: "chat", retrievalMode: "focused" });
+      const controller = new AbortController();
+      vi.mocked(askAI).mockImplementation(async (_history, _signal, onDelta) => {
+        onDelta?.(partial);
+        await pause();
+        controller.abort("shutdown");
+        throw new Error("aborted");
+      });
+
+      await handleMessage(CHAT_ID, "یه جوک بگو", controller.signal);
+
+      expect(vi.mocked(editMessageText).mock.calls.at(-1)).toEqual([
+        CHAT_ID,
+        906,
+        `${partial}\n\n${messages.RESTARTING_TEXT}`,
       ]);
     });
 

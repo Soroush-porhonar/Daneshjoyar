@@ -19,6 +19,8 @@ const { documentKind } = await import("../src/rag/documentKind.js");
 const { unlink } = await import("node:fs/promises");
 const { DuplicateDocumentError } = await import("../src/errors.js");
 const messages = await import("../src/messages.js");
+const { config } = await import("../src/config.js");
+const { answerConfirmation } = await import("../src/chat/confirmations.js");
 
 const CHAT = 42;
 const pdf = (size?: number) => ({
@@ -178,5 +180,79 @@ describe("handlePhoto", () => {
 describe("photoFilename", () => {
   it("uses Iran's time (UTC+3:30), in a 24-hour clock", () => {
     expect(photoFilename(new Date("2026-11-04T21:15:00Z"))).toBe("photo-2026-11-05-00-45-00.jpg");
+  });
+});
+
+describe("handleDocument: limits", () => {
+  it("refuses a second file while the first is being read", async () => {
+    let finish!: () => void;
+    vi.mocked(ingestDocument).mockImplementationOnce(
+      () => new Promise((resolve) => (finish = () => resolve({ documentId: 9, pageCount: 3, ocrPages: 0 }))),
+    );
+
+    const first = handleDocument(CHAT, pdf(1234));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await expect(handleDocument(CHAT, { ...pdf(999), file_name: "other.pdf" })).resolves.toBe(true);
+
+    expect(texts()).toContain(messages.UPLOAD_IN_PROGRESS_TEXT);
+    expect(ingestDocument).toHaveBeenCalledTimes(1);
+    finish();
+    await first;
+
+    // Free again once the first is done.
+    await handleDocument(CHAT, { ...pdf(999), file_name: "other.pdf" });
+    expect(ingestDocument).toHaveBeenCalledTimes(2);
+  });
+
+  it("asks before reading a long scan, and stops if the student says no", async () => {
+    const pages = config.limits.ocrConfirmPages + 1;
+    vi.mocked(ingestDocument).mockImplementationOnce(async (_user, _name, _path, onProgress) => {
+      await onProgress?.({ ocrTotal: pages, ocrDone: 0, skipped: 0 });
+      return { documentId: 9, pageCount: pages, ocrPages: pages };
+    });
+    vi.mocked(sendMessage).mockResolvedValue(500);
+
+    const upload = handleDocument(CHAT, pdf(1234));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const question = vi.mocked(sendMessage).mock.calls.at(-1)!;
+    expect(question[1]).toBe(messages.ocrConfirmText(pages, Math.round((pages * config.ocr.secondsPerPage) / 60)));
+    const token = /^ocr:([0-9a-f]{8}):y$/.exec((question[2] as { inline: { callback_data: string }[][] }).inline[0]![0]!.callback_data)![1]!;
+
+    expect(answerConfirmation(token, CHAT, false)).toBe(true);
+    await expect(upload).resolves.toBe(true);
+
+    expect(texts().at(-1)).toBe(messages.OCR_DECLINED_TEXT);
+    vi.mocked(sendMessage).mockReset();
+  });
+
+  it("reads a long scan when the student says yes", async () => {
+    const pages = config.limits.ocrConfirmPages + 1;
+    vi.mocked(ingestDocument).mockImplementationOnce(async (_user, _name, _path, onProgress) => {
+      await onProgress?.({ ocrTotal: pages, ocrDone: 0, skipped: 0 });
+      return { documentId: 9, pageCount: pages, ocrPages: pages };
+    });
+    vi.mocked(sendMessage).mockResolvedValue(500);
+
+    const upload = handleDocument(CHAT, pdf(1234));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const data = (vi.mocked(sendMessage).mock.calls.at(-1)![2] as { inline: { callback_data: string }[][] }).inline[0]![0]!
+      .callback_data;
+    answerConfirmation(data.split(":")[1]!, CHAT, true);
+    await upload;
+
+    expect(texts().at(-1)).toBe(messages.fileProcessedText(pages));
+    vi.mocked(sendMessage).mockReset();
+  });
+
+  it("does not ask for a short scan", async () => {
+    vi.mocked(ingestDocument).mockImplementationOnce(async (_user, _name, _path, onProgress) => {
+      await onProgress?.({ ocrTotal: 3, ocrDone: 0, skipped: 0 });
+      return { documentId: 9, pageCount: 3, ocrPages: 3 };
+    });
+
+    await handleDocument(CHAT, pdf(1234));
+
+    expect(texts()).not.toContain(messages.ocrConfirmText(3, 2));
+    expect(texts().at(-1)).toBe(messages.fileProcessedText(3));
   });
 });

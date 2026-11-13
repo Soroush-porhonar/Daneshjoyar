@@ -51,7 +51,7 @@ describe("createLiveAnswer, edit mode", () => {
     answer.update(words(20));
     await advance(0);
 
-    expect(edits()).toEqual([[CHAT, NOTICE, words(20), cancel]]);
+    expect(edits()).toEqual([[CHAT, NOTICE, words(20), cancel, { retry: false }]]);
     expect(answer.started).toBe(true);
   });
 
@@ -121,7 +121,7 @@ describe("createLiveAnswer, edit mode", () => {
     await expect(answer.finish("جواب نهایی", feedback)).resolves.toBe(true);
     await advance(config.stream.editIntervalMs * 2);
 
-    expect(edits().at(-1)).toEqual([CHAT, NOTICE, "جواب نهایی", feedback]);
+    expect(edits().at(-1)).toEqual([CHAT, NOTICE, "جواب نهایی", feedback, {}]);
     expect(edits()).toHaveLength(2);
   });
 
@@ -131,13 +131,14 @@ describe("createLiveAnswer, edit mode", () => {
     await expect(live().finish("جواب", feedback)).resolves.toBe(false);
   });
 
-  it("finish retries once after a rate limit", async () => {
-    vi.mocked(editMessageText).mockRejectedValueOnce(new BaleApiError("Too Many Requests", 429, 2));
-    const done = live().finish("جواب", feedback);
-    await advance(2_000);
+  it("leaves retrying the final edit to the Bale client; live edits fail at once", async () => {
+    const answer = live();
+    answer.update(words(20));
+    await advance(0);
+    await answer.finish("جواب", feedback);
 
-    await expect(done).resolves.toBe(true);
-    expect(edits()).toHaveLength(2);
+    expect(edits()[0]![4]).toEqual({ retry: false });
+    expect(edits()[1]![4]).toEqual({});
   });
 
   it("ignores Bale's 'message is not modified'", async () => {
@@ -174,7 +175,7 @@ describe("createLiveAnswer, parts mode", () => {
     const answer = live();
     answer.update(`${first}\n\nادامه`);
     await advance(0);
-    expect(edits()).toEqual([[CHAT, NOTICE, first, cancel]]);
+    expect(edits()).toEqual([[CHAT, NOTICE, first, cancel, { retry: false }]]);
 
     answer.update(`${first}\n\nادامه‌ی جواب`);
     await advance(config.stream.editIntervalMs * 2);
@@ -183,7 +184,7 @@ describe("createLiveAnswer, parts mode", () => {
     await answer.finish(`${first}\n\nادامه‌ی جواب کامل`, feedback);
 
     expect(edits()).toHaveLength(2); // the button leaves the first part
-    expect(edits()[1]).toEqual([CHAT, NOTICE, first, undefined]);
+    expect(edits()[1]).toEqual([CHAT, NOTICE, first, undefined, {}]);
     expect(sendMessage).toHaveBeenCalledWith(CHAT, "ادامه‌ی جواب کامل", { inline: feedback });
   });
 

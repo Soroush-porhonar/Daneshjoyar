@@ -273,6 +273,46 @@ export const config = {
   },
 
   /** Upload-time enrichment (src/rag/enrich.ts), in the background after a document is usable. */
+  /**
+   * Graceful shutdown (src/main.ts): running answers get `graceMs` to finish,
+   * then are stopped and get `cleanupMs` to say so. Together under the
+   * container's stop_grace_period (25 s in compose.yaml).
+   */
+  shutdown: { graceMs: 15_000, cleanupMs: 3_000 },
+
+  /** Per-student limits (roadmap Q3). */
+  limits: {
+    /** Questions a day (Tehran day); commands, buttons and uploads do not count. Chosen by the owner. */
+    dailyQuestions: Number(process.env.DAILY_QUESTION_LIMIT ?? 50),
+    /** A scan needing more OCR pages than this (~22 min at secondsPerPage) is confirmed first. */
+    ocrConfirmPages: 30,
+    /** No answer to that question within this time counts as no. */
+    confirmTimeoutMs: 60 * 60_000,
+  },
+
+  /** The GPU queue (src/llm/scheduler.ts, roadmap Q2). */
+  queue: {
+    /**
+     * Questions answered at once, waiting included; the next student is told
+     * the bot is busy. A question takes ~8–10 s of GPU (benchmark 2026-11-13:
+     * router 2.5 s, generation 4.9 s), so the 12th waits about 2 minutes.
+     */
+    maxActiveQuestions: 12,
+    /** Place-in-line edits of the notice at most this often. */
+    placeEditIntervalMs: 3_000,
+  },
+
+  /** The inbox sweeper (src/bot/sweeper.ts, roadmap 8.9). */
+  inbox: {
+    sweepIntervalMs: 60_000,
+    /** A "received" update untouched this long had its work cut off (no answer takes 2 minutes of silence). */
+    staleMs: 2 * 60_000,
+    /** Tries per update, the first included. */
+    maxAttempts: 3,
+    /** A message or button press older than this is not answered late; the student is asked to resend. */
+    maxAgeMs: 15 * 60_000,
+  },
+
   enrichment: {
     /** ENRICHMENT=false: new uploads are not queued (npm run enrich still works). */
     enabled: process.env.ENRICHMENT !== "false",
@@ -302,6 +342,12 @@ export const config = {
     maxFileSize: 20 * 1024 * 1024,
     maxMessageLength: 4000,
     apiTimeoutMs: 30_000,
+    /** getUpdates long-poll wait; Bale caps it at about 25 s (see getUpdates). */
+    pollTimeoutSeconds: 25,
+    /** Waits before each repeat of a failed call (callBale); three repeats at most. */
+    retryDelaysMs: [1_000, 2_000, 4_000],
+    /** A longer retry_after is cut to this, so a student is not kept waiting for minutes. */
+    maxRetryAfterMs: 30_000,
     downloadTimeoutMs: 60_000,
   },
 } as const;

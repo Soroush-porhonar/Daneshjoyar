@@ -4,16 +4,28 @@ import { dispatchUpdate } from "./dispatcher.js";
 
 const ERROR_BACKOFF_MS = 3000;
 
-export async function startPolling(): Promise<never> {
+let stopped = false;
+
+/**
+ * Stops polling (graceful shutdown). A long poll in flight is left to return;
+ * its updates are not dispatched and the offset is not confirmed, so Bale
+ * delivers them again after the restart.
+ */
+export function stopPolling(): void {
+  stopped = true;
+}
+
+export async function startPolling(): Promise<void> {
   let offset = 0;
 
   logger.info("Bale bot is starting...");
 
-  while (true) {
+  while (!stopped) {
     try {
       const updates = await getUpdates(offset);
 
       for (const update of updates) {
+        if (stopped) return;
         logger.info("Received update:", update.update_id);
 
         try {

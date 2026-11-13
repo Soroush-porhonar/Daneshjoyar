@@ -23,14 +23,27 @@ export interface NewAnswerLog {
   context: LoggedChunk[];
   answer: string;
   latencyMs: number;
+  /** Stage timings (milliseconds) and token counts; absent where not measured. */
+  timings?: AnswerTimings;
+}
+
+export interface AnswerTimings {
+  /** Waiting for the GPU behind other students. */
+  queueMs?: number;
+  /** From the thinking notice to the first text shown (streamed answers). */
+  firstTextMs?: number;
+  /** The answer call: reading the prompt and writing. */
+  generationMs?: number;
+  promptTokens?: number;
+  outputTokens?: number;
 }
 
 export async function createAnswerLog(log: NewAnswerLog): Promise<number> {
   const result = await pool.query<{ id: number }>(
     `INSERT INTO answer_logs
        (user_id, question, rewritten_question, route, retrieval_mode, document_ids,
-        context, answer, latency_ms)
-     VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9)
+        context, answer, latency_ms, timings)
+     VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10::jsonb)
      RETURNING id`,
     [
       log.userId,
@@ -42,10 +55,23 @@ export async function createAnswerLog(log: NewAnswerLog): Promise<number> {
       JSON.stringify(log.context),
       log.answer,
       log.latencyMs,
+      log.timings ? JSON.stringify(log.timings) : null,
     ],
   );
 
   return result.rows[0]!.id;
+}
+
+/** Questions the user asked today, by the Tehran clock (the daily limit resets at midnight there). */
+export async function countQuestionsToday(userId: number): Promise<number> {
+  const result = await pool.query<{ count: string }>(
+    `SELECT count(*) FROM answer_logs
+     WHERE user_id = $1
+       AND created_at >= (date_trunc('day', now() AT TIME ZONE 'Asia/Tehran') AT TIME ZONE 'Asia/Tehran')`,
+    [userId],
+  );
+
+  return Number(result.rows[0]?.count ?? 0);
 }
 
 /** The search hits behind the user's latest answer, when it came from documents. */

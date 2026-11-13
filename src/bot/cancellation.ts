@@ -31,3 +31,19 @@ export function finishRequest(
     activeRequests.delete(chatId);
   }
 }
+
+let shuttingDown = false;
+
+/** True once the bot is stopping: aborted work is then left for the retry after the restart. */
+export const isShuttingDown = (): boolean => shuttingDown;
+
+/**
+ * Stops every running request because the bot is shutting down. Their
+ * updates stay "received" in the inbox and are answered after the restart;
+ * the students are not told "cancelled".
+ */
+export function abortAllForShutdown(): void {
+  shuttingDown = true;
+  for (const controller of activeRequests.values()) controller.abort("shutdown");
+  activeRequests.clear();
+}

@@ -23,6 +23,8 @@ export interface LiveAnswer {
   update(text: string): void;
   /** True once part of the answer is on screen. */
   readonly started: boolean;
+  /** Milliseconds from creation to the first text shown; undefined if none yet. */
+  readonly firstTextMs: number | undefined;
   /** Stops showing new text (cancel or failure) and waits for a call in flight. */
   stop(): Promise<void>;
   /** What the last message shows of the answer ("" if nothing yet). */
@@ -58,6 +60,7 @@ export function createLiveAnswer(chatId: number, noticeId: number, options: Opti
   const liveButtons = options.liveButtons;
   // Created right after the notice is sent: the first edit's delay is the wait for the first text.
   const createdAt = Date.now();
+  let firstTextMs: number | undefined;
   const ids: number[] = [noticeId];
   // What each message shows now.
   const shown: { text: string; buttons: string }[] = [];
@@ -75,7 +78,7 @@ export function createLiveAnswer(chatId: number, noticeId: number, options: Opti
   const shownText = () => shown.map((part) => part.text).join("");
 
   /** Makes the messages show `segments`, `buttons` on the last; sends new messages as needed. */
-  async function render(segments: string[], buttons: InlineButton[][] | undefined): Promise<void> {
+  async function render(segments: string[], buttons: InlineButton[][] | undefined, live = false): Promise<void> {
     for (const [index, text] of segments.entries()) {
       const wanted = index === segments.length - 1 ? buttons : undefined;
       const current = shown[index];
@@ -83,7 +86,8 @@ export function createLiveAnswer(chatId: number, noticeId: number, options: Opti
       if (index < ids.length) {
         if (current?.text === text && current.buttons === buttonsKey(wanted)) continue;
         try {
-          await editMessageText(chatId, ids[index]!, text, wanted);
+          // Live edits fail at once on a rate limit (call() backs off); the final one is retried by callBale.
+          await editMessageText(chatId, ids[index]!, text, wanted, live ? { retry: false } : {});
         } catch (error: unknown) {
           if (!isNotModified(error)) throw error;
         }
@@ -142,8 +146,11 @@ export function createLiveAnswer(chatId: number, noticeId: number, options: Opti
     const parts = mode === "parts" ? segments.map((part) => part.trim()) : segments;
     const first = shown.length === 0;
     inFlight = call(async () => {
-      await render(parts, liveButtons);
-      if (first) logger.info("[Stream] First text shown", { chatId, ms: Date.now() - createdAt });
+      await render(parts, liveButtons, true);
+      if (first) {
+        firstTextMs = Date.now() - createdAt;
+        logger.info("[Stream] First text shown", { chatId, ms: firstTextMs });
+      }
     }).finally(() => {
       inFlight = null;
       schedule();
@@ -171,6 +178,9 @@ export function createLiveAnswer(chatId: number, noticeId: number, options: Opti
     get started() {
       return shown.length > 0;
     },
+    get firstTextMs() {
+      return firstTextMs;
+    },
     get lastMessageText() {
       return shown.at(-1)?.text ?? "";
     },
@@ -188,19 +198,11 @@ export function createLiveAnswer(chatId: number, noticeId: number, options: Opti
           ? [...sentBefore, ...splitMessage(text.slice(already.length).trim())]
           : splitMessage(text);
 
-      const attempt = () => render(segments, buttons);
+      // callBale already repeats it after a rate limit or a server error.
       try {
-        await attempt();
+        await render(segments, buttons);
         return true;
       } catch (error: unknown) {
-        if (error instanceof BaleApiError && error.isRateLimit) {
-          logger.warn("[Stream] Bale rate limit on the final answer", { chatId });
-          await new Promise((resolve) => setTimeout(resolve, (error.retryAfterSeconds ?? 5) * 1000));
-          return attempt().then(
-            () => true,
-            () => false,
-          );
-        }
         logger.warn("[Stream] Final answer could not be shown in place:", { chatId, error });
         return false;
       }
