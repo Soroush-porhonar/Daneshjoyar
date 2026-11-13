@@ -51,6 +51,7 @@ import type { CitationCheck, NumberedSource } from "./citationCheck.js";
 import { RESULTS_DIR, evalUser, previousHits, previousResult, saveResult } from "./evalHelpers.js";
 import { answerFromDocuments, formatChunks, isRefusal, numberSources } from "../src/rag/answer.js";
 import type { AnswerTrace } from "../src/rag/answer.js";
+import { answerDocumentInfo } from "../src/rag/documentInfo.js";
 import { rankedCandidates } from "../src/rag/retrieve.js";
 import { rewriteQuestion } from "../src/rag/rewrite.js";
 import type { HistoryMessage } from "../src/rag/rewrite.js";
@@ -264,7 +265,7 @@ function report(rows: Row[], details: Detail[]): void {
           `wrong refusals ${count("refusal", "WRONG")}  `
         : "") +
       (scored > 0 ? `citations on topic ${supported}/${scored} (${Math.round((supported / scored) * 100)}%)  ` : "") +
-      `cites ${count("cites", "yes")}/${positives}  ` +
+      `cites ${count("cites", "yes")}/${count("cites", "yes") + count("cites", "NO")}  ` +
       `inline [n] ${count("inline", "yes")}/${count("inline", "yes") + count("inline", "NO")}  ` +
       `keywords ${count("keywords", "yes")}/${positives}  ` +
       `refused negatives ${count("refused", "yes")}/${negatives}  ` +
@@ -340,11 +341,16 @@ for (const q of questions) {
       : undefined;
   // The trace holds the chunks the model was really given (none for a whole-document summary).
   const trace: AnswerTrace = {};
-  const answer = await answerFromDocuments(document.user_id, question, mode, {
-    ...scope,
-    ...(ranked ? { prefetch: Promise.resolve({ question, ranked }) } : {}),
-    trace,
-  });
+  // A question about the file itself goes to its own route, pinned to that file
+  // ("this handout" names no file; the student means this one).
+  const answer =
+    q.route === "document_info"
+      ? await answerDocumentInfo(document.user_id, question, { documentId: document.id, trace })
+      : await answerFromDocuments(document.user_id, question, mode, {
+          ...scope,
+          ...(ranked ? { prefetch: Promise.resolve({ question, ranked }) } : {}),
+          trace,
+        });
   const seconds = (performance.now() - start) / 1000;
 
   const context = trace.context ?? [];

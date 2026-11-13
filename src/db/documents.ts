@@ -106,6 +106,22 @@ export async function listCompletedDocuments(userId: number): Promise<CompletedD
   return result.rows;
 }
 
+export interface DocumentProfile {
+  title: string | null;
+  summary: string | null;
+  topics: string[] | null;
+}
+
+/** A document's enrichment profile (all null until enriched); null if it is not the user's. */
+export async function getDocumentProfile(userId: number, documentId: number): Promise<DocumentProfile | null> {
+  const result = await pool.query<DocumentProfile>(
+    `SELECT title, summary, topics FROM documents WHERE id = $1 AND user_id = $2`,
+    [documentId, userId],
+  );
+
+  return result.rows[0] ?? null;
+}
+
 /**
  * Names of the user's ready documents, for the router. A photo's name says
  * nothing about it ("capture_6791184992758507927.jpg", measured: a question on

@@ -16,7 +16,7 @@ export interface NewAnswerLog {
   userId: number;
   question: string;
   rewrittenQuestion: string | null;
-  route: "document" | "chat";
+  route: "document" | "document_info" | "chat";
   retrievalMode: string | null;
   /** The documents the answer drew on. */
   documentIds: number[];
@@ -67,7 +67,7 @@ export async function getLastAnswerHits(
 
   const row = result.rows[0];
 
-  if (!row || row.route !== "document") return [];
+  if (!row || row.route === "chat") return [];
 
   // Older rows name the document once for the whole answer.
   return row.context.flatMap((chunk) => {

@@ -749,10 +749,31 @@
     "id": "covid-author",
     "type": "paraphrase",
     "mode": "focused",
+    "route": "document_info",
     "question": "نویسنده این متن کیست و چه تخصصی دارد؟",
     "expectedPages": [1],
     "mustInclude": ["رئیسی"],
     "filename": "4_6023995269647959615.pdf"
+  },
+  {
+    "id": "info-lisbon-about",
+    "type": "paraphrase",
+    "mode": "focused",
+    "route": "document_info",
+    "question": "این جزوه درباره چیه؟",
+    "expectedPages": [1],
+    "mustInclude": ["لیسبون", "۱۷۵۵"],
+    "filename": "زلزلهٔ لیسبون ۱۷۵۵.pdf"
+  },
+  {
+    "id": "info-expert-topics",
+    "type": "paraphrase",
+    "mode": "focused",
+    "route": "document_info",
+    "question": "سرفصل‌های این جزوه چیا هستن؟",
+    "expectedPages": [1],
+    "mustInclude": ["خبره"],
+    "filename": "CamScanner 05-18-2025 16.58.pdf"
   },
   {
     "id": "covid-emergence",

@@ -452,7 +452,7 @@
       }
     ],
     "message": "این جزوه راجع به چیه؟ یه اطلاعات کلی بهم بده لطفا...",
-    "route": "document"
+    "route": "document_info"
   },
   {
     "id": "real-whose-handout",
@@ -469,7 +469,7 @@
       }
     ],
     "message": "این جزوه مال کیست؟",
-    "route": "document"
+    "route": "document_info"
   },
   {
     "id": "real-about-short",
@@ -485,11 +485,11 @@
       }
     ],
     "message": "درباره چیه",
-    "route": "document"
+    "route": "document_info"
   },
-  { "id": "about-what-plain", "kind": "about_document", "message": "این فایل درباره چیه؟", "route": "document" },
-  { "id": "about-topics", "kind": "about_document", "message": "سرفصل‌های این جزوه چیا هستن؟", "route": "document" },
-  { "id": "about-author", "kind": "about_document", "message": "نویسنده این جزوه کیه؟", "route": "document" },
+  { "id": "about-what-plain", "kind": "about_document", "message": "این فایل درباره چیه؟", "route": "document_info" },
+  { "id": "about-topics", "kind": "about_document", "message": "سرفصل‌های این جزوه چیا هستن؟", "route": "document_info" },
+  { "id": "about-author", "kind": "about_document", "message": "نویسنده این جزوه کیه؟", "route": "document_info" },
   {
     "id": "real-three-sentence-summary",
     "kind": "transform",

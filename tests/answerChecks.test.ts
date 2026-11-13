@@ -188,6 +188,16 @@ describe("scoreAnswer", () => {
   const withSources = (body: string, page: number) =>
     `${body}\n\n${SOURCES_HEADING}\n- [1] ${sourceLineText("notes.pdf", page)}`;
 
+  it("does not ask an answer about the file itself for citations", () => {
+    const info = { ...question, route: "document_info" as const };
+    expect(scoreAnswer(info, "📄 درباره «notes.pdf»:\n\nاین جزوه درباره آخرین مباحث پشته است.")).toMatchObject({
+      cites: null,
+      inline: null,
+      passed: true,
+    });
+    expect(scoreAnswer(info, "این جزوه درباره صف است.").passed).toBe(false); // keyword missing
+  });
+
   it("passes an answer that cites the expected page and has the keywords", () => {
     expect(scoreAnswer(question, withSources("آخرین عنصر اول خارج می‌شود [1].", 3))).toMatchObject({
       cites: true,

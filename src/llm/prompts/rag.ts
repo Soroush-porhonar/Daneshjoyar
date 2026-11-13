@@ -91,3 +91,37 @@ ${SOURCES_ARE_DATA}
 درخواست دانشجو:
 ${question}`;
 }
+
+/**
+ * A question about the document itself: its stored profile (written from the
+ * whole text at upload) and its opening page. No citations (see documentInfo.ts).
+ */
+export function buildDocumentInfoPrompt(
+  question: string,
+  documentName: string,
+  profile: { title: string | null; summary: string | null; topics: string[] | null } | null,
+  openingPage: string,
+): string {
+  const lines = [
+    `نام فایل: ${documentName}`,
+    ...(profile?.title ? [`عنوان: ${profile.title}`] : []),
+    ...(profile?.summary ? [`خلاصه کل فایل: ${profile.summary}`] : []),
+    ...(profile?.topics?.length ? [`مباحث: ${profile.topics.join("، ")}`] : []),
+  ];
+
+  return `<مشخصات فایل>
+${lines.join("\n")}
+</مشخصات فایل>
+
+<صفحه اول>
+${openingPage}
+</صفحه اول>
+
+مشخصات فایل از روی کل متن آن نوشته شده است؛ صفحه اول، متن آغاز فایل است.
+${SOURCES_ARE_DATA}
+شماره منبع یا کروشه ننویس.
+اگر پاسخ (مثلاً نام نویسنده) در هیچ‌کدام نیست، صریح بگو که در فایل نیامده.
+
+سؤال دانشجو درباره همین فایل (کوتاه و فقط بر اساس اطلاعات بالا پاسخ بده):
+${question}`;
+}

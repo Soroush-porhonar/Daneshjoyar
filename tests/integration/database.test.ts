@@ -30,6 +30,7 @@ const {
   failInterruptedDocuments,
   findDocumentFilename,
   findDuplicateDocument,
+  getDocumentProfile,
   listCompletedDocuments,
   listCompletedFilenames,
 } = await import(
@@ -128,6 +129,18 @@ describe("user isolation (one student must never see another's documents)", () =
     expect(await findDocumentFilename(alice, bobsDocument)).toBeNull();
     expect(await deleteDocument(alice, bobsDocument)).toBe(false);
     expect(await findDocumentFilename(bob, bobsDocument)).toBe("bob.pdf");
+  });
+
+  it("cannot read another user's document profile (questions about a document itself)", async () => {
+    const alice = await addUser("alice");
+    const bob = await addUser("bob");
+    const bobsDocument = await addDocument(bob, "bob.pdf", [1]);
+    await pool.query(`UPDATE documents SET title = 'جزوه باب', summary = 'خلاصه', topics = '{پشته}' WHERE id = $1`, [
+      bobsDocument,
+    ]);
+
+    expect(await getDocumentProfile(alice, bobsDocument)).toBeNull();
+    expect(await getDocumentProfile(bob, bobsDocument)).toEqual({ title: "جزوه باب", summary: "خلاصه", topics: ["پشته"] });
   });
 });
 

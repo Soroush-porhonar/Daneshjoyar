@@ -4,7 +4,17 @@ import { chat } from "../llm/ollamaClient.js";
 import { buildRouterSystemPrompt } from "../llm/prompts/router.js";
 import { cleanRewrite } from "./rewrite.js";
 
-export type MessageRoute = "document" | "chat";
+/**
+ * document_info: a question about a document itself (what it is about, who
+ * wrote it, its topics). Decided by a rule (isDocumentInfoQuestion in
+ * documentInfo.ts), not by the router: as a third router value it got 3 of 6
+ * such messages right (none of the 3 real ones) and cost route+mode 94 -> 85%
+ * on the other cases (eval:router 2026-11-13).
+ */
+export type MessageRoute = "document" | "document_info" | "chat";
+
+/** What the router model may answer. */
+const ROUTER_ROUTES = ["document", "chat"] as const;
 
 export type RetrievalMode = "focused" | "multi_part" | "broad";
 
@@ -38,7 +48,7 @@ const RETRIEVAL_MODES: readonly RetrievalMode[] = [
 const ROUTER_SCHEMA = {
   type: "object",
   properties: {
-    route: { type: "string", enum: ["document", "chat"] },
+    route: { type: "string", enum: ROUTER_ROUTES },
     retrievalMode: { type: "string", enum: RETRIEVAL_MODES },
     dependsOnHistory: { type: "boolean" },
     standaloneQuestion: { type: "string" },

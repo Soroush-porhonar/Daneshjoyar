@@ -242,6 +242,8 @@ export const NO_RELEVANT_CONTENT_TEXT =
 /** First line of a summary: the bot picked the document, so it says which. */
 export const summaryHeaderText = (filename: string): string => `📄 خلاصه «${filename}»:`;
 
+export const documentInfoHeaderText = (filename: string): string => `📄 درباره «${filename}»:`;
+
 export const SOURCES_HEADING = "**منابع:**";
 
 export const sourceLineText = (

@@ -38,7 +38,7 @@ export interface RouterCase {
   id: string;
   message: string;
   history?: HistoryMessage[];
-  route: "document" | "chat";
+  route: "document" | "document_info" | "chat";
   /**
    * Document cases: the right retrieval mode, or several acceptable ones.
    * Left out when only the route matters (questions about the handout itself).
@@ -50,7 +50,8 @@ export interface RouterCase {
   dependsOnHistory?: boolean;
 }
 
-const routeLabel = (route: string, mode?: string) => (route === "chat" ? "chat" : `doc:${mode}`);
+const routeLabel = (route: string, mode?: string) =>
+  route === "chat" ? "chat" : route === "document_info" ? "info" : `doc:${mode}`;
 
 /**
  * Compares the router's decision with a case's label. With several accepted
@@ -59,7 +60,7 @@ const routeLabel = (route: string, mode?: string) => (route === "chat" ? "chat" 
  */
 export function scoreRoute(
   expected: Pick<RouterCase, "route" | "mode">,
-  actual: { route: "document" | "chat"; retrievalMode: RouterMode },
+  actual: { route: "document" | "document_info" | "chat"; retrievalMode: RouterMode },
 ): { routeOk: boolean; exactOk: boolean; expectedLabel: string; actualLabel: string } {
   const accepted = expected.mode === undefined ? [] : [expected.mode].flat();
   const modeOk = accepted.length === 0 || accepted.includes(actual.retrievalMode);
@@ -67,7 +68,7 @@ export function scoreRoute(
 
   return {
     routeOk,
-    exactOk: routeOk && (expected.route === "chat" || modeOk),
+    exactOk: routeOk && (expected.route !== "document" || modeOk),
     expectedLabel: routeLabel(
       expected.route,
       actual.route === "document" && modeOk ? actual.retrievalMode : (accepted[0] ?? "focused"),

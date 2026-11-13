@@ -17,12 +17,14 @@ import { logDatabaseError } from "../errors.js";
 import { askAI } from "../llm/generalChat.js";
 import { logger } from "../logger.js";
 import { answerFromDocuments, prefetchCandidates } from "../rag/answer.js";
+import { answerDocumentInfo, isDocumentInfoQuestion } from "../rag/documentInfo.js";
 import type { AnswerTrace } from "../rag/answer.js";
 import { createAnswerLog, getLastAnswerHits } from "../db/answerLogs.js";
 import type { NewAnswerLog } from "../db/answerLogs.js";
 import { feedbackButtons } from "../bot/feedback.js";
 import { needsRewrite, rewriteQuestion } from "../rag/rewrite.js";
 import { resolveRoute, routeMessage } from "../rag/router.js";
+import type { MessageClassification } from "../rag/router.js";
 import { startForegroundWork } from "../llm/priority.js";
 
 interface Session {
@@ -115,7 +117,10 @@ async function composeAnswer(
   // time for standalone questions, which most are).
   const prefetch = prefetchCandidates(userId, text);
   prefetch.catch(() => undefined); // may go unused (follow-ups); its failure is handled where it is awaited
-  const routed = await routeMessage(text, documentNames, previous);
+  // A question about a document itself is recognised by a rule, without the router.
+  const routed: MessageClassification = isDocumentInfoQuestion(text)
+    ? { route: "document_info", retrievalMode: "focused", dependsOnHistory: false, standaloneQuestion: null }
+    : await routeMessage(text, documentNames, previous);
   // The router decides whether the message depends on the conversation. The
   // length rule (needsRewrite) is only the fallback when it gave no decision: it
   // rewrote every short standalone question (20 of 20, eval:router 2026-11-12).
@@ -127,7 +132,7 @@ async function composeAnswer(
       ? resolveRoute(routed, (await prefetch.catch(() => null))?.ranked[0]?.rerankScore)
       : routed;
 
-  if (classification.route === "document") {
+  if (classification.route !== "chat") {
     const question = followUp
       ? (routed.standaloneQuestion ?? (await rewriteQuestion(text, previous, signal, true)))
       : text;
@@ -138,20 +143,20 @@ async function composeAnswer(
       ? prefetchCandidates(userId, question, await getLastAnswerHits(userId).catch(() => null))
       : prefetch;
     const trace: AnswerTrace = {};
-    const answer = await answerFromDocuments(
-      userId,
-      question,
-      classification.retrievalMode,
-      { ...(signal ? { signal } : {}), ...(search ? { prefetch: search } : {}), trace },
-    );
+    const options = { ...(signal ? { signal } : {}), prefetch: search, trace };
+    // Questions about a document itself are answered from its profile and opening page.
+    const answer =
+      classification.route === "document_info"
+        ? await answerDocumentInfo(userId, question, options)
+        : await answerFromDocuments(userId, question, classification.retrievalMode, options);
 
     return {
       answer,
       log: {
         question: text,
         rewrittenQuestion: question === text ? null : question,
-        route: "document",
-        retrievalMode: classification.retrievalMode,
+        route: classification.route,
+        retrievalMode: classification.route === "document" ? classification.retrievalMode : null,
         documentIds: trace.documentIds ?? [],
         context: (trace.context ?? []).map((chunk) => ({
           page: chunk.pageNumber,

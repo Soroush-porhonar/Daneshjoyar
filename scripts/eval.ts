@@ -65,6 +65,8 @@ interface EvalQuestion {
   parts?: number[][];
   tags?: string[];
   holdout?: boolean;
+  /** "document_info": answered from the file's profile with no search, so not a retrieval question. */
+  route?: "document_info";
 }
 
 interface Row {
@@ -135,7 +137,8 @@ const pinned = new Map(
 );
 
 const allQuestions = JSON.parse(await readFile("eval/questions.json", "utf-8")) as EvalQuestion[];
-const questions = allQuestions.filter((q) => !only || q.id.includes(only));
+// Questions about a file itself are not searched (eval:answers covers them).
+const questions = allQuestions.filter((q) => q.route !== "document_info" && (!only || q.id.includes(only)));
 /** Whose copies of the eval documents are searched (--user 42 for the distractor run). */
 const evalUserId = await evalUser(args, allQuestions.map((q) => q.filename));
 console.log(`Eval user: ${evalUserId}`);

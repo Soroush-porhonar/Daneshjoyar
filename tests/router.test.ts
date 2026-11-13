@@ -44,6 +44,7 @@ describe("parseClassification", () => {
   it.each([
     "not json",
     '{"route":"other","retrievalMode":"focused"}',
+    '{"route":"document_info","retrievalMode":"focused"}',
     '{"route":"document","retrievalMode":"huge"}',
     '{"route":"document"}',
   ])("rejects %s", (content) => {

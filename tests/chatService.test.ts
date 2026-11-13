@@ -24,6 +24,11 @@ vi.mock("../src/rag/answer.js", () => ({
   answerFromDocuments: vi.fn(),
   prefetchCandidates: vi.fn(),
 }));
+// Keep the real rule that recognises questions about a document itself; fake the answer.
+vi.mock("../src/rag/documentInfo.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/rag/documentInfo.js")>()),
+  answerDocumentInfo: vi.fn(),
+}));
 // Keep the real needsRewrite (which messages count as follow-ups); fake the LLM call.
 vi.mock("../src/rag/rewrite.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/rag/rewrite.js")>()),
@@ -44,6 +49,7 @@ const { listCompletedFilenames } = await import("../src/db/documents.js");
 const { askAI } = await import("../src/llm/generalChat.js");
 const { answerFromDocuments, prefetchCandidates } = await import("../src/rag/answer.js");
 const { createAnswerLog, getLastAnswerHits } = await import("../src/db/answerLogs.js");
+const { answerDocumentInfo } = await import("../src/rag/documentInfo.js");
 const { needsRewrite, rewriteQuestion } = await import("../src/rag/rewrite.js");
 const { routeMessage } = await import("../src/rag/router.js");
 const { logger } = await import("../src/logger.js");
@@ -160,6 +166,23 @@ describe("handleMessage", () => {
       "focused",
       expect.objectContaining({ prefetch: early }),
     );
+  });
+
+  it("answers a question about the document itself from its profile, and logs that route", async () => {
+    const question = "نویسنده این جزوه کیه؟";
+    vi.mocked(getRecentMessages).mockResolvedValue([{ role: "user", content: question }]);
+    vi.mocked(answerDocumentInfo).mockResolvedValue("درباره جزوه");
+
+    await expect(handleMessage(CHAT_ID, question)).resolves.toBe(true);
+
+    expect(routeMessage).not.toHaveBeenCalled();
+
+    expect(answerDocumentInfo).toHaveBeenCalledWith(USER_ID, question, expect.objectContaining({ trace: expect.anything() }));
+    expect(answerFromDocuments).not.toHaveBeenCalled();
+    expect(createAnswerLog).toHaveBeenCalledWith(
+      expect.objectContaining({ route: "document_info", retrievalMode: null, answer: "درباره جزوه" }),
+    );
+    expect(lastReply()).toBe("درباره جزوه");
   });
 
   it("still answers a follow-up when the previous answer cannot be read", async () => {

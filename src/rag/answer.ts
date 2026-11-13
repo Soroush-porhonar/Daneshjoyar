@@ -43,7 +43,7 @@ const GENERATION_OPTIONS = {
 };
 
 /** With a `trace`, the call's token counts and timings are recorded on it. */
-function generate(
+export function generate(
   system: string,
   user: string,
   signal?: AbortSignal,
