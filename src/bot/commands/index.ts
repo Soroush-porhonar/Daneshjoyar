@@ -5,8 +5,9 @@ import {
   documentsCommand,
 } from "./documents.js";
 import { aboutCommand, helpCommand, startCommand } from "./info.js";
+import { newTopicCommand } from "./topic.js";
 import type { CommandContext, CommandHandler, CommandReply } from "./types.js";
-import { MENU_ABOUT, MENU_DOCUMENTS, MENU_HELP } from "../../messages.js";
+import { MENU_ABOUT, MENU_DOCUMENTS, MENU_HELP, MENU_NEW_TOPIC } from "../../messages.js";
 
 const COMMANDS: Record<string, CommandHandler> = {
   "/start": startCommand,
@@ -16,10 +17,12 @@ const COMMANDS: Record<string, CommandHandler> = {
   "/delete": deleteCommand,
   "/confirm_delete": confirmDeleteCommand,
   "/cancel_delete": cancelDeleteCommand,
+  "/new": newTopicCommand,
   // Main menu keyboard buttons arrive as their label text.
   [MENU_DOCUMENTS]: documentsCommand,
   [MENU_HELP]: helpCommand,
   [MENU_ABOUT]: aboutCommand,
+  [MENU_NEW_TOPIC]: newTopicCommand,
 };
 
 export interface ParsedCommand {

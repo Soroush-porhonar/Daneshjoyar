@@ -134,6 +134,14 @@ export const config = {
     /** Broad mode: max characters of PDF text per extraction batch (~2.8 chars/token). */
     broadBatchChars: 9000,
     historyLimit: 10,
+    /**
+     * Earlier turns older than this are not shown to the router, the rewrite or
+     * general chat: each student has one conversation for ever, so a question
+     * days later was read as a follow-up of an old topic (roadmap R5). Not an
+     * eval number: eval histories are always recent. "🆕 موضوع جدید" / /new
+     * starts a fresh history at once.
+     */
+    historyMaxAgeMinutes: Number(process.env.HISTORY_MAX_AGE_MINUTES ?? 60),
   },
 
   ocr: {

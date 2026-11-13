@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { parseCommand } from "../src/bot/commands/index.js";
-import { MENU_ABOUT, MENU_DOCUMENTS, MENU_HELP } from "../src/messages.js";
+import { MENU_ABOUT, MENU_DOCUMENTS, MENU_HELP, MENU_NEW_TOPIC } from "../src/messages.js";
+import { newTopicCommand } from "../src/bot/commands/topic.js";
 
 describe("parseCommand", () => {
   it("returns null for plain text", () => {
@@ -32,6 +33,11 @@ describe("parseCommand", () => {
     expect(parseCommand(MENU_DOCUMENTS)).not.toBeNull();
     expect(parseCommand(MENU_HELP)).not.toBeNull();
     expect(parseCommand(MENU_ABOUT)).not.toBeNull();
+  });
+
+  it("starts a new topic from the menu button or /new", () => {
+    expect(parseCommand(MENU_NEW_TOPIC)?.handler).toBe(newTopicCommand);
+    expect(parseCommand("/new")?.handler).toBe(newTopicCommand);
   });
 
   it("does not treat a question that merely mentions a menu label as a command", () => {

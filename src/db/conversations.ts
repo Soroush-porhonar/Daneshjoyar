@@ -22,3 +22,8 @@ export async function findOrCreateConversation(
 
   return conversation.id;
 }
+
+/** Starts a new topic: earlier messages are no longer part of the history the models see. */
+export async function startNewTopic(conversationId: number): Promise<void> {
+  await pool.query(`UPDATE conversations SET history_start = NOW() WHERE id = $1`, [conversationId]);
+}

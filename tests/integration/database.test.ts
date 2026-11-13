@@ -24,7 +24,8 @@ vi.mock("../../src/rag/pdf.js", () => ({ openPdf: vi.fn() }));
 
 const { pool } = await import("../../src/db/pool.js");
 const { findOrCreateUser } = await import("../../src/db/users.js");
-const { findOrCreateConversation } = await import("../../src/db/conversations.js");
+const { findOrCreateConversation, startNewTopic } = await import("../../src/db/conversations.js");
+const { getRecentMessages } = await import("../../src/db/messages.js");
 const {
   deleteDocument,
   failInterruptedDocuments,
@@ -565,6 +566,40 @@ describe("follow-ups: the previous answer's chunks as candidates", () => {
     await addDocument(bob, "bob.pdf", [1]);
 
     await expect(retrieveContext(alice, "#1", "focused")).resolves.toEqual([]);
+  });
+});
+
+describe("conversation history (what the models see of earlier turns)", () => {
+  async function addMessage(conversationId: number, role: "user" | "assistant", content: string, minutesAgo = 0) {
+    await pool.query(
+      `INSERT INTO messages (conversation_id, role, content, created_at) VALUES ($1, $2, $3, NOW() - make_interval(mins => $4))`,
+      [conversationId, role, content, minutesAgo],
+    );
+  }
+
+  it("leaves out turns older than the age limit", async () => {
+    const alice = await addUser("alice");
+    const conversation = await findOrCreateConversation(alice);
+    await addMessage(conversation, "user", "سؤال دیروز", 24 * 60);
+    await addMessage(conversation, "assistant", "جواب دیروز", 24 * 60);
+    await addMessage(conversation, "user", "سؤال الان");
+
+    expect(await getRecentMessages(conversation, 10, 60)).toEqual([{ role: "user", content: "سؤال الان" }]);
+  });
+
+  it("starts afresh after a new topic, only in that student's conversation", async () => {
+    const alice = await addUser("alice");
+    const bob = await addUser("bob");
+    const alices = await findOrCreateConversation(alice);
+    const bobs = await findOrCreateConversation(bob);
+    await addMessage(alices, "user", "قبلی آلیس", 1);
+    await addMessage(bobs, "user", "قبلی باب", 1);
+
+    await startNewTopic(alices);
+    await addMessage(alices, "user", "تازه");
+
+    expect((await getRecentMessages(alices)).map((m) => m.content)).toEqual(["تازه"]);
+    expect((await getRecentMessages(bobs)).map((m) => m.content)).toEqual(["قبلی باب"]);
   });
 });
 
