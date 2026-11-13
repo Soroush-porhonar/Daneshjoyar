@@ -18,13 +18,13 @@
 
 | Area | Result |
 | --- | --- |
-| Retrieval — 179 answerable questions, 8 documents, all-documents search | hit@1 **68% → 85%** with reranking (95% CI 80–91), hit@3 **96%**, answer page in context **97%**; held-out questions 82% hit@1 |
-| End-to-end answers — 112 questions | **102 pass**, expected page in context 82/82, citations on topic 96%, unanswerable questions refused 25/30 (near-miss 18/23) |
-| Router — 62 labelled messages, 24 sent by students | route **84%** (real messages 67%), route + retrieval mode 81% |
+| Retrieval — 178 answerable questions, 8 documents, all-documents search | hit@1 **67% → 84%** with reranking (95% CI 79–89), hit@3 **94%**, answer page in context **96%**; with 12 unrelated documents added (20 in all): in context still 96%, top chunks from another document 10 → 12% |
+| End-to-end answers — 117 questions | **112 pass**, expected page in context 87/87, citations on topic 97%, unanswerable questions refused **30/30** (near-miss 23/23), wrong refusals 0 |
+| Router — 62 labelled messages, 24 sent by students | route and route + retrieval mode **100%** (real messages 100%); follow-up decision 29/29, standalone questions after history rewritten 0/20 |
 | OCR — scanned handout vs hand-typed reference | character error rate **37.0% → 4.0%** |
-| Latency | 14.1 s median, 19.1 s p95 (retrieval + CPU rerank 6.7 s, generation 5.2 s at ~35 tokens/s, router 1.9 s); follow-ups +1.7 s for the rewrite |
+| Latency | 10.9 s median, 12.2 s p95 (router 2.5 s, retrieval + CPU rerank 2.5 s, generation 5.4 s at ~37 tokens/s); follow-ups need no separate rewrite call |
 | Whole-document summary | 21–44 s from stored section summaries vs 129 s – 31 min map-reduce |
-| Tests | 610 unit, 39 integration (real Postgres), CI |
+| Tests | 672 unit, 43 integration (real Postgres), CI |
 
 ## Features
 
@@ -32,6 +32,9 @@
 - Grounded answers with numbered inline citations and a list of the cited pages only; refusals list none.
 - Scanned and broken PDFs read by a local vision model, with progress updates in the chat.
 - Follow-ups ("explain more") understood from the conversation; whole-document summaries.
+- Questions about a handout itself ("what is it about", "who wrote it") answered from its stored profile.
+- "Shorter", "simpler", "in three sentences" reshape the previous answer from the same sources.
+- History older than an hour is ignored; «🆕 موضوع جدید» or `/new` starts a fresh topic.
 - Buttons for navigation, cancel and 👍/👎 feedback; slow work runs in the background and is cancellable.
 
 ## Architecture
@@ -51,7 +54,7 @@ flowchart LR
   subgraph Query
     Q[Message] --> R[LLM router, JSON schema]
     Q --> S[Early search]
-    R --> W[Follow-up rewrite]
+    R --> W[Follow-up decision + standalone question]
     S --> X[Vector + question index, RRF]
     W --> X
     X --> Y[Cross-encoder rerank]
@@ -68,7 +71,8 @@ flowchart LR
 - Cross-encoder reranking (bge-reranker-v2-m3, CPU) of the top 10: hit@1 69 → 88%; falls back to vector order if the service is down.
 - Neighbour-chunk expansion; only real hits are cited.
 - Router (JSON-schema output) runs in parallel with a speculative search; a clear reranker score overrules a "chat" decision.
-- Few-shot follow-up rewriting, with the previous answer's chunks competing in the rerank: follow-ups reaching the right context 25 → 75%.
+- The router decides whether a message depends on the history and writes the standalone question in the same call (follow-up decision 9/29 with the old length rule → 29/29); the previous answer's chunks compete in the rerank.
+- Rule-based routes before the router: questions about the document itself, and requests to reshape the previous answer.
 
 **Ingestion and OCR**
 - Hybrid extraction: text layer first, vision OCR only for empty / junk / split-letter pages (203-page upload: 63 min → 20 s).
