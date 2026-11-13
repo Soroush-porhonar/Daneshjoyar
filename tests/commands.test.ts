@@ -23,6 +23,17 @@ describe("parseCommand", () => {
     expect(parseCommand("/unknown")).toBeNull();
   });
 
+  it("accepts a command typed with the slash at the end on a right-to-left keyboard", () => {
+    expect(parseCommand("delete 10/")?.args).toEqual(["10"]);
+    expect(parseCommand("new/")?.handler).toBe(newTopicCommand);
+  });
+
+  it("does not turn other text ending in a slash into a command", () => {
+    expect(parseCommand("select 9/")).toBeNull();
+    expect(parseCommand("ورودی/خروجی چیست/")).toBeNull();
+    expect(parseCommand("/")).toBeNull();
+  });
+
   it("accepts a command copied together with its invisible direction marks", () => {
     const parsed = parseCommand("‎/delete 3‎");
 

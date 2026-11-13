@@ -41,7 +41,20 @@ export function parseCommand(text: string): ParsedCommand | null {
     return { handler: COMMANDS[clean]!, args: [] };
   }
 
-  const [name, ...args] = clean.split(/\s+/);
+  return matchCommand(clean) ?? matchCommand(slashMovedToFront(clean));
+}
+
+/**
+ * On a right-to-left keyboard students type "delete 10/" for "/delete 10"
+ * (seen in real messages). Moves a trailing slash to the front; the result
+ * still has to name a known command.
+ */
+function slashMovedToFront(text: string): string {
+  return text.endsWith("/") && !text.startsWith("/") ? `/${text.slice(0, -1).trim()}` : "";
+}
+
+function matchCommand(text: string): ParsedCommand | null {
+  const [name, ...args] = text.split(/\s+/);
   const handler =
     name && Object.hasOwn(COMMANDS, name) ? COMMANDS[name] : undefined;
 
