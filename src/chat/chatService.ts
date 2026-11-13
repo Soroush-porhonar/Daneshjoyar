@@ -29,7 +29,6 @@ import { needsRewrite, rewriteQuestion } from "../rag/rewrite.js";
 import { resolveRoute, routeMessage } from "../rag/router.js";
 import type { MessageClassification } from "../rag/router.js";
 import { startForegroundWork } from "../llm/priority.js";
-import { smallTalkReply } from "./smallTalk.js";
 import { createLiveAnswer } from "./streamEditor.js";
 import type { LiveAnswer } from "./streamEditor.js";
 
@@ -286,14 +285,10 @@ export async function handleMessage(
 
   try {
     const command = parseCommand(text);
-    const smallTalk = command ? null : smallTalkReply(text);
 
     if (command) {
       const result = await command.handler({ chatId, userId: session.userId, args: command.args });
       reply = typeof result === "string" ? { answer: result } : { answer: result.text, markup: result.markup };
-    } else if (smallTalk) {
-      // A greeting or thanks: answered at once, no notice, no model, not logged as an answer.
-      reply = { answer: smallTalk };
     } else {
       reply = await answerQuestion(chatId, session, text, signal);
     }
