@@ -113,6 +113,10 @@ Runs are saved to `eval/results/`; the retrieval, router, answer and benchmark h
 | Document titles in the router prompt | Route unchanged, mode accuracy 97 → 91% |
 | OCR of split-letter text layers | No gain on 21 questions at ~45 s/page |
 | KV-cache quantisation | Skipped: Qwen 3.5's cache is 256 MB |
+| Question normalisation (Arabic letters, zero-width marks) | No rank changed on 178 questions |
+| Reranking 16 candidates instead of 10 | No page gained; slower rerank on the CPU |
+| Looser candidate cut-off (0.65, 0.7) | One finglish page in, another out; in context 96% either way |
+| Per-concept search for "X و Y" questions | Every part in context 15 → 14 of 17 |
 
 ## Testing
 

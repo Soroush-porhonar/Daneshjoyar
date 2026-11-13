@@ -42,6 +42,15 @@ export const config = {
     url: process.env.RERANKER_URL ?? "http://localhost:8081/v1/rerank",
     /** Search returns this many candidates; the reranker keeps the best few. */
     candidates: 10,
+    /**
+     * P1: rerank the whole de-duplicated union of the chunk and question-index
+     * searches, up to this many, instead of the fused top `candidates`
+     * (a chunk could be cut before the reranker saw it). RERANK_CANDIDATES;
+     * 10 = the fused top 10 as before. 16 changed no rank and no page in
+     * context on 178 questions, rerank hit@1 84 → 84% (retrieval
+     * 2026-11-13T03-38-10 vs 02-26-34), so it stays 10.
+     */
+    maxCandidates: Number(process.env.RERANK_CANDIDATES ?? 10),
     timeoutMs: 20_000,
     /**
      * Hits the reranker scores below this are not shown to the model or cited;
@@ -127,6 +136,29 @@ export const config = {
      * overlap these distances, so the grounded prompt does the refusing.
      */
     maxCosineDistance: 0.6,
+    /**
+     * P2: search candidates up to this distance (the reranker then orders
+     * them); 0.6 = maxCosineDistance as before. CANDIDATE_MAX_DISTANCE.
+     * 0.65 and 0.7 gave the same result: finglish fi-lifo came into context,
+     * fi-lisbon-date fell out, in context 96% either way; fi-oo-principles'
+     * page is not in the top 10 at any cut-off (2026-11-13T04-10-57, 04-43-46).
+     */
+    candidateMaxDistance: Number(process.env.CANDIDATE_MAX_DISTANCE ?? 0.6),
+    /**
+     * P4: normalise the question like the chunks were at upload (Arabic ي/ك,
+     * zero-width and direction marks, odd spaces) before searching.
+     * NORMALIZE_QUESTION=true to switch on. No rank changed on 178 questions
+     * (the #arabic_letters and #typo rows were already 100% in context;
+     * BGE-M3 treats the letter forms alike): 2026-11-13T02-59-03. Off.
+     */
+    normalizeQuestion: process.env.NORMALIZE_QUESTION === "true",
+    /**
+     * P3: questions naming several concepts ("X و Y") are searched per concept
+     * too, merged, and reranked against the whole question. CONCEPT_SEARCH.
+     * Every part in context 15 → 14 of 17, in context unchanged at 96%
+     * (2026-11-13T05-16-08): the reranker already sees both parts. Off.
+     */
+    conceptSearch: process.env.CONCEPT_SEARCH === "true",
     /** Vector hits per question mode. */
     retrievalLimits: { focused: 3, multi_part: 5 },
     /** Hits plus their neighbouring chunks may fill at most this many chunks. */
