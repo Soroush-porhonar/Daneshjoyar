@@ -49,13 +49,16 @@ async function giveUp(update: InboxUpdate, reason: string, tell: boolean): Promi
 
 let sweeping = false;
 
-/** One pass over the unfinished updates. */
-export async function sweepInbox(): Promise<void> {
+/**
+ * One pass over the unfinished updates. "received" ones count as cut off
+ * after `staleMs`; at startup that is 0, since none can belong to this process.
+ */
+export async function sweepInbox(staleMs: number = config.inbox.staleMs): Promise<void> {
   if (sweeping) return;
   sweeping = true;
 
   try {
-    const updates = await listUnfinishedUpdates(config.inbox.staleMs, runningUpdates());
+    const updates = await listUnfinishedUpdates(staleMs, runningUpdates());
 
     for (const update of updates) {
       const { payload } = update;
@@ -80,9 +83,15 @@ export async function sweepInbox(): Promise<void> {
   }
 }
 
-/** Sweeps now and then every `sweepIntervalMs`; returns a function that stops it. */
-export function startSweeper(): () => void {
-  void sweepInbox();
+/**
+ * Sweeps once at startup, before polling starts, then every `sweepIntervalMs`;
+ * resolves (with a function that stops it) after the first pass. Every
+ * unfinished update at startup was cut off by the restart, so it is retried
+ * at once: with the 2-minute wait, a student whose answer was cut off by a
+ * crash re-asked before the retry came (kill test, 2026-11-14).
+ */
+export async function startSweeper(): Promise<() => void> {
+  await sweepInbox(0);
   const timer = setInterval(() => void sweepInbox(), config.inbox.sweepIntervalMs);
   return () => clearInterval(timer);
 }
