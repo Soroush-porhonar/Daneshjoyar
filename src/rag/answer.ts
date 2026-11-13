@@ -38,24 +38,31 @@ interface SourceChunk {
   isHit?: boolean;
 }
 
-/**
- * With a `trace`, the call's token counts and timings are recorded on it.
- * With a `limit` (a reply the student reads), output stops at that many tokens
- * and a cut-off answer ends with a line saying so; without one (an internal
- * batch summary) the summary cap applies and nothing is added.
- */
+export interface GenerateOptions {
+  signal?: AbortSignal | undefined;
+  /** The call's token counts and timings are recorded on it. */
+  trace?: AnswerTrace | undefined;
+  /**
+   * A reply the student reads: output stops at this many tokens and a cut-off
+   * answer ends with a line saying so. Without one (an internal batch summary)
+   * the summary cap applies and nothing is added.
+   */
+  limit?: number | undefined;
+  /** Streams the reply: called with the text so far. */
+  onDelta?: ((text: string) => void) | undefined;
+}
+
 export async function generate(
   system: string,
   user: string,
-  signal?: AbortSignal,
-  trace?: AnswerTrace,
-  limit?: number,
+  { signal, trace, limit, onDelta }: GenerateOptions = {},
 ): Promise<string> {
   let doneReason: string | undefined;
   const answer = await chat({
     think: false,
     options: { num_predict: limit ?? config.llm.maxTokens.summary, temperature: config.llm.temperature.rag },
     signal,
+    onDelta,
     onStats: (stats) => {
       doneReason = stats.doneReason;
       if (trace) trace.generation = stats;
@@ -250,8 +257,7 @@ async function answerBroadQuestion(
   userId: number,
   document: CompletedDocument,
   question: string,
-  signal?: AbortSignal,
-  trace?: AnswerTrace,
+  { signal, trace, onDelta }: Omit<GenerateOptions, "limit">,
 ): Promise<string> {
   const chunks = await getDocumentChunks(userId, document.id);
 
@@ -283,7 +289,7 @@ async function answerBroadQuestion(
       const summary = await generate(
         BROAD_EXTRACTION_SYSTEM_PROMPT,
         buildBatchExtractionPrompt(question, formatChunks(batch)),
-        signal,
+        { signal },
       );
 
       summaries.push(`خلاصه بخش ${batchNumber}:\n${summary}`);
@@ -291,30 +297,39 @@ async function answerBroadQuestion(
     }
   }
 
-  const answer = await generate(
-    RAG_SYSTEM_PROMPT,
-    buildBroadSynthesisPrompt(question, summaries),
+  // Say which document was summarised: it was picked, not chosen by the student.
+  const header = summaryHeaderText(documentDisplayName(document.filename, document.title));
+  const answer = await generate(RAG_SYSTEM_PROMPT, buildBroadSynthesisPrompt(question, summaries), {
     signal,
     trace,
-    config.llm.maxTokens.summary,
-  );
+    limit: config.llm.maxTokens.summary,
+    onDelta: onDelta && ((text) => onDelta(`${header}\n\n${text}`)),
+  });
 
   // Cite the pages the summaries drew on, not every page of the document
   // (only the summaries' own text: the section labels name page ranges).
   const mentioned = pagesMentioned(stored.length > 0 ? stored.map((section) => section.summary) : summaries);
   const cited = chunks.filter((chunk) => chunk.pageNumber != null && mentioned.has(chunk.pageNumber));
 
-  // Say which document was summarised: it was picked, not chosen by the student.
-  return `${summaryHeaderText(documentDisplayName(document.filename, document.title))}\n\n${appendSources(answer, cited.length > 0 ? cited : chunks)}`;
+  return `${header}\n\n${appendSources(answer, cited.length > 0 ? cited : chunks)}`;
 }
+
+/**
+ * Streamed text with its citations numbered as the final answer will number
+ * them: renumberCitations maps by first appearance, so a prefix of the answer
+ * gets the same numbers the whole answer does.
+ */
+export const liveCitations =
+  (numbers: Map<string, number>, onDelta: (text: string) => void) =>
+  (text: string): void =>
+    onDelta(renumberCitations(text, new Set(numbers.values())).text);
 
 async function answerFocusedQuestion(
   userId: number,
   question: string,
   mode: "focused" | "multi_part",
   scope: { documentId?: number; ranked?: RetrievedChunk[] },
-  signal?: AbortSignal,
-  trace?: AnswerTrace,
+  { signal, trace, onDelta }: Omit<GenerateOptions, "limit">,
 ): Promise<string> {
   const chunks = await retrieveContext(userId, question, mode, scope);
 
@@ -328,13 +343,12 @@ async function answerFocusedQuestion(
   }
 
   const numbers = numberSources(chunks);
-  const answer = await generate(
-    RAG_SYSTEM_PROMPT,
-    buildFocusedUserPrompt(question, formatChunks(chunks, numbers)),
+  const answer = await generate(RAG_SYSTEM_PROMPT, buildFocusedUserPrompt(question, formatChunks(chunks, numbers)), {
     signal,
     trace,
-    mode === "focused" ? config.llm.maxTokens.focused : config.llm.maxTokens.multiPart,
-  );
+    limit: mode === "focused" ? config.llm.maxTokens.focused : config.llm.maxTokens.multiPart,
+    onDelta: onDelta && liveCitations(numbers, onDelta),
+  });
 
   return appendSources(answer, chunks, numbers);
 }
@@ -438,6 +452,8 @@ export interface AnswerOptions {
   trace?: AnswerTrace;
   /** Answer only from this document (the evals pin one version). */
   documentId?: number;
+  /** Streams the answer as the student will see it (citations already renumbered). */
+  onDelta?: ((text: string) => void) | undefined;
 }
 
 /** Answers from the user's documents: the most relevant chunks of any of them, or one picked document for summaries. */
@@ -445,7 +461,7 @@ export async function answerFromDocuments(
   userId: number,
   question: string,
   retrievalMode: RetrievalMode = "multi_part",
-  { signal, prefetch, trace, documentId }: AnswerOptions = {},
+  { signal, prefetch, trace, documentId, onDelta }: AnswerOptions = {},
 ): Promise<string> {
   // Use early results only if they were fetched for this exact question;
   // if fetching them failed, search again normally.
@@ -465,7 +481,7 @@ export async function answerFromDocuments(
     if (!document) return NO_DOCUMENT_CONTENT_TEXT;
     if (trace) trace.documentIds = [document.id];
 
-    return answerBroadQuestion(userId, document, question, signal, trace);
+    return answerBroadQuestion(userId, document, question, { signal, trace, onDelta });
   }
 
   return answerFocusedQuestion(
@@ -473,7 +489,6 @@ export async function answerFromDocuments(
     question,
     retrievalMode,
     { ...(documentId === undefined ? {} : { documentId }), ...(ranked ? { ranked } : {}) },
-    signal,
-    trace,
+    { signal, trace, onDelta },
   );
 }

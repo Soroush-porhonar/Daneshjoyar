@@ -9,6 +9,7 @@ import { CHAT_SYSTEM_PROMPT } from "./prompts/chat.js";
 export async function askAI(
   history: ChatHistoryMessage[],
   signal?: AbortSignal,
+  onDelta?: (text: string) => void,
 ): Promise<string> {
   let doneReason: string | undefined;
   const answer = await chat({
@@ -17,6 +18,7 @@ export async function askAI(
     messages: [{ role: "system", content: CHAT_SYSTEM_PROMPT }, ...trimHistory(history, config.rag.chatHistory)],
     options: { temperature: config.llm.temperature.chat, num_predict: config.llm.maxTokens.chat },
     signal,
+    onDelta,
     onStats: (stats) => {
       doneReason = stats.doneReason;
     },

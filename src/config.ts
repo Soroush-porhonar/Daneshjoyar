@@ -15,6 +15,13 @@ function parseKeepAlive(value: string): string | number {
   return /^-?\d+$/.test(value) ? Number(value) : value;
 }
 
+export type StreamMode = "edit" | "parts" | "off";
+
+function parseStreamMode(value: string): StreamMode {
+  if (value === "edit" || value === "parts" || value === "off") return value;
+  throw new Error(`STREAM_MODE must be edit, parts or off, not "${value}"`);
+}
+
 export const config = {
   port: Number(required("PORT")),
   baleToken: required("BALE_TOKEN"),
@@ -271,6 +278,24 @@ export const config = {
     enabled: process.env.ENRICHMENT !== "false",
     /** How often the worker looks for queued documents when idle. */
     pollMs: 30_000,
+  },
+
+  /**
+   * How an answer appears while it is written (roadmap S1). "edit": the
+   * thinking notice is edited as text arrives; Bale documents no limit for
+   * edits but answers a rate limit with 429 and retry_after, which doubles the
+   * interval for the rest of that answer. "parts": the fallback if 429s show
+   * up in use, at most `maxParts` messages sent at paragraph ends, never
+   * edited. "off": the whole answer at the end, as before.
+   */
+  stream: {
+    mode: parseStreamMode(process.env.STREAM_MODE ?? "edit"),
+    /** At most one edit per interval, and only after this much new text. */
+    editIntervalMs: 1_500,
+    minGrowthChars: 40,
+    /** "parts": a part is sent once this much new text ends in a paragraph. */
+    minPartChars: 600,
+    maxParts: 3,
   },
 
   bale: {

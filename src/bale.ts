@@ -1,4 +1,5 @@
 import { config } from "./config.js";
+import { BaleApiError } from "./errors.js";
 import { logger } from "./logger.js";
 import path from "node:path";
 import { mkdir, open, writeFile } from "node:fs/promises";
@@ -113,6 +114,9 @@ interface BaleResponse<T> {
   ok: boolean;
   result: T;
   description?: string;
+  error_code?: number;
+  /** On a rate limit: seconds to wait before the next call. */
+  parameters?: { retry_after?: number };
 }
 
 async function callBale<T>(
@@ -139,8 +143,10 @@ async function callBale<T>(
   }
 
   if (!response.ok || data.ok !== true) {
-    throw new Error(
+    throw new BaleApiError(
       data.description ?? `Bale API error: HTTP ${response.status}`,
+      data.error_code ?? response.status,
+      data.parameters?.retry_after,
     );
   }
 

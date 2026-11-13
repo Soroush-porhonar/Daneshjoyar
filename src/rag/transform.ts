@@ -2,7 +2,7 @@ import { config } from "../config.js";
 import { buildTransformPrompt, RAG_SYSTEM_PROMPT } from "../llm/prompts/rag.js";
 import { SOURCES_HEADING } from "../messages.js";
 import type { AnswerTrace } from "./answer.js";
-import { appendSources, formatChunks, generate, numberSources } from "./answer.js";
+import { appendSources, formatChunks, generate, liveCitations, numberSources } from "./answer.js";
 import { getChunksByRef } from "./retrieve.js";
 import type { ChunkRef } from "./retrieve.js";
 import { normalizeText } from "./textQuality.js";
@@ -53,7 +53,7 @@ export async function answerTransform(
   request: string,
   previousAnswer: string,
   sources: ChunkRef[],
-  { signal, trace }: { signal?: AbortSignal; trace?: AnswerTrace } = {},
+  { signal, trace, onDelta }: { signal?: AbortSignal; trace?: AnswerTrace; onDelta?: (text: string) => void } = {},
 ): Promise<string> {
   const chunks = await getChunksByRef(userId, sources);
   const numbers = numberSources(chunks);
@@ -66,9 +66,7 @@ export async function answerTransform(
   const answer = await generate(
     RAG_SYSTEM_PROMPT,
     buildTransformPrompt(request, previousAnswerBody(previousAnswer), formatChunks(chunks, numbers)),
-    signal,
-    trace,
-    config.llm.maxTokens.multiPart,
+    { signal, trace, limit: config.llm.maxTokens.multiPart, onDelta: onDelta && liveCitations(numbers, onDelta) },
   );
 
   return appendSources(answer, chunks, numbers);

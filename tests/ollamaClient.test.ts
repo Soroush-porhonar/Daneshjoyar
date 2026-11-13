@@ -165,6 +165,72 @@ describe("chat", () => {
   });
 });
 
+describe("chat, streamed", () => {
+  /** A streamed reply: one JSON object per line, cut into byte chunks at awkward places. */
+  const stream = (lines: unknown[], chunkSize = 7) => {
+    const bytes = new TextEncoder().encode(lines.map((line) => JSON.stringify(line)).join("\n") + "\n");
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (let at = 0; at < bytes.length; at += chunkSize) controller.enqueue(bytes.slice(at, at + chunkSize));
+        controller.close();
+      },
+    });
+    fetchMock.mockResolvedValueOnce(new Response(body, { status: 200 }));
+  };
+
+  it("streams the text as it grows and returns the whole answer", async () => {
+    stream([
+      { message: { content: "سلام" }, done: false },
+      { message: { content: " دنیا" }, done: false },
+      { message: { content: "" }, done: true, done_reason: "stop", eval_count: 2 },
+    ]);
+    const seen: string[] = [];
+
+    await expect(chat({ messages, onDelta: (text) => seen.push(text) })).resolves.toBe("سلام دنیا");
+
+    expect(sentBody().stream).toBe(true);
+    expect(seen).toEqual(["سلام", "سلام دنیا"]);
+  });
+
+  it("reports the last line's counters", async () => {
+    stream([
+      { message: { content: "جواب" }, done: false },
+      { message: { content: "" }, done: true, done_reason: "length", eval_count: 1000, prompt_eval_count: 50 },
+    ]);
+    const onStats = vi.fn();
+
+    await chat({ messages, onDelta: () => undefined, onStats });
+
+    expect(onStats).toHaveBeenCalledWith(
+      expect.objectContaining({ doneReason: "length", outputTokens: 1000, promptTokens: 50 }),
+    );
+  });
+
+  it("throws OllamaError for an error line", async () => {
+    stream([{ message: { content: "نیمه" } }, { error: "model crashed" }]);
+
+    await expect(chat({ messages, onDelta: () => undefined })).rejects.toThrow(OllamaError);
+  });
+
+  it("throws OllamaError for an empty answer", async () => {
+    stream([{ message: { content: "  " }, done: true }]);
+
+    await expect(chat({ messages, onDelta: () => undefined })).rejects.toThrow(OllamaError);
+  });
+
+  it("lets a cancellation through", async () => {
+    const controller = new AbortController();
+    fetchMock.mockImplementationOnce(async (_url, init: RequestInit) => {
+      controller.abort();
+      init.signal!.throwIfAborted();
+    });
+
+    await expect(chat({ messages, signal: controller.signal, onDelta: () => undefined })).rejects.toMatchObject({
+      name: "AbortError",
+    });
+  });
+});
+
 describe("embed", () => {
   const vector = (size = 1024) => Array.from({ length: size }, () => 0.1);
 

@@ -19,8 +19,9 @@
  *                 bot treats a short message after any exchange as a follow-up
  *                 and pays for a rewrite call, as in most real conversations
  *
- * "First text" is when the student first sees part of the answer. Answers are
- * not streamed, so today it equals the total.
+ * "First text" is when the student first sees part of the answer: answers
+ * are streamed (config.stream), and the first edit shows once the text has
+ * minGrowthChars characters. With STREAM_MODE=off it is the total.
  *
  * --concurrency N sends N questions through the whole pipeline at once, the
  * way the bot does (router and early search together, then the answer), and
@@ -36,6 +37,7 @@ import { config } from "../src/config.js";
 import { pool } from "../src/db/pool.js";
 import { OllamaError, OllamaTimeoutError } from "../src/errors.js";
 import { answerFromDocuments, prefetchCandidates } from "../src/rag/answer.js";
+import { liveText } from "../src/chat/streamEditor.js";
 import type { AnswerTrace } from "../src/rag/answer.js";
 import { generateEmbedding } from "../src/rag/embeddings.js";
 import { retrieveContext } from "../src/rag/retrieve.js";
@@ -73,6 +75,7 @@ interface Timing {
   retrieval: number;
   generation: number;
   total: number;
+  firstText: number;
   outputTokens?: number;
   promptTokens?: number;
   tokensPerSecond?: number;
@@ -248,9 +251,18 @@ for (const { sample, core, q, history } of samples) {
   const [, retrieval] = await timed(() => retrieveContext(document.user_id, question, mode, { documentId: document.id }));
 
   const trace: AnswerTrace = {};
+  let firstTextAt: number | undefined;
+  const onDelta = (text: string) => {
+    if (firstTextAt === undefined && liveText(text).length >= config.stream.minGrowthChars) firstTextAt = performance.now();
+  };
   const [, answerMs] = await timed(() =>
-    answerFromDocuments(document.user_id, question, q.mode, { documentId: document.id, trace }),
+    answerFromDocuments(document.user_id, question, q.mode, {
+      documentId: document.id,
+      trace,
+      ...(config.stream.mode === "off" ? {} : { onDelta }),
+    }),
   );
+  const totalMs = performance.now() - totalStart - retrieval;
   const llm = trace.generation;
 
   timings.push({
@@ -263,7 +275,8 @@ for (const { sample, core, q, history } of samples) {
     retrieval,
     // answerFromDocuments retrieves again; subtract that to get the LLM time.
     generation: answerMs - retrieval,
-    total: performance.now() - totalStart - retrieval,
+    total: totalMs,
+    firstText: firstTextAt === undefined ? totalMs : firstTextAt - totalStart - retrieval,
     ...(llm
       ? {
           outputTokens: llm.outputTokens,
@@ -274,7 +287,7 @@ for (const { sample, core, q, history } of samples) {
   });
 }
 
-const values = (group: Timing[], stage: (typeof STAGES)[number]) =>
+const values = (group: Timing[], stage: (typeof STAGES)[number] | "firstText") =>
   group.map((timing) => timing[stage]).filter((value): value is number => value !== undefined);
 const mean = (list: number[]) => list.reduce((sum, value) => sum + value, 0) / Math.max(list.length, 1);
 
@@ -312,8 +325,7 @@ const summarize = (group: Timing[]) => {
     questions: group.length,
     totalP50Ms: Math.round(percentile(values(group, "total"), 0.5)),
     totalP95Ms: Math.round(percentile(values(group, "total"), 0.95)),
-    // Not streamed: the first text the student sees is the whole answer.
-    firstTextP50Ms: Math.round(percentile(values(group, "total"), 0.5)),
+    firstTextP50Ms: Math.round(percentile(values(group, "firstText"), 0.5)),
     rewriteP50Ms: Math.round(percentile(values(group, "rewrite"), 0.5)),
     generationP50Ms: Math.round(percentile(values(group, "generation"), 0.5)),
     outputTokensP50: Math.round(percentile(tokens, 0.5)),
@@ -347,7 +359,7 @@ console.table(
     ]),
   ),
 );
-console.log("(first text = total: answers are not streamed)");
+console.log(`(first text: answers streamed, STREAM_MODE=${config.stream.mode})`);
 
 const stages = Object.fromEntries(
   STAGES.filter((stage) => values(coreTimings, stage).length > 0).map((stage) => [
