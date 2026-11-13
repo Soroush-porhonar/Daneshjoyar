@@ -11,7 +11,7 @@ vi.mock("../src/db/updates.js", () => ({
 }));
 vi.mock("../src/bot/dispatcher.js", () => ({ routeUpdate: vi.fn(), runningUpdates: vi.fn(() => [5]) }));
 
-const { sweepInbox } = await import("../src/bot/sweeper.js");
+const { startSweeper, sweepInbox } = await import("../src/bot/sweeper.js");
 const { sendMessage } = await import("../src/bale.js");
 const { listUnfinishedUpdates, claimRetry, abandonUpdate, hasLaterMessage } = await import("../src/db/updates.js");
 const { routeUpdate } = await import("../src/bot/dispatcher.js");
@@ -134,5 +134,18 @@ describe("sweepInbox", () => {
 
     await expect(sweepInbox()).resolves.toBeUndefined();
     expect(logger.error).toHaveBeenCalled();
+  });
+});
+
+describe("startSweeper", () => {
+  it("retries everything left unfinished at startup at once, before resolving", async () => {
+    const update = inbox(text(), { status: "received" });
+    vi.mocked(listUnfinishedUpdates).mockResolvedValue([update]);
+
+    const stop = await startSweeper();
+    stop();
+
+    expect(listUnfinishedUpdates).toHaveBeenCalledWith(0, [5]);
+    expect(routeUpdate).toHaveBeenCalledWith(update.payload);
   });
 });

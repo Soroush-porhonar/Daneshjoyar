@@ -27,7 +27,8 @@ const server = app.listen(config.port, () => {
 void preloadModels();
 // Before the sweeper retries interrupted uploads, so they aren't taken for duplicates.
 await recoverInterruptedUploads();
-const stopSweeper = startSweeper();
+// Retries what the last run left unfinished before new updates arrive.
+const stopSweeper = await startSweeper();
 void startPolling();
 void runEnrichmentWorker();
 
