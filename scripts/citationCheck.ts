@@ -38,6 +38,9 @@ export interface CitationCheck {
   known: boolean;
   /** The best score of the sentence against the source's chunks; null if it could not be scored. */
   score: number | null;
+  /** The eval judge's verdict (eval:answers --rescore --judge); missing when not judged. */
+  judged?: boolean | null;
+  judgeReason?: string;
 }
 
 interface ContextChunk {

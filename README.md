@@ -19,7 +19,7 @@
 | Area | Result |
 | --- | --- |
 | Retrieval — 178 answerable questions, 8 documents, all-documents search | hit@1 **67% → 84%** with reranking (95% CI 79–89), hit@3 **94%**, answer page in context **96%**; with 12 unrelated documents added (20 in all): in context still 96%, top chunks from another document 10 → 12% |
-| End-to-end answers — 117 questions | **112 pass**, expected page in context 87/87, citations on topic 97%, unanswerable questions refused **30/30** (near-miss 23/23), wrong refusals 0 |
+| End-to-end answers — 117 questions | **112 pass**, expected page in context 87/87, citations on topic 97%, unanswerable questions refused **30/30** (near-miss 23/23), wrong refusals 0; cited sentences supported by their sources **241/272 (89%)**, judged by gpt-oss:20b (rough, low estimate: the judge rejects about 1 in 5 supported claims) |
 | Router — 62 labelled messages, 24 sent by students | route and route + retrieval mode **100%** (real messages 100%); follow-up decision 29/29, standalone questions after history rewritten 0/20 |
 | OCR — scanned handout vs hand-typed reference | character error rate **37.0% → 4.0%** |
 | Latency | 10.9 s median, 12.2 s p95 (router 2.5 s, retrieval + CPU rerank 2.5 s, generation 5.4 s at ~37 tokens/s); follow-ups need no separate rewrite call |
@@ -98,7 +98,7 @@ flowchart LR
 | --- | --- |
 | `npm run eval` | hit@k, MRR, context coverage, wrong-document share, distance and reranker-score calibration; per type (exact term, paraphrase, multi-page, follow-up, standalone question after history, unanswerable), per tag (English, Latin-script Persian, typos, Arabic letters, tables, formulas) and a held-out row; every part of multi-concept questions in context; 95% bootstrap CIs and paired diffs against the previous run |
 | `npm run eval:router` | route and mode accuracy per kind of message, confusion matrix, rewrite-rule check; includes messages students really sent, with their history; `--with-search` adds the early-search override |
-| `npm run eval:answers` | cited page, expected page in context, wrong refusals, inline citations, key facts (accepted forms, formula-tolerant), language, refusals incl. near-miss questions; `--rescore` re-checks a saved run without the model |
+| `npm run eval:answers` | cited page, expected page in context, wrong refusals, inline citations, key facts (accepted forms, formula-tolerant), language, refusals incl. near-miss questions; `--rescore` re-checks a saved run without the model; `--rescore --judge` has gpt-oss:20b (CPU) check every cited sentence against its sources, fact by fact |
 | `npm run eval:citations` | hand-labelled citation pairs: how well a judge separates supported from unsupported claims |
 | `npm run eval:ocr` | CER against text layers or hand-typed reference pages, per width / strip / crop / prompt / repair |
 | `npm run benchmark` | per-stage latency p50 / p95, output tokens and tokens per second, follow-up and after-history samples; `--concurrency N` measures the queue |
@@ -117,7 +117,7 @@ Runs are saved to `eval/results/`; the retrieval, router, answer and benchmark h
 | Document titles in the router prompt | Route unchanged, mode accuracy 97 → 91% |
 | OCR of split-letter text layers | No gain on 21 questions at ~45 s/page |
 | KV-cache quantisation | Skipped: Qwen 3.5's cache is 256 MB |
-| gpt-oss:20b as faithfulness judge (CPU; the Vulkan backend garbles it) | 24/30 labelled citation pairs right, 4/6 unsupported claims caught: below the 85% / 5-of-6 bar |
+| gpt-oss:20b judge asked for a verdict only (low or medium thinking) | 24–25/30 labelled citation pairs right, 4/6 unsupported caught; listing the missing facts first reached 26/30, 5/6 |
 | Question normalisation (Arabic letters, zero-width marks) | No rank changed on 178 questions |
 | Reranking 16 candidates instead of 10 | No page gained; slower rerank on the CPU |
 | Looser candidate cut-off (0.65, 0.7) | One finglish page in, another out; in context 96% either way |
