@@ -1,4 +1,5 @@
 import { config } from "./config.js";
+import { BaleApiError } from "./errors.js";
 import { logger } from "./logger.js";
 import path from "node:path";
 import { mkdir, open, writeFile } from "node:fs/promises";
@@ -113,6 +114,9 @@ interface BaleResponse<T> {
   ok: boolean;
   result: T;
   description?: string;
+  error_code?: number;
+  /** On a rate limit: seconds to wait before the next call. */
+  parameters?: { retry_after?: number };
 }
 
 async function callBale<T>(
@@ -139,8 +143,10 @@ async function callBale<T>(
   }
 
   if (!response.ok || data.ok !== true) {
-    throw new Error(
+    throw new BaleApiError(
       data.description ?? `Bale API error: HTTP ${response.status}`,
+      data.error_code ?? response.status,
+      data.parameters?.retry_after,
     );
   }
 
@@ -190,6 +196,23 @@ export async function editMessageText(
     text,
     reply_markup: { inline_keyboard: buttons ?? [] },
   });
+}
+
+/** Shows "typing…" in the chat header; Bale shows it for up to about 6 seconds. */
+export async function sendChatAction(chatId: number, action: "typing" = "typing"): Promise<void> {
+  await callBale("sendChatAction", { chat_id: chatId, action });
+}
+
+/**
+ * Keeps "typing…" visible while slow work runs: once now, then every 5
+ * seconds until the returned stop function is called. Failures are ignored
+ * (it is only a hint).
+ */
+export function keepTyping(chatId: number): () => void {
+  const send = () => void sendChatAction(chatId).catch(() => undefined);
+  send();
+  const timer = setInterval(send, 5_000);
+  return () => clearInterval(timer);
 }
 
 /** Acknowledges a button press; Bale keeps the button "loading" until this is called. */

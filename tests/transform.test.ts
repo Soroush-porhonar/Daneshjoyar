@@ -70,7 +70,7 @@ describe("answerTransform", () => {
     const prompt = vi.mocked(generate).mock.calls[0]![1];
     expect(prompt).toContain("<پاسخ قبلی>\nپشته ساختاری LIFO است.\n</پاسخ قبلی>");
     expect(prompt.trim().endsWith("کوتاه‌ترش کن")).toBe(true);
-    expect(answer).toContain("notes.pdf — صفحه 4");
+    expect(answer).toMatch(/notes⁩ — صفحه 4/);
     expect(trace).toMatchObject({ documentIds: [5] });
   });
 });

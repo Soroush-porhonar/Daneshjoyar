@@ -131,6 +131,40 @@ describe("answerFromDocuments", () => {
     expect(vi.mocked(chat).mock.calls[0]![0].options?.temperature).toBe(0.2);
   });
 
+  it.each([
+    ["focused", 1000],
+    ["multi_part", 2000],
+  ] as const)("caps a %s answer at %i tokens", async (mode, cap) => {
+    vi.mocked(retrieveContext).mockResolvedValue([chunk(0, 1)]);
+
+    await answerFromDocuments(8, "سؤال", mode);
+
+    expect(vi.mocked(chat).mock.calls[0]![0].options?.num_predict).toBe(cap);
+  });
+
+  it("says so when the cap cut the answer off, before the sources", async () => {
+    vi.mocked(retrieveContext).mockResolvedValue([chunk(0, 1)]);
+    vi.mocked(chat).mockImplementation(async (request) => {
+      request.onStats?.({ promptTokens: 1, outputTokens: 1000, loadMs: 0, promptEvalMs: 0, evalMs: 0, totalMs: 0, doneReason: "length" });
+      return "جواب نیمه [1]";
+    });
+
+    const answer = await answerFromDocuments(8, "سؤال", "focused");
+
+    expect(answer.indexOf(messages.ANSWER_CUT_TEXT)).toBeGreaterThan(answer.indexOf("جواب نیمه"));
+    expect(answer.indexOf(messages.ANSWER_CUT_TEXT)).toBeLessThan(answer.indexOf(messages.SOURCES_HEADING));
+  });
+
+  it("adds nothing to an answer that ended by itself", async () => {
+    vi.mocked(retrieveContext).mockResolvedValue([chunk(0, 1)]);
+    vi.mocked(chat).mockImplementation(async (request) => {
+      request.onStats?.({ promptTokens: 1, outputTokens: 10, loadMs: 0, promptEvalMs: 0, evalMs: 0, totalMs: 0, doneReason: "stop" });
+      return "جواب [1]";
+    });
+
+    expect(await answerFromDocuments(8, "سؤال", "focused")).not.toContain(messages.ANSWER_CUT_TEXT);
+  });
+
   it("summarises big documents in batches, then combines them (map-reduce)", async () => {
     const long = "ا".repeat(4000);
     const chunks: DocumentChunk[] = [1, 2, 3, 4, 5].map((page) => ({
@@ -210,7 +244,9 @@ describe("answerFromDocuments", () => {
     const answer = await answerFromDocuments(8, "سؤال", "focused");
 
     expect(prompt(0)).toContain("منبع 3 — فایل: notes.pdf، صفحه PDF 5");
-    expect(answer).toContain(`- [3] ${messages.sourceLineText("notes.pdf", 5)}`);
+    // Shown renumbered from 1: the student never sees a gap.
+    expect(answer).toContain("پشته LIFO است [1].");
+    expect(answer).toContain(`- [1] ${messages.sourceLineText("notes.pdf", 5)}`);
     expect(answer).not.toContain(messages.sourceLineText("notes.pdf", 4));
   });
 

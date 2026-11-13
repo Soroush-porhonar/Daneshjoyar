@@ -22,9 +22,9 @@
 | End-to-end answers — 117 questions | **112 pass**, expected page in context 87/87, citations on topic 97%, unanswerable questions refused **30/30** (near-miss 23/23), wrong refusals 0; cited sentences supported by their sources **241/272 (89%)**, judged by gpt-oss:20b (rough, low estimate: the judge rejects about 1 in 5 supported claims) |
 | Router — 62 labelled messages, 24 sent by students | route and route + retrieval mode **100%** (real messages 100%); follow-up decision 29/29, standalone questions after history rewritten 0/20 |
 | OCR — scanned handout vs hand-typed reference | character error rate **37.0% → 4.0%** |
-| Latency | 10.9 s median, 12.2 s p95 (router 2.5 s, retrieval + CPU rerank 2.5 s, generation 5.4 s at ~37 tokens/s); follow-ups need no separate rewrite call |
+| Latency | answers stream into the chat: first text 7.7 s median in the benchmark (stages in sequence; the bot runs router and search in parallel), whole answer 10.6 s median, 11.1 s p95 (router 2.5 s, retrieval + CPU rerank 2.3 s, generation 4.9 s at ~37 tokens/s); greetings answered at once without the model; router after a long conversation 18.5 → 5.2 s with a trimmed history |
 | Whole-document summary | 21–44 s from stored section summaries vs 129 s – 31 min map-reduce |
-| Tests | 672 unit, 43 integration (real Postgres), CI |
+| Tests | 760 unit, 43 integration (real Postgres), CI |
 
 ## Features
 
@@ -35,6 +35,7 @@
 - Questions about a handout itself ("what is it about", "who wrote it") answered from its stored profile.
 - "Shorter", "simpler", "in three sentences" reshape the previous answer from the same sources.
 - History older than an hour is ignored; «🆕 موضوع جدید» or `/new` starts a fresh topic.
+- Answers appear while they are written (the "thinking" message becomes the answer); greetings and thanks are answered at once.
 - Buttons for navigation, cancel and 👍/👎 feedback; slow work runs in the background and is cancellable.
 
 ## Architecture
@@ -84,7 +85,10 @@ flowchart LR
 - Sources first, question last, so exercise questions inside the notes are not answered.
 - Numbered inline citations; only cited pages listed; refusal detection suppresses sources.
 - Whole-document summaries from per-section summaries stored at upload (one LLM call); map-reduce for documents not yet enriched.
-- Explicit `num_ctx` 8192 (Ollama's default 4096 silently truncated prompts), temperature 0.2, thinking off (chat 49 → 22 s), `keep_alive` to avoid ~10 s reloads.
+- Explicit `num_ctx` 8192 (Ollama's default 4096 silently truncated prompts), temperature 0.2, thinking off (chat 49 → 22 s), `keep_alive` to avoid ~10 s reloads; models loaded at startup.
+- Streaming: the thinking notice is edited as text arrives, at most every 1.5 s and after 40+ new characters, with citations numbered as in the final answer; a Bale rate limit (429) waits `retry_after` and doubles the interval. `STREAM_MODE=parts` sends 2–3 messages at paragraph ends instead; `off` sends the whole answer at the end.
+- Output caps per mode (focused 1000 tokens, multi-part 2000, chat 1000) stop a runaway answer and say so; they sit above every real answer. The router reads the last 6 turns, 600 characters each, without source lists.
+- Tried and not kept: a prompt rule to write only sentences that can carry a citation (supported sentences 88.6 → 89.3%, within noise, 2 fewer passes); a shorter-answer prompt (answers were already short, median 532 characters); an answer cache (exact repeats were mostly retries after an unsatisfying answer).
 
 **Background enrichment**
 - Per document: title, summary, topics; per chunk: the questions it answers, embedded into the question index. One document at a time, yields the single GPU to answers, resumes after a restart.
@@ -148,7 +152,7 @@ npm run enrich -- --all       # enrich documents uploaded before enrichment exis
 npm run ingest -- <chatId> <absolute pdf paths>   # ingest without the bot
 ```
 
-`.env`: `BALE_TOKEN`, `DATABASE_URL`, `LLM_URL`, `LLM_MODEL`, `EMBEDDING_MODEL`, `PORT`, Postgres credentials. Feature switches, and the measurement behind every default, are in `src/config.ts`.
+`.env`: `BALE_TOKEN`, `DATABASE_URL`, `LLM_URL`, `LLM_MODEL`, `EMBEDDING_MODEL`, `PORT`, Postgres credentials. Feature switches, and the measurement behind every default, are in `src/config.ts`. On a machine that serves only the bot, set `LLM_KEEP_ALIVE=-1` to keep the model in GPU memory for good (the default, 30m, frees it on a shared machine). `STREAM_MODE` is `edit` (default), `parts` or `off`.
 
 ### Docker
 

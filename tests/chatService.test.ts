@@ -1,7 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // Fakes for the database, Bale and every AI step, so only the flow is tested.
-vi.mock("../src/bale.js", () => ({ sendMessage: vi.fn(), removeButtons: vi.fn() }));
+vi.mock("../src/bale.js", () => ({
+  sendMessage: vi.fn(),
+  removeButtons: vi.fn(),
+  editMessageText: vi.fn(),
+  keepTyping: vi.fn(() => () => undefined),
+  splitMessage: (text: string) => [text],
+}));
 vi.mock("../src/db/users.js", () => ({ findOrCreateUser: vi.fn() }));
 vi.mock("../src/db/conversations.js", () => ({
   findOrCreateConversation: vi.fn(),
@@ -46,7 +52,7 @@ vi.mock("../src/rag/router.js", async (importOriginal) => ({
 }));
 
 const { handleMessage } = await import("../src/chat/chatService.js");
-const { removeButtons, sendMessage } = await import("../src/bale.js");
+const { editMessageText, removeButtons, sendMessage } = await import("../src/bale.js");
 const { findOrCreateUser } = await import("../src/db/users.js");
 const { findOrCreateConversation } = await import("../src/db/conversations.js");
 const { saveMessage, getRecentMessages } = await import("../src/db/messages.js");
@@ -60,6 +66,9 @@ const { needsRewrite, rewriteQuestion } = await import("../src/rag/rewrite.js");
 const { routeMessage } = await import("../src/rag/router.js");
 const { logger } = await import("../src/logger.js");
 const messages = await import("../src/messages.js");
+const { config } = await import("../src/config.js");
+const { feedbackButtons } = await import("../src/bot/feedback.js");
+const streamSettings = config.stream as { mode: string };
 
 const CHAT_ID = 42;
 const USER_ID = 3;
@@ -87,6 +96,7 @@ beforeEach(() => {
   vi.mocked(answerFromDocuments).mockResolvedValue("جواب از جزوه");
   vi.mocked(askAI).mockResolvedValue("جواب عمومی");
   vi.mocked(createAnswerLog).mockResolvedValue(77);
+  streamSettings.mode = "edit";
 });
 
 /** The final reply (the last message sent to the user). */
@@ -320,13 +330,23 @@ describe("handleMessage", () => {
     expect(answerFromDocuments).not.toHaveBeenCalled();
   });
 
+  it("answers a greeting at once: no notice, no router, no answer log", async () => {
+    await handleMessage(CHAT_ID, "سلام، چطوری؟");
+
+    expect(vi.mocked(sendMessage).mock.calls).toHaveLength(1);
+    expect(lastReply()).toBe(messages.GREETING_REPLY_TEXT);
+    expect(routeMessage).not.toHaveBeenCalled();
+    expect(askAI).not.toHaveBeenCalled();
+    expect(createAnswerLog).not.toHaveBeenCalled();
+  });
+
   it("logs chat answers too", async () => {
     vi.mocked(routeMessage).mockResolvedValue({ route: "chat", retrievalMode: "focused" });
 
-    await handleMessage(CHAT_ID, "سلام");
+    await handleMessage(CHAT_ID, "یه جوک بگو");
 
     expect(createAnswerLog).toHaveBeenCalledWith(
-      expect.objectContaining({ route: "chat", question: "سلام", context: [] }),
+      expect.objectContaining({ route: "chat", question: "یه جوک بگو", context: [] }),
     );
   });
 
@@ -337,26 +357,127 @@ describe("handleMessage", () => {
     expect(vi.mocked(sendMessage).mock.calls.at(-1)?.[2]).toEqual({ keyboard: messages.MAIN_MENU });
   });
 
-  it("shows a cancel button while answering and removes it afterwards", async () => {
+  it("shows a cancel button while answering, then (not streamed) replaces the notice with a short 'done' line", async () => {
+    streamSettings.mode = "off";
     vi.mocked(sendMessage).mockResolvedValueOnce(901); // the thinking notice
     vi.mocked(routeMessage).mockResolvedValue({ route: "chat", retrievalMode: "focused" });
 
-    await handleMessage(CHAT_ID, "سلام");
+    await handleMessage(CHAT_ID, "یه جوک بگو");
 
     const [, noticeText, noticeMarkup] = vi.mocked(sendMessage).mock.calls[0]!;
     expect(noticeText).toBe(messages.THINKING_NOTICE_TEXT);
     expect(noticeMarkup).toEqual({ inline: [[expect.objectContaining({ callback_data: "cancel" })]] });
-    expect(removeButtons).toHaveBeenCalledWith(CHAT_ID, 901);
+    expect(editMessageText).toHaveBeenCalledWith(CHAT_ID, 901, messages.THINKING_DONE_TEXT);
   });
 
-  it("removes the cancel button even when answering fails", async () => {
+  it("only removes the cancel button when answering fails (the error message follows)", async () => {
     vi.mocked(sendMessage).mockResolvedValueOnce(902);
     vi.mocked(routeMessage).mockRejectedValue(new Error("ollama down"));
 
-    await handleMessage(CHAT_ID, "سلام");
+    await handleMessage(CHAT_ID, "یه جوک بگو");
 
+    expect(editMessageText).not.toHaveBeenCalled();
     expect(removeButtons).toHaveBeenCalledWith(CHAT_ID, 902);
     expect(lastReply()).toBe(messages.PROCESSING_FAILED_TEXT);
+  });
+
+  it("says 'cancelled' on the notice when the request was cancelled", async () => {
+    vi.mocked(sendMessage).mockResolvedValueOnce(903);
+    const controller = new AbortController();
+    vi.mocked(routeMessage).mockImplementation(async () => {
+      controller.abort();
+      throw new Error("aborted");
+    });
+
+    await handleMessage(CHAT_ID, "یه جوک بگو", controller.signal);
+
+    expect(editMessageText).toHaveBeenCalledWith(CHAT_ID, 903, messages.REQUEST_CANCELLED_TEXT);
+  });
+
+  it("falls back to removing the button when the notice cannot be edited (not streamed)", async () => {
+    streamSettings.mode = "off";
+    vi.mocked(sendMessage).mockResolvedValueOnce(904);
+    vi.mocked(editMessageText).mockRejectedValueOnce(new Error("message not found"));
+    vi.mocked(routeMessage).mockResolvedValue({ route: "chat", retrievalMode: "focused" });
+
+    await handleMessage(CHAT_ID, "یه جوک بگو");
+
+    expect(removeButtons).toHaveBeenCalledWith(CHAT_ID, 904);
+  });
+
+  describe("streamed", () => {
+    const partial = "این یه جواب نیمه‌کاره است که داره نوشته می‌شه و بیشتر از چهل حرف داره";
+    const pause = () => new Promise((resolve) => setTimeout(resolve, 20));
+
+    it("turns the notice into the answer, then puts the final text and feedback buttons in it", async () => {
+      vi.mocked(sendMessage).mockResolvedValueOnce(901);
+      vi.mocked(routeMessage).mockResolvedValue({ route: "chat", retrievalMode: "focused" });
+      vi.mocked(askAI).mockImplementation(async (_history, _signal, onDelta) => {
+        onDelta?.(partial);
+        await pause();
+        return "جواب عمومی";
+      });
+
+      await expect(handleMessage(CHAT_ID, "یه جوک بگو")).resolves.toBe(true);
+
+      // The text so far, with the cancel button still on it.
+      expect(editMessageText).toHaveBeenCalledWith(CHAT_ID, 901, partial, [
+        [expect.objectContaining({ callback_data: "cancel" })],
+      ]);
+      expect(vi.mocked(editMessageText).mock.calls.at(-1)).toEqual([CHAT_ID, 901, "جواب عمومی", feedbackButtons(77)]);
+      expect(sendMessage).toHaveBeenCalledTimes(1); // only the notice
+      expect(saveMessage).toHaveBeenLastCalledWith(11, "assistant", "جواب عمومی");
+    });
+
+    it("puts a short answer into the notice even when nothing was streamed", async () => {
+      vi.mocked(sendMessage).mockResolvedValueOnce(905);
+      vi.mocked(answerFromDocuments).mockResolvedValue(messages.NO_RELEVANT_CONTENT_TEXT);
+      vi.mocked(routeMessage).mockResolvedValue({ route: "document", retrievalMode: "focused" });
+
+      await handleMessage(CHAT_ID, "LIFO چیه؟");
+
+      expect(vi.mocked(editMessageText).mock.calls.at(-1)).toEqual([
+        CHAT_ID,
+        905,
+        messages.NO_RELEVANT_CONTENT_TEXT,
+        feedbackButtons(77),
+      ]);
+      expect(sendMessage).toHaveBeenCalledTimes(1);
+    });
+
+    it("keeps the text shown so far and adds 'cancelled' when cancelled mid-answer", async () => {
+      vi.mocked(sendMessage).mockResolvedValueOnce(902);
+      vi.mocked(routeMessage).mockResolvedValue({ route: "chat", retrievalMode: "focused" });
+      const controller = new AbortController();
+      vi.mocked(askAI).mockImplementation(async (_history, _signal, onDelta) => {
+        onDelta?.(partial);
+        await pause();
+        controller.abort();
+        throw new Error("aborted");
+      });
+
+      await handleMessage(CHAT_ID, "یه جوک بگو", controller.signal);
+
+      expect(vi.mocked(editMessageText).mock.calls.at(-1)).toEqual([
+        CHAT_ID,
+        902,
+        `${partial}\n\n${messages.REQUEST_CANCELLED_TEXT}`,
+      ]);
+    });
+
+    it("sends the answer anew when the final edit is refused", async () => {
+      vi.mocked(sendMessage).mockResolvedValueOnce(903);
+      vi.mocked(editMessageText).mockRejectedValue(new Error("message to edit not found"));
+      vi.spyOn(logger, "warn").mockImplementation(() => {});
+      vi.mocked(routeMessage).mockResolvedValue({ route: "chat", retrievalMode: "focused" });
+
+      await expect(handleMessage(CHAT_ID, "یه جوک بگو")).resolves.toBe(true);
+
+      expect(lastReply()).toBe("جواب عمومی");
+      expect(vi.mocked(sendMessage).mock.calls.at(-1)?.[2]).toEqual({ inline: feedbackButtons(77) });
+      expect(removeButtons).toHaveBeenCalledWith(CHAT_ID, 903);
+      vi.mocked(editMessageText).mockReset();
+    });
   });
 
   it("still sends the answer, without buttons, when logging fails", async () => {
@@ -364,7 +485,7 @@ describe("handleMessage", () => {
     vi.mocked(createAnswerLog).mockRejectedValue(new Error("db down"));
     vi.spyOn(logger, "warn").mockImplementation(() => {});
 
-    await expect(handleMessage(CHAT_ID, "سلام")).resolves.toBe(true);
+    await expect(handleMessage(CHAT_ID, "یه جوک بگو")).resolves.toBe(true);
 
     expect(lastReply()).toBe("جواب عمومی");
     expect(vi.mocked(sendMessage).mock.calls.at(-1)?.[2]).toBeUndefined();
@@ -393,7 +514,7 @@ describe("handleMessage", () => {
   it("uses general chat when the router says chat", async () => {
     vi.mocked(routeMessage).mockResolvedValue({ route: "chat", retrievalMode: "focused" });
 
-    await handleMessage(CHAT_ID, "سلام");
+    await handleMessage(CHAT_ID, "یه جوک بگو");
 
     expect(askAI).toHaveBeenCalled();
     expect(answerFromDocuments).not.toHaveBeenCalled();
@@ -403,7 +524,7 @@ describe("handleMessage", () => {
   it("skips the router when the user has no documents", async () => {
     vi.mocked(listCompletedFilenames).mockResolvedValue([]);
 
-    await handleMessage(CHAT_ID, "سلام");
+    await handleMessage(CHAT_ID, "یه جوک بگو");
 
     expect(routeMessage).not.toHaveBeenCalled();
     expect(askAI).toHaveBeenCalled();
@@ -419,7 +540,7 @@ describe("handleMessage", () => {
   it("tells the user when the message could not be saved", async () => {
     vi.mocked(saveMessage).mockRejectedValueOnce(new Error("db down"));
 
-    await expect(handleMessage(CHAT_ID, "سلام")).resolves.toBe(true);
+    await expect(handleMessage(CHAT_ID, "یه جوک بگو")).resolves.toBe(true);
 
     expect(lastReply()).toBe(messages.SAVE_MESSAGE_FAILED_TEXT);
     expect(routeMessage).not.toHaveBeenCalled();
@@ -451,6 +572,6 @@ describe("handleMessage", () => {
       .mockResolvedValueOnce(undefined) // thinking notice
       .mockRejectedValueOnce(new Error("bale down")); // the answer
 
-    await expect(handleMessage(CHAT_ID, "سلام")).resolves.toBe(false);
+    await expect(handleMessage(CHAT_ID, "یه جوک بگو")).resolves.toBe(false);
   });
 });

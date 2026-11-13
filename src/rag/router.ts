@@ -1,5 +1,6 @@
 import { config } from "../config.js";
 import { logger } from "../logger.js";
+import { trimHistory } from "../llm/history.js";
 import { chat } from "../llm/ollamaClient.js";
 import { buildRouterSystemPrompt } from "../llm/prompts/router.js";
 import { cleanRewrite } from "./rewrite.js";
@@ -137,7 +138,7 @@ export async function routeMessage(
     timeoutMs: config.llm.routerTimeoutMs,
     messages: [
       { role: "system", content: buildRouterSystemPrompt(documentNames) },
-      ...history.slice(-config.rag.historyLimit),
+      ...trimHistory(history, config.rag.routerHistory),
       { role: "user", content: text },
     ],
   });

@@ -15,6 +15,13 @@ function parseKeepAlive(value: string): string | number {
   return /^-?\d+$/.test(value) ? Number(value) : value;
 }
 
+export type StreamMode = "edit" | "parts" | "off";
+
+function parseStreamMode(value: string): StreamMode {
+  if (value === "edit" || value === "parts" || value === "off") return value;
+  throw new Error(`STREAM_MODE must be edit, parts or off, not "${value}"`);
+}
+
 export const config = {
   port: Number(required("PORT")),
   baleToken: required("BALE_TOKEN"),
@@ -34,6 +41,16 @@ export const config = {
      */
     keepAlive: parseKeepAlive(process.env.LLM_KEEP_ALIVE ?? "30m"),
     temperature: { rag: 0.2, router: 0, chat: 0.7 },
+    /**
+     * Output caps (tokens) against a runaway answer: at ~37 tokens/s the old
+     * 4096 let a looping answer run ~110 s. Set above every real answer in
+     * answer_logs (2026-11-13: longest focused 1436 chars, multi-part 2384,
+     * chat 2269, about 2.5 chars a token) and the benchmark (p95 241 tokens),
+     * so they cut nothing today. A shorter-answer prompt was not tried: answers
+     * are already short (focused p50 532 chars) and generation is ~5 s of ~11.
+     * Whole-document summaries keep `summary`.
+     */
+    maxTokens: { focused: 1000, multiPart: 2000, chat: 1000, summary: 4096 },
   },
 
   /** Cross-encoder reranker (llama.cpp server in compose.yaml, runs on the CPU). */
@@ -167,6 +184,18 @@ export const config = {
     broadBatchChars: 9000,
     historyLimit: 10,
     /**
+     * What the router reads of the history (trimHistory). After 5 long answers
+     * (9266 chars) the whole history was 4317 prompt tokens: 12.8 s reading,
+     * 18.5 s routing; trimmed, 1581 tokens, 4.0 s and 5.2 s (uncached, 3 runs,
+     * 2026-11-13). eval:router -- --with-search held at 62/62, real 24/24,
+     * follow-ups missed 0 (standalone rewritten 1/20, was 0/20).
+     */
+    routerHistory: { messages: 6, chars: 600 },
+    /**
+     * General chat keeps longer turns: "continue the story" needs the story.
+     */
+    chatHistory: { messages: 6, chars: 1500 },
+    /**
      * Earlier turns older than this are not shown to the router, the rewrite or
      * general chat: each student has one conversation for ever, so a question
      * days later was read as a follow-up of an old topic (roadmap R5). Not an
@@ -249,6 +278,24 @@ export const config = {
     enabled: process.env.ENRICHMENT !== "false",
     /** How often the worker looks for queued documents when idle. */
     pollMs: 30_000,
+  },
+
+  /**
+   * How an answer appears while it is written (roadmap S1). "edit": the
+   * thinking notice is edited as text arrives; Bale documents no limit for
+   * edits but answers a rate limit with 429 and retry_after, which doubles the
+   * interval for the rest of that answer. "parts": the fallback if 429s show
+   * up in use, at most `maxParts` messages sent at paragraph ends, never
+   * edited. "off": the whole answer at the end, as before.
+   */
+  stream: {
+    mode: parseStreamMode(process.env.STREAM_MODE ?? "edit"),
+    /** At most one edit per interval, and only after this much new text. */
+    editIntervalMs: 1_500,
+    minGrowthChars: 40,
+    /** "parts": a part is sent once this much new text ends in a paragraph. */
+    minPartChars: 600,
+    maxParts: 3,
   },
 
   bale: {

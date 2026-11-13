@@ -1,11 +1,13 @@
-import { removeButtons, sendMessage } from "../bale.js";
+import { editMessageText, keepTyping, removeButtons, sendMessage } from "../bale.js";
 import { plainMath } from "../rag/plainMath.js";
 import type { Markup } from "../bale.js";
 import { cancelButton } from "../bot/buttons.js";
 import { parseCommand } from "../bot/commands/index.js";
 import {
   PROCESSING_FAILED_TEXT,
+  REQUEST_CANCELLED_TEXT,
   SAVE_MESSAGE_FAILED_TEXT,
+  THINKING_DONE_TEXT,
   THINKING_NOTICE_TEXT,
 } from "../messages.js";
 import { config } from "../config.js";
@@ -27,6 +29,9 @@ import { needsRewrite, rewriteQuestion } from "../rag/rewrite.js";
 import { resolveRoute, routeMessage } from "../rag/router.js";
 import type { MessageClassification } from "../rag/router.js";
 import { startForegroundWork } from "../llm/priority.js";
+import { smallTalkReply } from "./smallTalk.js";
+import { createLiveAnswer } from "./streamEditor.js";
+import type { LiveAnswer } from "./streamEditor.js";
 
 interface Session {
   userId: number;
@@ -51,6 +56,8 @@ interface Reply {
   answer: string;
   markup?: Markup;
   log?: AnswerLogInfo;
+  /** The streamed answer's messages, where the final text goes. */
+  live?: LiveAnswer;
 }
 
 const chatLog = (question: string): AnswerLogInfo => ({
@@ -64,7 +71,10 @@ const chatLog = (question: string): AnswerLogInfo => ({
 
 /**
  * Answers a plain-text message. While it works, a "thinking" notice with a
- * ⏹️ cancel button is shown; the button is removed when the work ends.
+ * ⏹️ cancel button is shown. When streaming is on (config.stream) the notice
+ * becomes the answer as it is written, and handleMessage puts the final text
+ * and buttons into it. Otherwise, when the work ends, the notice is replaced
+ * by a short line (done or cancelled), so no stale "press cancel" stays.
  */
 async function answerQuestion(
   chatId: number,
@@ -73,22 +83,59 @@ async function answerQuestion(
   signal?: AbortSignal,
 ): Promise<Reply> {
   const noticeId = await sendMessage(chatId, THINKING_NOTICE_TEXT, { inline: cancelButton() });
+  const stopTyping = keepTyping(chatId);
   // Background enrichment pauses until this answer is done (one GPU).
   const finished = startForegroundWork();
+  const live =
+    noticeId !== undefined && config.stream.mode !== "off"
+      ? createLiveAnswer(chatId, noticeId, { liveButtons: cancelButton() })
+      : null;
+  const onDelta = live
+    ? (partial: string) => {
+        stopTyping(); // the text itself shows that the bot is working
+        live.update(partial);
+      }
+    : undefined;
 
+  let answered = false;
   try {
-    const reply = await composeAnswer(session, text, signal);
+    const reply = await composeAnswer(session, text, signal, onDelta);
+    answered = true;
     // Bale shows LaTeX as raw text; formulas go out as Unicode.
-    return { ...reply, answer: plainMath(reply.answer) };
+    return { ...reply, answer: plainMath(reply.answer), ...(live ? { live } : {}) };
   } finally {
     finished();
-    if (noticeId !== undefined) {
+    stopTyping();
+    if (live && (signal?.aborted || !answered)) {
+      await endLiveAnswer(chatId, live, signal?.aborted ? REQUEST_CANCELLED_TEXT : null);
+    } else if (!live && noticeId !== undefined) {
+      // Done or cancelled: the notice says so (editing the text also drops the button).
+      // On a failure the error message follows, so only the button goes.
+      const outcome = signal?.aborted ? REQUEST_CANCELLED_TEXT : answered ? THINKING_DONE_TEXT : null;
       try {
-        await removeButtons(chatId, noticeId);
+        await (outcome ? editMessageText(chatId, noticeId, outcome) : removeButtons(chatId, noticeId));
       } catch {
-        // Not critical (e.g. already removed by the cancel press).
+        // Not critical: the notice may already be gone; at least try to remove its button.
+        if (outcome) await removeButtons(chatId, noticeId).catch(() => undefined);
       }
     }
+  }
+}
+
+/**
+ * Ends a streamed answer that will not be finished (cancelled or failed): the
+ * text shown so far stays, followed by `line` (cancelled), or the notice says
+ * `line` alone if nothing was shown yet. The cancel button goes either way.
+ */
+async function endLiveAnswer(chatId: number, live: LiveAnswer, line: string | null): Promise<void> {
+  await live.stop();
+  const lastId = live.messageIds.at(-1)!;
+  const lastText = live.lastMessageText;
+  try {
+    if (line) await editMessageText(chatId, lastId, lastText ? `${lastText}\n\n${line}` : line);
+    else await removeButtons(chatId, lastId);
+  } catch {
+    await removeButtons(chatId, lastId).catch(() => undefined);
   }
 }
 
@@ -111,6 +158,7 @@ async function composeAnswer(
   { userId, conversationId }: Session,
   text: string,
   signal?: AbortSignal,
+  onDelta?: (text: string) => void,
 ): Promise<Reply> {
   // File names only: listing enriched documents' titles and topics did not
   // change a route on 33 messages (100% either way) but cost 2 mode decisions
@@ -122,7 +170,7 @@ async function composeAnswer(
   );
 
   if (documentNames.length === 0) {
-    return { answer: await askAI(history, signal), log: chatLog(text) };
+    return { answer: await askAI(history, signal, onDelta), log: chatLog(text) };
   }
 
   // The current message is already saved, so it is the last history entry.
@@ -139,6 +187,7 @@ async function composeAnswer(
     const trace: AnswerTrace = {};
     const answer = await answerTransform(userId, text, lastReply.content, transformSources, {
       ...(signal ? { signal } : {}),
+      ...(onDelta ? { onDelta } : {}),
       trace,
     });
     return {
@@ -177,7 +226,7 @@ async function composeAnswer(
       ? prefetchCandidates(userId, question, await getLastAnswerHits(userId).catch(() => null))
       : prefetch;
     const trace: AnswerTrace = {};
-    const options = { ...(signal ? { signal } : {}), prefetch: search, trace };
+    const options = { ...(signal ? { signal } : {}), prefetch: search, trace, onDelta };
     // Questions about a document itself are answered from its profile and opening page.
     const answer =
       classification.route === "document_info"
@@ -196,7 +245,7 @@ async function composeAnswer(
     };
   }
 
-  return { answer: await askAI(history, signal), log: chatLog(text) };
+  return { answer: await askAI(history, signal, onDelta), log: chatLog(text) };
 }
 
 /** Records an answer for review; returns its id, or null if logging failed (never blocks the reply). */
@@ -237,10 +286,14 @@ export async function handleMessage(
 
   try {
     const command = parseCommand(text);
+    const smallTalk = command ? null : smallTalkReply(text);
 
     if (command) {
       const result = await command.handler({ chatId, userId: session.userId, args: command.args });
       reply = typeof result === "string" ? { answer: result } : { answer: result.text, markup: result.markup };
+    } else if (smallTalk) {
+      // A greeting or thanks: answered at once, no notice, no model, not logged as an answer.
+      reply = { answer: smallTalk };
     } else {
       reply = await answerQuestion(chatId, session, text, signal);
     }
@@ -258,6 +311,7 @@ export async function handleMessage(
     await saveMessage(session.conversationId, "assistant", reply.answer);
   } catch (error: unknown) {
     logger.error("Failed to save assistant response:", error);
+    if (reply.live) await endLiveAnswer(chatId, reply.live, null);
     return false;
   }
 
@@ -265,6 +319,12 @@ export async function handleMessage(
   const logId = await logAnswer(session.userId, reply, Date.now() - started);
 
   const markup = logId === null ? reply.markup : { inline: feedbackButtons(logId) };
+
+  // A streamed answer is finished in its own messages; if Bale refuses, it is sent anew.
+  if (reply.live) {
+    if (await reply.live.finish(reply.answer, markup && "inline" in markup ? markup.inline : undefined)) return true;
+    await endLiveAnswer(chatId, reply.live, null);
+  }
 
   try {
     await sendMessage(chatId, reply.answer, markup);

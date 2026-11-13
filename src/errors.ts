@@ -15,6 +15,23 @@ export class OllamaTimeoutError extends OllamaError {
   override name = "OllamaTimeoutError";
 }
 
+/** Bale refused a call; on a rate limit (429) `retryAfterSeconds` says how long to wait. */
+export class BaleApiError extends Error {
+  override name = "BaleApiError";
+
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly retryAfterSeconds?: number,
+  ) {
+    super(message);
+  }
+
+  get isRateLimit(): boolean {
+    return this.status === 429;
+  }
+}
+
 /** The PDF or image could not be read or contained no usable text. */
 export class PdfExtractError extends Error {
   override name = "PdfExtractError";

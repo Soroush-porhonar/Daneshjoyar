@@ -1,3 +1,4 @@
+import { config } from "../config.js";
 import { getDocumentProfile, listCompletedDocuments } from "../db/documents.js";
 import { buildDocumentInfoPrompt, RAG_SYSTEM_PROMPT } from "../llm/prompts/rag.js";
 import { documentDisplayName, documentInfoHeaderText, NO_DOCUMENT_CONTENT_TEXT } from "../messages.js";
@@ -53,7 +54,7 @@ export function isDocumentInfoQuestion(text: string): boolean {
 export async function answerDocumentInfo(
   userId: number,
   question: string,
-  { signal, prefetch, trace, documentId }: AnswerOptions = {},
+  { signal, prefetch, trace, documentId, onDelta }: AnswerOptions = {},
 ): Promise<string> {
   const documents = (await listCompletedDocuments(userId)).filter(
     (document) => documentId === undefined || document.id === documentId,
@@ -77,14 +78,15 @@ export async function answerDocumentInfo(
   }
 
   const name = documentDisplayName(document.filename, document.title);
-  const answer = await generate(
-    RAG_SYSTEM_PROMPT,
-    buildDocumentInfoPrompt(question, name, profile, formatChunks(opening)),
+  // A citation marker the model writes anyway would point nowhere.
+  const withoutCitations = (text: string) => text.replace(/\s*\[[\d\s,،]+\]/g, "").trim();
+  const header = documentInfoHeaderText(name);
+  const answer = await generate(RAG_SYSTEM_PROMPT, buildDocumentInfoPrompt(question, name, profile, formatChunks(opening)), {
     signal,
     trace,
-  );
+    limit: config.llm.maxTokens.focused,
+    onDelta: onDelta && ((text) => onDelta(`${header}\n\n${withoutCitations(text)}`)),
+  });
 
-  // A citation marker the model writes anyway would point nowhere.
-  const body = answer.replace(/\s*\[[\d\s,،]+\]/g, "").trim();
-  return `${documentInfoHeaderText(name)}\n\n${body}`;
+  return `${header}\n\n${withoutCitations(answer)}`;
 }

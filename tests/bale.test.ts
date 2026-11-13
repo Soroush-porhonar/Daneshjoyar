@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { editMessageText, sendMessage } from "../src/bale.js";
+import { editMessageText, keepTyping, sendMessage } from "../src/bale.js";
 
 const fetchMock = vi.fn();
 let nextId = 100;
@@ -58,5 +58,22 @@ describe("editMessageText", () => {
       text: "حذف شد",
       reply_markup: { inline_keyboard: [] },
     });
+  });
+});
+
+describe("keepTyping", () => {
+  it("shows typing now and every 5 seconds until stopped", async () => {
+    vi.useFakeTimers();
+    try {
+      const stop = keepTyping(7);
+      await vi.advanceTimersByTimeAsync(11_000);
+      stop();
+      await vi.advanceTimersByTimeAsync(20_000);
+
+      expect(fetchMock.mock.calls.every(([url]) => String(url).endsWith("sendChatAction"))).toBe(true);
+      expect(bodies()).toEqual([1, 2, 3].map(() => ({ chat_id: 7, action: "typing" })));
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

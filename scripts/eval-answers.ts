@@ -49,7 +49,7 @@ import { pool } from "../src/db/pool.js";
 import { NO_RELEVANT_CONTENT_TEXT, SOURCES_HEADING } from "../src/messages.js";
 import { coversPage, scoreAnswer } from "./answerChecks.js";
 import type { AnswerQuestion, AnswerScore } from "./answerChecks.js";
-import { CITATION_SUPPORT_SCORE, checkCitations, isSupported, numberedSources } from "./citationCheck.js";
+import { CITATION_SUPPORT_SCORE, answerSources, checkCitations, isSupported } from "./citationCheck.js";
 import { JUDGE_MODEL, judgeClaims, unloadAnswerModel } from "./judge.js";
 import type { CitationCheck, NumberedSource } from "./citationCheck.js";
 import { RESULTS_DIR, evalUser, previousHits, previousResult, saveResult } from "./evalHelpers.js";
@@ -422,8 +422,8 @@ for (const q of questions) {
   const seconds = (performance.now() - start) / 1000;
 
   const context = trace.context ?? [];
-  const body = answer.split(SOURCES_HEADING)[0]!;
-  const sources = numberedSources(context);
+  // The sources as the answer lists them (cited ones, renumbered 1..n).
+  const sources = answerSources(answer, context);
   const focused = mode !== "broad";
 
   const detail: Detail = {

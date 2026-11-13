@@ -3,6 +3,7 @@ import { logger } from "../logger.js";
 import { listCompletedDocuments } from "../db/documents.js";
 import { getSectionSummaries } from "../db/enrichment.js";
 import type { CompletedDocument } from "../db/documents.js";
+import { markCut } from "../llm/cut.js";
 import {
   NO_DOCUMENT_CONTENT_TEXT,
   NO_RELEVANT_CONTENT_TEXT,
@@ -37,32 +38,42 @@ interface SourceChunk {
   isHit?: boolean;
 }
 
-const GENERATION_OPTIONS = {
-  num_predict: 4096,
-  temperature: config.llm.temperature.rag,
-};
+export interface GenerateOptions {
+  signal?: AbortSignal | undefined;
+  /** The call's token counts and timings are recorded on it. */
+  trace?: AnswerTrace | undefined;
+  /**
+   * A reply the student reads: output stops at this many tokens and a cut-off
+   * answer ends with a line saying so. Without one (an internal batch summary)
+   * the summary cap applies and nothing is added.
+   */
+  limit?: number | undefined;
+  /** Streams the reply: called with the text so far. */
+  onDelta?: ((text: string) => void) | undefined;
+}
 
-/** With a `trace`, the call's token counts and timings are recorded on it. */
-export function generate(
+export async function generate(
   system: string,
   user: string,
-  signal?: AbortSignal,
-  trace?: AnswerTrace,
+  { signal, trace, limit, onDelta }: GenerateOptions = {},
 ): Promise<string> {
-  return chat({
+  let doneReason: string | undefined;
+  const answer = await chat({
     think: false,
-    options: GENERATION_OPTIONS,
+    options: { num_predict: limit ?? config.llm.maxTokens.summary, temperature: config.llm.temperature.rag },
     signal,
-    onStats: trace
-      ? (stats) => {
-          trace.generation = stats;
-        }
-      : undefined,
+    onDelta,
+    onStats: (stats) => {
+      doneReason = stats.doneReason;
+      if (trace) trace.generation = stats;
+    },
     messages: [
       { role: "system", content: system },
       { role: "user", content: user },
     ],
   });
+
+  return limit !== undefined ? markCut(answer, doneReason) : answer;
 }
 
 /**
@@ -155,10 +166,50 @@ export function isRefusal(answer: string): boolean {
   );
 }
 
+/** A run of citation brackets: [2], [1][3], [1، 3], [۲]; not after a name or bracket (code: a[1]). */
+const CITATION_RUN = /(?<![\w)\]])(?:\[[\d۰-۹\s,،]+\])+/g;
+
+/**
+ * Renumbers the answer's citations 1..n in order of first appearance, so the
+ * student sees [1], [2], [3] instead of the context's numbers with gaps
+ * ([2], [4], [5], roadmap 2.4). Numbers that name no source are dropped from
+ * the text. Code is left alone. Returns the text and old -> new numbers.
+ */
+export function renumberCitations(
+  answer: string,
+  known: Set<number>,
+): { text: string; renumbered: Map<number, number> } {
+  const renumbered = new Map<number, number>();
+  for (const number of citedNumbers(answer)) {
+    if (known.has(number)) renumbered.set(number, renumbered.size + 1);
+  }
+
+  const rewrite = (prose: string) =>
+    prose.replace(CITATION_RUN, (run) => {
+      const numbers = [...new Set(toAsciiDigits(run).split(/[^\d]+/).filter(Boolean).map(Number))];
+      const kept = numbers
+        .map((number) => renumbered.get(number))
+        .filter((number): number is number => number !== undefined)
+        .map((number) => `[${number}]`)
+        .join("");
+      // A dropped run leaves no gap before the punctuation that followed it.
+      return kept || "\u0000";
+    }).replace(/ *\u0000/g, "");
+
+  // Odd parts are code (```…``` or `…`) and keep their brackets.
+  const text = answer
+    .split(/(```[\s\S]*?```|`[^`\n]*`)/)
+    .map((part, index) => (index % 2 === 1 ? part : rewrite(part)))
+    .join("");
+
+  return { text, renumbered };
+}
+
 /**
  * Adds the sources section. With `numbers`, only the sources the model cited
- * inline are listed, numbered like in the answer; if it cited none, the real
- * hits are listed. A refusal gets no sources: nothing was taken from them.
+ * inline are listed, renumbered 1..n like the answer's citations; if it cited
+ * none, the real hits are listed without numbers. A refusal gets no sources:
+ * nothing was taken from them.
  */
 export function appendSources(
   answer: string,
@@ -167,15 +218,16 @@ export function appendSources(
 ): string {
   if (isRefusal(answer)) return answer;
 
-  const cited = numbers ? citedNumbers(answer) : new Set<number>();
-  const used = [...(numbers ?? [])].filter(([, number]) => cited.has(number));
+  const lineOf = new Map([...(numbers ?? [])].map(([line, number]) => [number, line]));
+  const { text, renumbered } = numbers
+    ? renumberCitations(answer, new Set(lineOf.keys()))
+    : { text: answer, renumbered: new Map<number, number>() };
+  answer = text;
+
   const sources =
-    used.length > 0
-      ? used.map(([line, number]) => `[${number}] ${line}`)
-      : buildSourceList(chunks).map((line) => {
-          const number = numbers?.get(line);
-          return number ? `[${number}] ${line}` : line;
-        });
+    renumbered.size > 0
+      ? [...renumbered].map(([old, number]) => `[${number}] ${lineOf.get(old)!}`)
+      : buildSourceList(chunks);
 
   if (sources.length === 0) {
     return answer;
@@ -205,8 +257,7 @@ async function answerBroadQuestion(
   userId: number,
   document: CompletedDocument,
   question: string,
-  signal?: AbortSignal,
-  trace?: AnswerTrace,
+  { signal, trace, onDelta }: Omit<GenerateOptions, "limit">,
 ): Promise<string> {
   const chunks = await getDocumentChunks(userId, document.id);
 
@@ -238,7 +289,7 @@ async function answerBroadQuestion(
       const summary = await generate(
         BROAD_EXTRACTION_SYSTEM_PROMPT,
         buildBatchExtractionPrompt(question, formatChunks(batch)),
-        signal,
+        { signal },
       );
 
       summaries.push(`خلاصه بخش ${batchNumber}:\n${summary}`);
@@ -246,29 +297,39 @@ async function answerBroadQuestion(
     }
   }
 
-  const answer = await generate(
-    RAG_SYSTEM_PROMPT,
-    buildBroadSynthesisPrompt(question, summaries),
+  // Say which document was summarised: it was picked, not chosen by the student.
+  const header = summaryHeaderText(documentDisplayName(document.filename, document.title));
+  const answer = await generate(RAG_SYSTEM_PROMPT, buildBroadSynthesisPrompt(question, summaries), {
     signal,
     trace,
-  );
+    limit: config.llm.maxTokens.summary,
+    onDelta: onDelta && ((text) => onDelta(`${header}\n\n${text}`)),
+  });
 
   // Cite the pages the summaries drew on, not every page of the document
   // (only the summaries' own text: the section labels name page ranges).
   const mentioned = pagesMentioned(stored.length > 0 ? stored.map((section) => section.summary) : summaries);
   const cited = chunks.filter((chunk) => chunk.pageNumber != null && mentioned.has(chunk.pageNumber));
 
-  // Say which document was summarised: it was picked, not chosen by the student.
-  return `${summaryHeaderText(documentDisplayName(document.filename, document.title))}\n\n${appendSources(answer, cited.length > 0 ? cited : chunks)}`;
+  return `${header}\n\n${appendSources(answer, cited.length > 0 ? cited : chunks)}`;
 }
+
+/**
+ * Streamed text with its citations numbered as the final answer will number
+ * them: renumberCitations maps by first appearance, so a prefix of the answer
+ * gets the same numbers the whole answer does.
+ */
+export const liveCitations =
+  (numbers: Map<string, number>, onDelta: (text: string) => void) =>
+  (text: string): void =>
+    onDelta(renumberCitations(text, new Set(numbers.values())).text);
 
 async function answerFocusedQuestion(
   userId: number,
   question: string,
   mode: "focused" | "multi_part",
   scope: { documentId?: number; ranked?: RetrievedChunk[] },
-  signal?: AbortSignal,
-  trace?: AnswerTrace,
+  { signal, trace, onDelta }: Omit<GenerateOptions, "limit">,
 ): Promise<string> {
   const chunks = await retrieveContext(userId, question, mode, scope);
 
@@ -282,12 +343,12 @@ async function answerFocusedQuestion(
   }
 
   const numbers = numberSources(chunks);
-  const answer = await generate(
-    RAG_SYSTEM_PROMPT,
-    buildFocusedUserPrompt(question, formatChunks(chunks, numbers)),
+  const answer = await generate(RAG_SYSTEM_PROMPT, buildFocusedUserPrompt(question, formatChunks(chunks, numbers)), {
     signal,
     trace,
-  );
+    limit: mode === "focused" ? config.llm.maxTokens.focused : config.llm.maxTokens.multiPart,
+    onDelta: onDelta && liveCitations(numbers, onDelta),
+  });
 
   return appendSources(answer, chunks, numbers);
 }
@@ -391,6 +452,8 @@ export interface AnswerOptions {
   trace?: AnswerTrace;
   /** Answer only from this document (the evals pin one version). */
   documentId?: number;
+  /** Streams the answer as the student will see it (citations already renumbered). */
+  onDelta?: ((text: string) => void) | undefined;
 }
 
 /** Answers from the user's documents: the most relevant chunks of any of them, or one picked document for summaries. */
@@ -398,7 +461,7 @@ export async function answerFromDocuments(
   userId: number,
   question: string,
   retrievalMode: RetrievalMode = "multi_part",
-  { signal, prefetch, trace, documentId }: AnswerOptions = {},
+  { signal, prefetch, trace, documentId, onDelta }: AnswerOptions = {},
 ): Promise<string> {
   // Use early results only if they were fetched for this exact question;
   // if fetching them failed, search again normally.
@@ -418,7 +481,7 @@ export async function answerFromDocuments(
     if (!document) return NO_DOCUMENT_CONTENT_TEXT;
     if (trace) trace.documentIds = [document.id];
 
-    return answerBroadQuestion(userId, document, question, signal, trace);
+    return answerBroadQuestion(userId, document, question, { signal, trace, onDelta });
   }
 
   return answerFocusedQuestion(
@@ -426,7 +489,6 @@ export async function answerFromDocuments(
     question,
     retrievalMode,
     { ...(documentId === undefined ? {} : { documentId }), ...(ranked ? { ranked } : {}) },
-    signal,
-    trace,
+    { signal, trace, onDelta },
   );
 }
