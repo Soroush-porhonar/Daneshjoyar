@@ -5,6 +5,7 @@ vi.mock("../src/db/documents.js", () => ({
   findDocumentFilename: vi.fn(),
   listDocuments: vi.fn(),
 }));
+vi.mock("../src/files.js", () => ({ removeUploadedFile: vi.fn() }));
 
 const { parseCommand } = await import("../src/bot/commands/index.js");
 type CommandReply = import("../src/bot/commands/types.js").CommandReply;
@@ -13,6 +14,7 @@ const { deleteDocument, findDocumentFilename, listDocuments } = await import(
 );
 const { clearPendingDeletion } = await import("../src/bot/pendingDelete.js");
 const messages = await import("../src/messages.js");
+const { removeUploadedFile } = await import("../src/files.js");
 
 const CHAT_ID = 5;
 const USER_ID = 8;
@@ -33,7 +35,7 @@ async function run(text: string): Promise<string> {
 /** callback_data of the reply's inline buttons, row by row. */
 async function buttonData(text: string): Promise<string[][]> {
   const result = await reply(text);
-  if (typeof result === "string" || !("inline" in result.markup)) return [];
+  if (typeof result === "string" || !result.markup || !("inline" in result.markup)) return [];
   return result.markup.inline.map((row) => row.map((button) => button.callback_data));
 }
 
@@ -41,7 +43,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   clearPendingDeletion(CHAT_ID);
   vi.mocked(findDocumentFilename).mockResolvedValue("notes.pdf");
-  vi.mocked(deleteDocument).mockResolvedValue(true);
+  vi.mocked(deleteDocument).mockResolvedValue({ filePath: null });
 });
 
 describe("/documents", () => {
@@ -78,7 +80,7 @@ describe("/documents", () => {
     ]);
 
     const result = (await reply("/documents")) as CommandReply;
-    const rows = "inline" in result.markup ? result.markup.inline.map((row) => row.map((b) => b.text)) : [];
+    const rows = result.markup && "inline" in result.markup ? result.markup.inline.map((row) => row.map((b) => b.text)) : [];
 
     expect(rows[0]).toEqual(["📄 notes"]);
     expect(rows[1]).toEqual([messages.DELETE_BUTTON]);
@@ -116,6 +118,15 @@ describe("delete with confirmation", () => {
     expect(deleteDocument).toHaveBeenCalledTimes(1);
   });
 
+  it("removes the uploaded file with the document", async () => {
+    vi.mocked(deleteDocument).mockResolvedValueOnce({ filePath: "uploads/1-notes.pdf" });
+    await run("/delete 4");
+
+    await run("/confirm_delete");
+
+    expect(removeUploadedFile).toHaveBeenCalledWith("uploads/1-notes.pdf");
+  });
+
   it("/cancel_delete keeps the document", async () => {
     await run("/delete 4");
 
@@ -136,7 +147,7 @@ describe("delete with confirmation", () => {
   });
 
   it("reports when the delete itself fails", async () => {
-    vi.mocked(deleteDocument).mockResolvedValue(false);
+    vi.mocked(deleteDocument).mockResolvedValue(undefined);
     await run("/delete 4");
 
     expect(await run("/confirm_delete")).toBe(messages.DELETE_FAILED_TEXT);

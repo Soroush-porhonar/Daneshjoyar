@@ -66,8 +66,8 @@ export async function handleCallback(query: CallbackQuery): Promise<void> {
     return;
   }
 
-  if (callback.action === "ocr") {
-    // The upload waiting on this question goes on or stops; the buttons go either way.
+  if (callback.action === "confirm") {
+    // The work waiting on this question goes on or stops; the buttons go either way.
     const delivered = answerConfirmation(callback.token, chatId, callback.yes);
     await answerCallbackQuery(query.id, delivered ? undefined : CONFIRMATION_EXPIRED_TEXT);
     if (messageId !== undefined) await tryTo(() => removeButtons(chatId, messageId));

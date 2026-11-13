@@ -25,9 +25,10 @@ vi.mock("../../src/rag/pdf.js", () => ({ openPdf: vi.fn() }));
 const { pool } = await import("../../src/db/pool.js");
 const { findOrCreateUser } = await import("../../src/db/users.js");
 const { findOrCreateConversation, startNewTopic } = await import("../../src/db/conversations.js");
-const { getRecentMessages } = await import("../../src/db/messages.js");
+const { getRecentMessages, saveMessage } = await import("../../src/db/messages.js");
 const {
   deleteDocument,
+  deleteUserData,
   failInterruptedDocuments,
   findDocumentFilename,
   findDuplicateDocument,
@@ -132,7 +133,7 @@ describe("user isolation (one student must never see another's documents)", () =
     const bobsDocument = await addDocument(bob, "bob.pdf", [1]);
 
     expect(await findDocumentFilename(alice, bobsDocument)).toBeNull();
-    expect(await deleteDocument(alice, bobsDocument)).toBe(false);
+    expect(await deleteDocument(alice, bobsDocument)).toBeUndefined();
     expect(await findDocumentFilename(bob, bobsDocument)).toBe("bob.pdf");
   });
 
@@ -205,11 +206,60 @@ describe("documents", () => {
     ]);
   });
 
+  it("deleting a document returns its stored file path", async () => {
+    const alice = await addUser("alice");
+    const documentId = await addDocument(alice, "a.pdf", [1]);
+    await pool.query(`UPDATE documents SET file_path = 'uploads/1-a.pdf' WHERE id = $1`, [documentId]);
+
+    expect(await deleteDocument(alice, documentId)).toEqual({ filePath: "uploads/1-a.pdf" });
+  });
+
+  it("delete my data removes everything of that user and nothing of anyone else", async () => {
+    const aliceChat = 1001;
+    const bobChat = 1002;
+    const alice = await addUser(String(aliceChat));
+    const bob = await addUser(String(bobChat));
+    const alicesDocument = await addDocument(alice, "a.pdf", [1, 2]);
+    await pool.query(`UPDATE documents SET file_path = 'uploads/1-a.pdf' WHERE id = $1`, [alicesDocument]);
+    await addDocument(bob, "b.pdf", [3]);
+    for (const user of [alice, bob]) {
+      const conversation = await findOrCreateConversation(user);
+      await saveMessage(conversation, "user", "سلام");
+      await createAnswerLog({
+        userId: user,
+        question: "سؤال",
+        rewrittenQuestion: null,
+        route: "chat",
+        retrievalMode: null,
+        documentIds: [],
+        context: [],
+        answer: "جواب",
+        latencyMs: 1,
+      });
+    }
+    await receiveUpdate({ update_id: 900, message: { chat: { id: aliceChat }, text: "سؤال آلیس" } });
+    await receiveUpdate({ update_id: 901, message: { chat: { id: bobChat }, text: "سؤال باب" } });
+
+    expect(await deleteUserData(alice, aliceChat)).toEqual(["uploads/1-a.pdf"]);
+
+    const count = async (sql: string, params: unknown[]) => Number((await pool.query(sql, params)).rows[0].count);
+    for (const [user, expected] of [[alice, 0], [bob, 1]] as const) {
+      expect(await count("SELECT count(*) FROM users WHERE id = $1", [user])).toBe(expected);
+      expect(await count("SELECT count(*) FROM documents WHERE user_id = $1", [user])).toBe(expected);
+      expect(await count("SELECT count(*) FROM answer_logs WHERE user_id = $1", [user])).toBe(expected);
+      expect(await count("SELECT count(*) FROM conversations WHERE user_id = $1", [user])).toBe(expected);
+    }
+    expect(await count("SELECT count(*) FROM document_chunks WHERE document_id = $1", [alicesDocument])).toBe(0);
+    expect((await pool.query("SELECT update_id FROM processed_updates ORDER BY update_id")).rows).toEqual([
+      { update_id: "901" },
+    ]);
+  });
+
   it("deleting a document also deletes its chunks", async () => {
     const alice = await addUser("alice");
     const documentId = await addDocument(alice, "a.pdf", [1, 2, 3]);
 
-    expect(await deleteDocument(alice, documentId)).toBe(true);
+    expect(await deleteDocument(alice, documentId)).toEqual({ filePath: null });
 
     const left = await pool.query("SELECT 1 FROM document_chunks WHERE document_id = $1", [
       documentId,

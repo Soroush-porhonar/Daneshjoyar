@@ -1,12 +1,12 @@
 /**
- * Yes/no questions an upload waits on (roadmap Q3: a long scan is confirmed
- * before it takes the GPU for half an hour or more). The question is a
- * message with ✅/❌ buttons; the upload's work awaits the press. Kept in
- * memory: after a restart the inbox retries the upload, which asks again.
+ * Yes/no questions that work waits on: a long scan before it takes the GPU
+ * for half an hour or more (roadmap Q3), "delete my data" (8.10). The
+ * question is a message with two buttons; the work awaits the press. Kept in
+ * memory: after a restart the inbox retries the update, which asks again.
  */
 import { randomBytes } from "node:crypto";
 import { editMessageText, sendMessage } from "../bale.js";
-import { confirmOcrButtons } from "../bot/buttons.js";
+import { confirmButtons } from "../bot/buttons.js";
 import { config } from "../config.js";
 import { logger } from "../logger.js";
 
@@ -17,13 +17,22 @@ interface Pending {
 
 const pending = new Map<string, Pending>();
 
-/**
- * Asks `question` with ✅/❌ buttons and resolves with the answer; no answer
- * within config.limits.confirmTimeoutMs counts as no.
- */
-export async function askConfirmation(chatId: number, question: string): Promise<boolean> {
+interface ConfirmationOptions {
+  /** Button labels; the long-scan ones by default. */
+  yes?: string;
+  no?: string;
+  /** No answer within this counts as no (default config.limits.confirmTimeoutMs). */
+  timeoutMs?: number;
+}
+
+/** Asks `question` with yes/no buttons and resolves with the answer; no answer in time counts as no. */
+export async function askConfirmation(
+  chatId: number,
+  question: string,
+  { yes, no, timeoutMs = config.limits.confirmTimeoutMs }: ConfirmationOptions = {},
+): Promise<boolean> {
   const token = randomBytes(4).toString("hex");
-  const messageId = await sendMessage(chatId, question, { inline: confirmOcrButtons(token) });
+  const messageId = await sendMessage(chatId, question, { inline: confirmButtons(token, yes, no) });
 
   return new Promise<boolean>((resolve) => {
     const timer = setTimeout(() => {
@@ -31,7 +40,7 @@ export async function askConfirmation(chatId: number, question: string): Promise
       logger.info("[Confirm] No answer; taken as no", { chatId, token });
       if (messageId !== undefined) void editMessageText(chatId, messageId, question).catch(() => undefined);
       resolve(false);
-    }, config.limits.confirmTimeoutMs);
+    }, timeoutMs);
 
     pending.set(token, {
       chatId,

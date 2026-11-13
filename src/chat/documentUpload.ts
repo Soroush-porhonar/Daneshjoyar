@@ -196,6 +196,8 @@ async function processDocument(chatId: number, document: BaleDocument): Promise<
         await sendDuplicateNotice(chatId, downloaded.filename, true);
         return true;
       }
+      // A failed upload keeps no file (its row stays "failed"; a retry downloads again).
+      await unlink(downloaded.filePath).catch(() => {});
       throw error;
     }
 

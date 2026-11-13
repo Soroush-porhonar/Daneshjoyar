@@ -1,3 +1,4 @@
+import { storedFilePath } from "../files.js";
 import { config } from "../config.js";
 import type { DocumentKind } from "./documentKind.js";
 import { pool } from "../db/pool.js";
@@ -42,11 +43,11 @@ export async function ingestDocument(
   try {
     documentResult = await pool.query<{ id: number }>(
       `
-        INSERT INTO documents (user_id, filename, status, file_size)
-        VALUES ($1, $2, 'processing', $3)
+        INSERT INTO documents (user_id, filename, status, file_size, file_path)
+        VALUES ($1, $2, 'processing', $3, $4)
         RETURNING id
       `,
-      [userId, filename, fileSize],
+      [userId, filename, fileSize, storedFilePath(filePath)],
     );
   } catch (error: unknown) {
     // Two uploads of the same file at nearly the same time: the index catches it.

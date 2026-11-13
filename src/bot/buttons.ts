@@ -6,7 +6,8 @@
  *   delok / delno        confirm / cancel the pending delete
  *   docs                 show the documents list
  *   cancel               stop the running request
- *   ocr:<token>:<y|n>    go ahead with / cancel reading a long scan
+ *   cf:<token>:<y|n>     yes / no to a question something waits on (confirmations.ts);
+ *                        ocr:<token>:<y|n> on messages sent before it was generalised
  */
 import type { InlineButton } from "../bale.js";
 import type { DocumentSummary } from "../db/documents.js";
@@ -25,7 +26,7 @@ import {
 export type Callback =
   | { action: "info" | "delete"; documentId: number }
   | { action: "confirmDelete" | "cancelDelete" | "documents" | "cancel" }
-  | { action: "ocr"; token: string; yes: boolean };
+  | { action: "confirm"; token: string; yes: boolean };
 
 /** Longest document name shown on its (full-width) button. */
 const MAX_NAME_LENGTH = 40;
@@ -59,10 +60,14 @@ export const confirmDeleteButtons = (): InlineButton[][] => [
   ],
 ];
 
-export const confirmOcrButtons = (token: string): InlineButton[][] => [
+export const confirmButtons = (
+  token: string,
+  yes: string = OCR_CONTINUE_BUTTON,
+  no: string = OCR_CANCEL_BUTTON,
+): InlineButton[][] => [
   [
-    { text: OCR_CONTINUE_BUTTON, callback_data: `ocr:${token}:y` },
-    { text: OCR_CANCEL_BUTTON, callback_data: `ocr:${token}:n` },
+    { text: yes, callback_data: `cf:${token}:y` },
+    { text: no, callback_data: `cf:${token}:n` },
   ],
 ];
 
@@ -82,8 +87,8 @@ export function parseCallback(data: string | undefined): Callback | null {
   if (!data) return null;
   if (Object.hasOwn(SIMPLE, data)) return SIMPLE[data]!;
 
-  const ocr = /^ocr:([0-9a-f]{8}):([yn])$/.exec(data);
-  if (ocr) return { action: "ocr", token: ocr[1]!, yes: ocr[2] === "y" };
+  const confirm = /^(?:cf|ocr):([0-9a-f]{8}):([yn])$/.exec(data);
+  if (confirm) return { action: "confirm", token: confirm[1]!, yes: confirm[2] === "y" };
 
   // Old list messages may still carry "sel:" buttons; selection no longer exists.
   const match = /^(info|del):(\d+)$/.exec(data);

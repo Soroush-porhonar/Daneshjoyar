@@ -216,7 +216,7 @@ describe("handleDocument: limits", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     const question = vi.mocked(sendMessage).mock.calls.at(-1)!;
     expect(question[1]).toBe(messages.ocrConfirmText(pages, Math.round((pages * config.ocr.secondsPerPage) / 60)));
-    const token = /^ocr:([0-9a-f]{8}):y$/.exec((question[2] as { inline: { callback_data: string }[][] }).inline[0]![0]!.callback_data)![1]!;
+    const token = /^cf:([0-9a-f]{8}):y$/.exec((question[2] as { inline: { callback_data: string }[][] }).inline[0]![0]!.callback_data)![1]!;
 
     expect(answerConfirmation(token, CHAT, false)).toBe(true);
     await expect(upload).resolves.toBe(true);
