@@ -177,6 +177,18 @@ export const config = {
     broadBatchChars: 9000,
     historyLimit: 10,
     /**
+     * What the router reads of the history (trimHistory). After 5 long answers
+     * (9266 chars) the whole history was 4317 prompt tokens: 12.8 s reading,
+     * 18.5 s routing; trimmed, 1581 tokens, 4.0 s and 5.2 s (uncached, 3 runs,
+     * 2026-11-13). eval:router -- --with-search held at 62/62, real 24/24,
+     * follow-ups missed 0 (standalone rewritten 1/20, was 0/20).
+     */
+    routerHistory: { messages: 6, chars: 600 },
+    /**
+     * General chat keeps longer turns: "continue the story" needs the story.
+     */
+    chatHistory: { messages: 6, chars: 1500 },
+    /**
      * Earlier turns older than this are not shown to the router, the rewrite or
      * general chat: each student has one conversation for ever, so a question
      * days later was read as a follow-up of an old topic (roadmap R5). Not an

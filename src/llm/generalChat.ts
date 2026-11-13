@@ -1,6 +1,7 @@
 import type { ChatHistoryMessage } from "../db/messages.js";
 import { config } from "../config.js";
 import { markCut } from "./cut.js";
+import { trimHistory } from "./history.js";
 import { chat } from "./ollamaClient.js";
 import { CHAT_SYSTEM_PROMPT } from "./prompts/chat.js";
 
@@ -13,7 +14,7 @@ export async function askAI(
   const answer = await chat({
     // Thinking first made chat answers 2.2x slower (49 s vs 22 s, measured) with similar answers.
     think: false,
-    messages: [{ role: "system", content: CHAT_SYSTEM_PROMPT }, ...history],
+    messages: [{ role: "system", content: CHAT_SYSTEM_PROMPT }, ...trimHistory(history, config.rag.chatHistory)],
     options: { temperature: config.llm.temperature.chat, num_predict: config.llm.maxTokens.chat },
     signal,
     onStats: (stats) => {
