@@ -58,8 +58,11 @@ services:
       retries: 3
       start_period: 30s
 
-  # Nightly database dump at 03:00 (Tehran time) into ./backups, kept 14 days.
+  # Daily database dump after 03:00 (Tehran time) into ./backups, kept 14 days.
   # Same image as postgres, so pg_dump matches the server version.
+  # It checks every 10 minutes whether today's dump exists, instead of sleeping
+  # until 03:00: the Docker VM is suspended while Windows sleeps, and one long
+  # sleep then stretched over days (only 2 dumps from 11-03 to 11-13).
   # Restore: README, "Backup and restore".
   backup:
     image: pgvector/pgvector:pg18
@@ -80,18 +83,18 @@ services:
     command:
       - |
         while true; do
-          now=$$(date +%s)
-          next=$$(date -d '03:00' +%s)
-          [ "$$next" -le "$$now" ] && next=$$(date -d 'tomorrow 03:00' +%s)
-          sleep $$((next - now))
-          # Write to a temporary name first, so a failed dump never looks like a backup.
-          if pg_dump -Fc -f /backups/.partial.dump; then
-            mv /backups/.partial.dump "/backups/daneshjo-$$(date +%F).dump"
-            echo "backup written: daneshjo-$$(date +%F).dump"
-          else
-            echo "backup FAILED" >&2
+          today="/backups/daneshjo-$$(date +%F).dump"
+          if [ ! -f "$$today" ] && [ "$$(date +%H)" -ge 3 ]; then
+            # Write to a temporary name first, so a failed dump never looks like a backup.
+            if pg_dump -Fc -f /backups/.partial.dump; then
+              mv /backups/.partial.dump "$$today"
+              echo "backup written: $$(basename "$$today")"
+            else
+              echo "backup FAILED" >&2
+            fi
+            find /backups -name 'daneshjo-*.dump' -mtime +14 -delete
           fi
-          find /backups -name 'daneshjo-*.dump' -mtime +14 -delete
+          sleep 600
         done
 
   # Cross-encoder reranker (bge-reranker-v2-m3) on llama.cpp server, CPU only so

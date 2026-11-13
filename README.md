@@ -25,7 +25,7 @@
 | Latency | answers stream into the chat: first text 7.7 s median in the benchmark (stages in sequence; the bot runs router and search in parallel), whole answer 10.6 s median, 11.1 s p95 (router 2.5 s, retrieval + CPU rerank 2.3 s, generation 4.9 s at ~37 tokens/s); router after a long conversation 18.5 → 5.2 s with a trimmed history |
 | Whole-document summary | 21–44 s from stored section summaries vs 129 s – 31 min map-reduce |
 | Load — 10 students at once | 10/10 answered, none timed out, each told their place in line; longest 94.5 s, 6.3 answers per minute (one GPU) |
-| Tests | 818 unit, 48 integration (real Postgres), CI |
+| Tests | 863 unit, 53 integration (real Postgres), CI |
 
 ## Features
 
@@ -39,6 +39,7 @@
 - Answers appear while they are written (the "thinking" message becomes the answer).
 - Buttons for navigation, cancel and 👍/👎 feedback; slow work runs in the background and is cancellable.
 - Fair use of the one GPU: questions wait in a queue that tells each student their place; a long scan is confirmed first; one upload at a time and 50 questions a day per student.
+- Privacy: deleting a document removes its file; `/deletemydata` erases everything about the student; question and answer text is kept 90 days, chat history the last 200 messages.
 
 ## Architecture
 
@@ -100,7 +101,9 @@ flowchart LR
 - Graceful shutdown on SIGTERM: no new updates, 15 s for running answers, the rest handed back to the inbox and answered after the restart.
 - Bale client: long polling (Bale holds up to ~25 s), retries after rate limits (`retry_after`), server and network errors with growing delays; a `sendMessage` that timed out is never repeated (it may have been delivered).
 - One GPU queue for every model call: answers first (oldest question first), upload OCR next, enrichment only when no question is running; timeouts count from the job's turn; a busy message above 12 questions at once; queue wait, first-text time and generation stored per answer.
-- Per-chat cancellation, typed errors mapped to user messages, transactional ingestion, duplicate-upload detection, nightly backups.
+- Readiness at `/ready` (database, Ollama, reranker; the compose health check) besides liveness at `/health`. Admin alerts by Bale message (`ADMIN_CHAT_ID`) when Ollama, the reranker or the database keep failing, the queue is full or the GPU crashes; after a GPU crash pattern the queue pauses 20 s and the job is tried once more.
+- Retention job: inbox rows 7 days, the words of logged questions and answers 90 days (numbers kept), 200 messages per conversation. Student text is logged only at debug level. The database requires its password on every network connection.
+- Per-chat cancellation, typed errors mapped to user messages, transactional ingestion, duplicate-upload detection, daily backups (restore tested on a fresh database).
 
 ## Evaluation
 
@@ -158,7 +161,7 @@ npm run enrich -- --all       # enrich documents uploaded before enrichment exis
 npm run ingest -- <chatId> <absolute pdf paths>   # ingest without the bot
 ```
 
-`.env`: `BALE_TOKEN`, `DATABASE_URL`, `LLM_URL`, `LLM_MODEL`, `EMBEDDING_MODEL`, `PORT`, Postgres credentials. Feature switches, and the measurement behind every default, are in `src/config.ts`. On a machine that serves only the bot, set `LLM_KEEP_ALIVE=-1` to keep the model in GPU memory for good (the default, 30m, frees it on a shared machine). `STREAM_MODE` is `edit` (default), `parts` or `off`. `DAILY_QUESTION_LIMIT` (default 50) sets the questions a student may ask per day.
+`.env`: `BALE_TOKEN`, `DATABASE_URL`, `LLM_URL`, `LLM_MODEL`, `EMBEDDING_MODEL`, `PORT`, Postgres credentials. Feature switches, and the measurement behind every default, are in `src/config.ts`. On a machine that serves only the bot, set `LLM_KEEP_ALIVE=-1` to keep the model in GPU memory for good (the default, 30m, frees it on a shared machine). `STREAM_MODE` is `edit` (default), `parts` or `off`. `DAILY_QUESTION_LIMIT` (default 50) sets the questions a student may ask per day. `ADMIN_CHAT_ID` is the Bale chat id that gets alerts (without it alerts are only logged).
 
 ### Docker
 
@@ -173,10 +176,21 @@ Stop the bot container before `npm run dev`; two pollers would compete for updat
 
 ### Backup and restore
 
-The `backup` service dumps the database nightly at 03:00 (Tehran time) to `backups/`, keeping 14 days. The original PDFs in `uploads/` are only needed to re-ingest (for example after changing the embedding model).
+The `backup` service dumps the database once a day after 03:00 (Tehran time) to `backups/`, keeping 14 days; it checks every 10 minutes, so a night the machine slept is caught up when it wakes. The original PDFs in `uploads/` are only needed to re-ingest (for example after changing the embedding model); deleting a document removes its file.
+
+Restore into the running database:
 
 ```bash
 docker compose exec -T postgres pg_restore --clean --if-exists -U "$POSTGRES_USER" -d "$POSTGRES_DB" < backups/daneshjo-YYYY-MM-DD.dump
+```
+
+Restore on a clean machine (tested 2026-11-14 with the 11-13 dump: restored in 2 s, later migrations applied, every chunk with its embedding):
+
+```bash
+docker run -d --name restore-check -e POSTGRES_USER=check -e POSTGRES_PASSWORD=check -e POSTGRES_DB=check -p 127.0.0.1:5439:5432 pgvector/pgvector:pg18
+docker exec -i restore-check pg_restore --no-owner --role=check -U check -d check < backups/daneshjo-YYYY-MM-DD.dump
+DATABASE_URL=postgresql://check:check@127.0.0.1:5439/check npm run migrate:up
+docker rm -f restore-check
 ```
 
 Network connections to the database need the password from `.env` (`scram-sha-256`); only the socket inside the postgres container is trusted (health check, `docker compose exec`). A volume created before this rule (with `POSTGRES_HOST_AUTH_METHOD: trust`) is switched once:
