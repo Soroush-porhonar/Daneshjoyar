@@ -3,6 +3,7 @@ import {
   activeQuestionCount,
   onGpu,
   pauseGpu,
+  PreemptedError,
   questionsIdle,
   resetScheduler,
   runAs,
@@ -166,6 +167,50 @@ describe("GPU queue", () => {
     await running;
     await question;
     expect(places).toEqual([]); // nothing shown, so nothing to take back
+  });
+
+  it("interrupts a running enrichment call when a question arrives", async () => {
+    let interrupted: unknown;
+    const enrich = runAs({ kind: "enrich" }, () =>
+      onGpu(
+        (preempted) =>
+          new Promise((_, reject) =>
+            preempted.addEventListener("abort", () => {
+              interrupted = preempted.reason;
+              reject(preempted.reason);
+            }),
+          ),
+      ),
+    );
+    await tick();
+
+    const answer = runAs({ kind: "answer" }, () => onGpu(async () => "ok"));
+
+    await expect(enrich).rejects.toBeInstanceOf(PreemptedError);
+    expect(interrupted).toBeInstanceOf(PreemptedError);
+    await expect(answer).resolves.toBe("ok");
+  });
+
+  it.each(["ocr", "answer"] as const)("never interrupts running %s work", async (kind) => {
+    const log: string[] = [];
+    let preemptedSignal!: AbortSignal;
+    let release!: () => void;
+    const runningJob = runAs({ kind }, () =>
+      onGpu((preempted) => {
+        preemptedSignal = preempted;
+        return new Promise<void>((resolve) => (release = resolve));
+      }),
+    );
+    await tick();
+
+    const answer = runAs({ kind: "answer" }, () => onGpu(async () => log.push("answer")));
+    await tick();
+    expect(preemptedSignal.aborted).toBe(false);
+
+    release();
+    await runningJob;
+    await answer;
+    expect(log).toEqual(["answer"]);
   });
 
   it("counts another student's question on the GPU as ahead", async () => {

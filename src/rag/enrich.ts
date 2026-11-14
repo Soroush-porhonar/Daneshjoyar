@@ -15,7 +15,7 @@ import {
 } from "../db/enrichment.js";
 import type { ChunkEnrichment, DocumentProfile, EnrichmentChunk, SectionSummary } from "../db/enrichment.js";
 import { chat } from "../llm/ollamaClient.js";
-import { questionsIdle } from "../llm/scheduler.js";
+import { PreemptedError, questionsIdle } from "../llm/scheduler.js";
 import {
   CHUNK_CONTEXT_SYSTEM_PROMPT,
   PROFILE_SYSTEM_PROMPT,
@@ -55,23 +55,35 @@ const CHUNK_SCHEMA = {
   required: ["context", "questions"],
 };
 
-/** A background model call; the GPU queue runs it only when no question is being answered (enrichmentWorker runs as "enrich"). */
+/**
+ * A background model call; the GPU queue runs it only when no question is
+ * being answered (enrichmentWorker runs as "enrich"). A question that arrives
+ * meanwhile interrupts it (PreemptedError); it runs again once questions are done.
+ */
 async function backgroundChat(
   system: string,
   user: string,
   options: { format?: Record<string, unknown>; numPredict: number },
   signal?: AbortSignal,
 ): Promise<string> {
-  return chat({
-    think: false,
-    ...(options.format ? { format: options.format } : {}),
-    options: { temperature: 0.2, num_predict: options.numPredict },
-    signal,
-    messages: [
-      { role: "system", content: system },
-      { role: "user", content: user },
-    ],
-  });
+  for (;;) {
+    try {
+      return await chat({
+        think: false,
+        ...(options.format ? { format: options.format } : {}),
+        options: { temperature: 0.2, num_predict: options.numPredict },
+        signal,
+        messages: [
+          { role: "system", content: system },
+          { role: "user", content: user },
+        ],
+      });
+    } catch (error: unknown) {
+      if (!(error instanceof PreemptedError)) throw error;
+      logger.info("[Enrich] Call interrupted by a question; retrying after it");
+      await questionsIdle();
+    }
+  }
 }
 
 const text = (value: unknown): string => (typeof value === "string" ? value.trim() : "");

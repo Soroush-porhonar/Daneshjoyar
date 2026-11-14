@@ -21,6 +21,15 @@ import { AsyncLocalStorage } from "node:async_hooks";
 
 export type JobKind = "answer" | "ocr" | "enrich";
 
+/**
+ * A running enrichment call stopped because a student asked something: a
+ * section summary takes about a minute, and questions waited 35–57 s for it
+ * (2026-11-14). The caller runs the call again later (enrich.ts).
+ */
+export class PreemptedError extends Error {
+  override name = "PreemptedError";
+}
+
 export interface JobContext {
   kind: JobKind;
   /**
@@ -146,9 +155,11 @@ function release(): void {
 /**
  * Runs `run` when the GPU is free for this context's kind (default: an
  * answer, as for eval scripts). Waiting can be aborted with `signal`; the
- * time spent waiting is added to the context's `waitedMs`.
+ * time spent waiting is added to the context's `waitedMs`. `run` gets a
+ * signal that fires (with PreemptedError) when an enrichment job must give
+ * the GPU to a question.
  */
-export async function onGpu<T>(run: () => Promise<T>, signal?: AbortSignal): Promise<T> {
+export async function onGpu<T>(run: (preempted: AbortSignal) => Promise<T>, signal?: AbortSignal): Promise<T> {
   signal?.throwIfAborted();
   const context = storage.getStore() ?? { kind: "answer" as const, order: nextOrder++ };
   const enqueuedAt = Date.now();
@@ -170,6 +181,8 @@ export async function onGpu<T>(run: () => Promise<T>, signal?: AbortSignal): Pro
     };
     signal?.addEventListener("abort", onAbort, { once: true });
     waiting.push(waiter);
+    // A question does not wait for a running enrichment call.
+    if (context.kind === "answer" && running === "enrich") runningPreempt?.abort(new PreemptedError("preempted by a question"));
     pump();
     // Not started at once: say where it stands.
     if (waiting.includes(waiter)) announcePlaces();
@@ -182,8 +195,10 @@ export async function onGpu<T>(run: () => Promise<T>, signal?: AbortSignal): Pro
     context.onPosition?.(0);
   }
 
+  const preempt = new AbortController();
+  if (context.kind === "enrich") runningPreempt = preempt;
   try {
-    return await run();
+    return await run(preempt.signal);
   } finally {
     release();
   }

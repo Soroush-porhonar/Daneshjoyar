@@ -13,6 +13,7 @@ const { loadDocumentForEnrichment, saveEnrichment } = await import("../src/db/en
 const { chat } = await import("../src/llm/ollamaClient.js");
 const { generateEmbeddings } = await import("../src/rag/embeddings.js");
 const { logger } = await import("../src/logger.js");
+const { PreemptedError } = await import("../src/llm/scheduler.js");
 
 const chunk = (id: number, page: number, content = `متن صفحه ${page}`) => ({
   id,
@@ -104,6 +105,26 @@ describe("enrichDocument", () => {
 
     const chunks = vi.mocked(saveEnrichment).mock.calls[0]![3];
     expect(chunks.map((c) => c.chunkId)).toEqual([2]);
+  });
+
+  it("runs a call again after a question interrupted it, and still saves the document", async () => {
+    vi.mocked(loadDocumentForEnrichment).mockResolvedValue({ filename: "a.pdf", chunks: [chunk(1, 1)] });
+    let summaryCalls = 0;
+    vi.mocked(chat).mockImplementation(async (request) => {
+      if (!request.format) {
+        if (++summaryCalls === 1) throw new PreemptedError("preempted by a question");
+        return "خلاصه";
+      }
+      if ("title" in (request.format.properties as object)) return JSON.stringify({ title: "t", summary: "", topics: [] });
+      return JSON.stringify({ context: "زمینه", questions: [] });
+    });
+
+    await enrichDocument(6);
+
+    expect(summaryCalls).toBe(2);
+    expect(vi.mocked(saveEnrichment).mock.calls[0]![2]).toEqual([
+      { sectionIndex: 0, pageStart: 1, pageEnd: 1, summary: "خلاصه" },
+    ]);
   });
 
   it("fails for a document without chunks (the worker marks it failed)", async () => {
