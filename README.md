@@ -43,29 +43,30 @@
 
 ## Architecture
 
+**Upload: a PDF or photo becomes searchable chunks**
+
 ```mermaid
-flowchart LR
-  subgraph Ingest
-    A[PDF] --> B[Per-page text and quality check]
-    B -->|poor pages| C[Vision OCR: crop, strips, reversed-word repair]
-    B --> D[Structure-aware chunking]
-    C --> D
-    D --> E[BGE-M3 embeddings]
-    E --> F[(PostgreSQL + pgvector)]
-    F -. background .-> G[Enrichment: title, topics, section summaries, chunk questions]
-    G -.-> F
-  end
-  subgraph Query
-    Q[Message] --> R[LLM router, JSON schema]
-    Q --> S[Early search]
-    R --> W[Follow-up decision + standalone question]
-    S --> X[Vector + question index, RRF]
-    W --> X
-    X --> Y[Cross-encoder rerank]
-    Y --> Z[Neighbour expansion]
-    Z --> L[Grounded generation, inline citations]
-  end
-  F --> X
+flowchart TD
+  A[PDF or photo] --> B{Text layer good?}
+  B -- yes --> D[Chunking]
+  B -- no --> C[Vision OCR]
+  C --> D
+  D --> E[Embeddings]
+  E --> F[(PostgreSQL + pgvector)]
+  F -. background .-> G[Enrichment]
+  G -.-> F
+```
+
+**Question: a message becomes a cited answer**
+
+```mermaid
+flowchart TD
+  Q[Student message] --> R[Router]
+  Q --> S[Search]
+  R --> S
+  S --> X[Rerank]
+  X --> L[Answer with citations]
+  L --> U[Streamed to the chat]
 ```
 
 ## Methods
