@@ -219,4 +219,12 @@ tests/               unit tests; tests/integration/ runs against a real database
 
 ## Status
 
-Actively developed personal project on retrieval-augmented generation, local vision OCR, and context-aware conversations for Persian study material.
+Complete. A personal project on retrieval-augmented generation for Persian study material, built in measured phases: every change was evaluated before and after (`eval/`, `scripts/`), and ideas that showed no gain were dropped and recorded (see Methods).
+
+What it demonstrates:
+- Retrieval over all of a student's documents: dense search over chunks and generated questions, rank fusion, cross-encoder reranking (top-1 67% → 84%).
+- Grounded answers with inline citations, refusal of unanswerable questions (30/30), faithfulness checked by an independent judge model.
+- Local vision OCR for scanned handouts (character error rate 37% → 4%).
+- Running for real users: streamed answers, one fair GPU queue, an inbox so no message is lost, graceful shutdown, readiness checks and alerts, deletion and retention, tested backups, 863 unit and 53 integration tests in CI.
+
+It is not publicly hosted: everything runs locally (Ollama on an 8 GB GPU, PostgreSQL with pgvector, a CPU reranker), so the results above and the screenshots stand in for a live demo. The main limit is the 9B model that fits on that GPU; a larger model is the obvious next step, and the evaluation scripts are ready to measure it.
