@@ -46,6 +46,7 @@
 **Upload**
 
 ```mermaid
+%%{init: {"theme": "neutral"}}%%
 flowchart LR
   A([📄 PDF or<br>photo]) --> B(Per-page text<br>+ quality check)
   B -->|poor pages| C(Vision OCR<br>strips + repair)
@@ -55,17 +56,12 @@ flowchart LR
   E --> F[(🗄️ PostgreSQL<br>+ pgvector)]
   F -. background .-> G(Enrichment: summaries,<br>chunk questions)
   G -.-> F
-  classDef io fill:#dbeafe,stroke:#3b82f6,color:#1e3a8a
-  classDef step fill:#ede9fe,stroke:#8b5cf6,color:#3b0764
-  classDef store fill:#dcfce7,stroke:#22c55e,color:#14532d
-  class A io
-  class B,C,D,E,G step
-  class F store
 ```
 
 **Question**
 
 ```mermaid
+%%{init: {"theme": "neutral"}}%%
 flowchart LR
   A([💬 Student<br>message]) --> B(LLM router<br>JSON schema)
   A --> C(Early search)
@@ -75,10 +71,6 @@ flowchart LR
   E --> F(Cross-encoder<br>rerank)
   F --> G(Neighbour<br>chunks)
   G --> H([✅ Cited answer,<br>streamed])
-  classDef io fill:#dbeafe,stroke:#3b82f6,color:#1e3a8a
-  classDef step fill:#ede9fe,stroke:#8b5cf6,color:#3b0764
-  class A,H io
-  class B,C,D,E,F,G step
 ```
 
 ## Methods
