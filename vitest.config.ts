@@ -19,6 +19,8 @@ export default defineConfig({
       EMBEDDING_MODEL: "test-embed",
       // Unit tests never call the real reranker service.
       RERANKER_ENABLED: "false",
+      // Nor message a real admin chat (tests/alerts.test.ts sets one itself).
+      ADMIN_CHAT_ID: "",
     },
   },
 });

@@ -187,8 +187,11 @@ export async function chat(request: ChatRequest): Promise<string> {
     options: { num_ctx: config.llm.numCtx, ...request.options },
   };
   const run = () =>
-    onGpu(() => {
-      const signal = withTimeout(request.timeoutMs ?? config.llm.timeoutMs, request.signal);
+    onGpu((preempted) => {
+      const signal = withTimeout(
+        request.timeoutMs ?? config.llm.timeoutMs,
+        request.signal ? AbortSignal.any([request.signal, preempted]) : preempted,
+      );
       return request.onDelta
         ? postStreamed(config.llm.url, body, signal, request.onDelta)
         : post<OllamaChatResponse>(config.llm.url, body, signal, "chat");
