@@ -23,7 +23,11 @@ export type JobKind = "answer" | "ocr" | "enrich";
 
 export interface JobContext {
   kind: JobKind;
-  /** Told the student's place among waiting questions (1 = next), and 0 when the job starts. */
+  /**
+   * Told how many other students' questions are ahead (1 = next), only when
+   * there are any, and 0 when the job starts. Background work ahead is not
+   * counted: "others asked too" was shown with nobody else using the bot.
+   */
   onPosition?: (place: number) => void;
   /** Milliseconds this context's calls spent waiting for the GPU (filled in here). */
   waitedMs?: number;
@@ -40,6 +44,9 @@ interface Waiter {
 const storage = new AsyncLocalStorage<JobContext & { order: number }>();
 let nextOrder = 0;
 let busy = false;
+/** The kind of the job on the GPU, and how to interrupt it if it is enrichment. */
+let running: JobKind | null = null;
+let runningPreempt: AbortController | null = null;
 let waiting: Waiter[] = [];
 let activeQuestions = 0;
 /** No job starts before this time (after a GPU crash pattern, pauseGpu). */
@@ -94,13 +101,15 @@ function pick(): Waiter | undefined {
   return next;
 }
 
-/** Tells each waiting question its place, when it changed. */
+/** Tells each waiting question how many questions are ahead of it, when that changed. */
 function announcePlaces(): void {
   const answers = waiting
     .filter((waiter) => waiter.context.kind === "answer")
     .sort((a, b) => a.order - b.order || a.enqueuedAt - b.enqueuedAt);
+  const answerRunning = running === "answer" ? 1 : 0;
   answers.forEach((waiter, index) => {
-    const place = index + 1;
+    const place = answerRunning + index;
+    if (place === 0) return; // only background work ahead: nothing to tell
     if (lastPlace.get(waiter.context) !== place) {
       lastPlace.set(waiter.context, place);
       waiter.context.onPosition?.(place);
@@ -122,12 +131,15 @@ function pump(): void {
   if (!next) return;
   waiting = waiting.filter((waiter) => waiter !== next);
   busy = true;
+  running = next.context.kind;
   next.start();
   announcePlaces();
 }
 
 function release(): void {
   busy = false;
+  running = null;
+  runningPreempt = null;
   pump();
 }
 
@@ -185,6 +197,8 @@ export function pauseGpu(ms: number): void {
 /** For tests: forget all state. */
 export function resetScheduler(): void {
   busy = false;
+  running = null;
+  runningPreempt = null;
   waiting = [];
   activeQuestions = 0;
   nextOrder = 0;

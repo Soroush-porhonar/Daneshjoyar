@@ -151,6 +151,40 @@ describe("GPU queue", () => {
     expect(places.second).toEqual([2, 1, 0]);
   });
 
+  it.each(["ocr", "enrich"] as const)("announces no place behind %s work (no other student is ahead)", async (kind) => {
+    const log: string[] = [];
+    const background = job(log, kind);
+    const running = runAs({ kind }, () => onGpu(background.run));
+    await tick();
+
+    const places: number[] = [];
+    const question = runAs({ kind: "answer", onPosition: (p) => places.push(p) }, () => onGpu(async () => "ok"));
+    await tick();
+    expect(places).toEqual([]);
+
+    background.release();
+    await running;
+    await question;
+    expect(places).toEqual([]); // nothing shown, so nothing to take back
+  });
+
+  it("counts another student's question on the GPU as ahead", async () => {
+    const log: string[] = [];
+    const other = job(log, "other");
+    const running = runAs({ kind: "answer" }, () => onGpu(other.run));
+    await tick();
+
+    const places: number[] = [];
+    const question = runAs({ kind: "answer", onPosition: (p) => places.push(p) }, () => onGpu(async () => "ok"));
+    await tick();
+    expect(places).toEqual([1]);
+
+    other.release();
+    await running;
+    await question;
+    expect(places).toEqual([1, 0]);
+  });
+
   it("does not announce a place when the GPU is free", async () => {
     const places: number[] = [];
     await runAs({ kind: "answer", onPosition: (p) => places.push(p) }, () => onGpu(async () => "ok"));
