@@ -43,30 +43,32 @@
 
 ## Architecture
 
-**Upload: a PDF or photo becomes searchable chunks**
+**Upload**
 
 ```mermaid
 flowchart TD
-  A[PDF or photo] --> B{Text layer good?}
-  B -- yes --> D[Chunking]
-  B -- no --> C[Vision OCR]
-  C --> D
-  D --> E[Embeddings]
-  E --> F[(PostgreSQL + pgvector)]
-  F -. background .-> G[Enrichment]
-  G -.-> F
+  A([📄 PDF or photo]) --> B(Text, or OCR for scanned pages)
+  B --> C(Chunks + embeddings)
+  C --> D[(🗄️ pgvector)]
+  classDef io fill:#dbeafe,stroke:#3b82f6,color:#1e3a8a
+  classDef step fill:#ede9fe,stroke:#8b5cf6,color:#3b0764
+  classDef store fill:#dcfce7,stroke:#22c55e,color:#14532d
+  class A io
+  class B,C step
+  class D store
 ```
 
-**Question: a message becomes a cited answer**
+**Question**
 
 ```mermaid
 flowchart TD
-  Q[Student message] --> R[Router]
-  Q --> S[Search]
-  R --> S
-  S --> X[Rerank]
-  X --> L[Answer with citations]
-  L --> U[Streamed to the chat]
+  A([💬 Student message]) --> B(Router + search)
+  B --> C(Rerank)
+  C --> D([✅ Cited answer, streamed])
+  classDef io fill:#dbeafe,stroke:#3b82f6,color:#1e3a8a
+  classDef step fill:#ede9fe,stroke:#8b5cf6,color:#3b0764
+  class A,D io
+  class B,C step
 ```
 
 ## Methods
