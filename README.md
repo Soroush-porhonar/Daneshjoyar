@@ -46,29 +46,39 @@
 **Upload**
 
 ```mermaid
-flowchart TD
-  A([📄 PDF or photo]) --> B(Text, or OCR for scanned pages)
-  B --> C(Chunks + embeddings)
-  C --> D[(🗄️ pgvector)]
+flowchart LR
+  A([📄 PDF or<br>photo]) --> B(Per-page text<br>+ quality check)
+  B -->|poor pages| C(Vision OCR<br>strips + repair)
+  B --> D(Structure-aware<br>chunking)
+  C --> D
+  D --> E(BGE-M3<br>embeddings)
+  E --> F[(🗄️ PostgreSQL<br>+ pgvector)]
+  F -. background .-> G(Enrichment: summaries,<br>chunk questions)
+  G -.-> F
   classDef io fill:#dbeafe,stroke:#3b82f6,color:#1e3a8a
   classDef step fill:#ede9fe,stroke:#8b5cf6,color:#3b0764
   classDef store fill:#dcfce7,stroke:#22c55e,color:#14532d
   class A io
-  class B,C step
-  class D store
+  class B,C,D,E,G step
+  class F store
 ```
 
 **Question**
 
 ```mermaid
-flowchart TD
-  A([💬 Student message]) --> B(Router + search)
-  B --> C(Rerank)
-  C --> D([✅ Cited answer, streamed])
+flowchart LR
+  A([💬 Student<br>message]) --> B(LLM router<br>JSON schema)
+  A --> C(Early search)
+  B --> D(Follow-up +<br>standalone question)
+  C --> E(Vectors + question<br>index, RRF)
+  D --> E
+  E --> F(Cross-encoder<br>rerank)
+  F --> G(Neighbour<br>chunks)
+  G --> H([✅ Cited answer,<br>streamed])
   classDef io fill:#dbeafe,stroke:#3b82f6,color:#1e3a8a
   classDef step fill:#ede9fe,stroke:#8b5cf6,color:#3b0764
-  class A,D io
-  class B,C step
+  class A,H io
+  class B,C,D,E,F,G step
 ```
 
 ## Methods
